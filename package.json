@@ -8,8 +8,9 @@
     "build": "vite build",
     "start": "vite build && electron . --no-sandbox",
     "typecheck": "tsc --noEmit",
-    "dist": "vite build && electron-builder --linux AppImage deb",
-    "setup:pbix": "python3 -m venv .venv-pbix && .venv-pbix/bin/pip install pbixray pyarrow"
+    "dist": "vite build && electron-builder --linux AppImage",
+    "setup:pbix": "python3 -m venv .venv-pbix && .venv-pbix/bin/pip install pbixray pyarrow",
+    "dist:deb": "vite build && electron-builder --linux deb"
   },
   "keywords": [],
   "type": "commonjs",
@@ -43,14 +44,67 @@
       "package.json"
     ],
     "asarUnpack": [
-      "node_modules/@duckdb/**"
+      "node_modules/@duckdb/**",
+      "electron/pbix/**"
     ],
     "linux": {
       "category": "Office",
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
+      ],
+      "icon": "build/icons",
+      "executableName": "linbi",
+      "synopsis": "Clone educativo di Power BI Desktop per Linux",
+      "description": "Report e analisi dati con Power Query, DAX, modello a stella; apre file Power BI (.pbix, .pbit, .pbip).",
+      "mimeTypes": [
+        "application/x-linbi"
+      ],
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "LinBI"
+        }
+      },
+      "syncDesktopName": true
+    },
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "fileAssociations": [
+      {
+        "ext": "lbix",
+        "name": "Report LinBI",
+        "mimeType": "application/x-linbi"
+      },
+      {
+        "ext": "pbix",
+        "name": "Report Power BI",
+        "mimeType": "application/vnd.ms-powerbi.report"
+      },
+      {
+        "ext": "pbit",
+        "name": "Modello Power BI",
+        "mimeType": "application/vnd.ms-powerbi.template"
+      },
+      {
+        "ext": "pbip",
+        "name": "Progetto Power BI",
+        "mimeType": "application/vnd.ms-powerbi.project"
+      }
+    ],
+    "deb": {
+      "depends": [
+        "libgtk-3-0",
+        "libnss3",
+        "libxss1",
+        "libasound2t64 | libasound2",
+        "python3"
       ]
     }
-  }
+  },
+  "author": {
+    "name": "Michele",
+    "email": "m.bulloni@gmail.com"
+  },
+  "desktopName": "linbi.desktop"
 }

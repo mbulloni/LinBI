@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld('api', {
   openDataDialog: (kind) => call('dialog:openData', kind),
   saveFile: (content, path, embed) => call('file:save', content, path, embed),
   openFile: (kind) => call('file:open', kind),
+  openAt: (file) => call('file:openAt', file),
+  onOpenArg: (cb) => ipcRenderer.on('file:openArg', (_e, file) => cb(file)),
   readText: (kind) => call('file:readText', kind),
   saveText: (content, defaultPath, kind) => call('file:saveText', content, defaultPath, kind),
   readPowerBI: (file) => call('pbix:read', file),

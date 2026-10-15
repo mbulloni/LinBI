@@ -22,6 +22,7 @@ function createWindow() {
     frame: false,
     backgroundColor: '#ffffff',
     title: 'LinBI',
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -31,6 +32,9 @@ function createWindow() {
   if (process.env.VITE_DEV) win.loadURL('http://localhost:5173');
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   if (process.env.LINBI_SHOT) screenshotMode(process.env.LINBI_SHOT, process.env.LINBI_SCRIPT);
+  // `linbi report.lbix` / double click on a report file: open it once the UI is ready.
+  const arg = process.argv.slice(1).find((a) => /\.(lbix|pbix|pbit|pbip)$/i.test(a) && fs.existsSync(a));
+  if (arg) win.webContents.once('did-finish-load', () => setTimeout(() => win.webContents.send('file:openArg', path.resolve(arg)), 300));
   win.on('maximize', () => win.webContents.send('win:state', true));
   win.on('unmaximize', () => win.webContents.send('win:state', false));
 }
@@ -131,7 +135,11 @@ handle('file:open', async (kind) => {
   const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }
     : await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.report });
   if (r.canceled) return null;
-  const file = r.filePaths[0];
+  return readReport(r.filePaths[0]);
+});
+handle('file:openAt', (file) => readReport(file));
+
+async function readReport(file) {
   if (/\.(pbix|pbit|pbip)$/i.test(file)) return { path: file, powerbi: true };
   const buf = fs.readFileSync(file);
   if (buf[0] !== 0x50 || buf[1] !== 0x4b) return { path: file, content: buf.toString('utf8') };
@@ -148,16 +156,21 @@ handle('file:open', async (kind) => {
     if (!fs.existsSync(dest)) fs.writeFileSync(dest, await entry.async('nodebuffer'));
   }
   return { path: file, content: await zip.file('report.json').async('string'), dataDir: dir };
-});
+}
 
 // ---- Power BI files -------------------------------------------------------
 
-/** Python with pbixray: LINBI_PYTHON, the project's .venv-pbix, or system python3. */
+/** Python with pbixray: LINBI_PYTHON, the project's .venv-pbix, ~/.config/linbi/pbix-venv (installed app), or python3. */
 function pythonBin() {
   if (process.env.LINBI_PYTHON) return process.env.LINBI_PYTHON;
-  const venv = path.join(__dirname, '..', '.venv-pbix', 'bin', 'python');
-  return fs.existsSync(venv) ? venv : 'python3';
+  for (const venv of [path.join(__dirname, '..', '.venv-pbix', 'bin', 'python'), path.join(app.getPath('userData'), 'pbix-venv', 'bin', 'python')]) {
+    if (fs.existsSync(venv)) return venv;
+  }
+  return 'python3';
 }
+const SETUP_PBIX = app.isPackaged
+  ? 'python3 -m venv ~/.config/linbi/pbix-venv && ~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow'
+  : 'npm run setup:pbix (nella cartella del progetto)';
 
 handle('pbix:read', (file) => new Promise((resolve, reject) => {
   if (/\.pbip$/i.test(file)) { try { return resolve(pbip.read(file)); } catch (e) { return reject(new Error('Lettura del progetto Power BI non riuscita: ' + e.message)); } }
@@ -166,12 +179,13 @@ handle('pbix:read', (file) => new Promise((resolve, reject) => {
   const outdir = path.join(app.getPath('userData'), 'pbix-cache', key);
   const cached = path.join(outdir, 'model.json');
   if (fs.existsSync(cached)) return resolve(JSON.parse(fs.readFileSync(cached, 'utf8')));
-  const script = path.join(__dirname, 'pbix', 'read_pbix.py');
+  // Packaged app: Python cannot read inside app.asar (electron/pbix is unpacked by electron-builder).
+  const script = path.join(__dirname, 'pbix', 'read_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   execFile(pythonBin(), [script, file, outdir], { maxBuffer: 1 << 26, timeout: 15 * 60 * 1000 }, (err, stdout, stderr) => {
     if (err) {
       const msg = String(stderr || err.message);
       if (msg.includes('PBIXRAY_MISSING')) {
-        return reject(new Error('Per leggere i file .pbix serve la libreria Python "pbixray". Eseguire nella cartella del progetto: npm run setup:pbix'));
+        return reject(new Error(`Per leggere i file .pbix serve la libreria Python "pbixray". Eseguire in un terminale: ${SETUP_PBIX}`));
       }
       if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare LINBI_PYTHON.'));
       return reject(new Error('Lettura del file Power BI non riuscita: ' + msg.trim().split('\n').slice(-3).join(' ')));

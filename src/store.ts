@@ -214,7 +214,7 @@ interface State {
 
   newReport: () => Promise<void>;
   save: (as?: boolean) => Promise<void>;
-  open: () => Promise<void>;
+  open: (file?: string) => Promise<void>;
   importPowerBI: (path: string) => Promise<void>;
   exportPbit: () => Promise<void>;
   exportPbip: () => Promise<void>;
@@ -951,8 +951,8 @@ export const useStore = create<State>((set, get) => {
         set({ busy: null });
       }
     },
-    open: async () => {
-      const f = await api.openFile();
+    open: async (file) => {
+      const f = file ? await api.openAt(file).catch((e) => { get().notify('Apertura non riuscita: ' + e.message); return null; }) : await api.openFile();
       if (!f) return;
       if (f.powerbi) return get().importPowerBI(f.path);
       try {
@@ -993,3 +993,6 @@ export const useStore = create<State>((set, get) => {
 
 // Charts and backgrounds read the theme from shared state: keep it in sync with the report.
 useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) applyTheme(s.report.theme); });
+
+// File passed on the command line (or opened from the file manager).
+api.onOpenArg((file) => useStore.getState().open(file));

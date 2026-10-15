@@ -14,8 +14,20 @@ npm run setup:pbix                      # opzionale: lettura dei file .pbix (Pyt
 node node_modules/electron/install.js   # solo se npm ha bloccato lo script di Electron
 npm run dev      # Vite + Electron con hot reload
 npm start        # build di produzione + Electron
-npm run dist     # pacchetti AppImage/.deb in dist/
+npm run dist     # AppImage in release/ (npm run dist:deb per il .deb: richiede "homepage" in package.json)
 ```
+
+### Installazione (utente, senza root)
+
+```bash
+install -m 755 release/LinBI-1.0.0.AppImage ~/Applications/LinBI.AppImage
+ln -sf ~/Applications/LinBI.AppImage ~/.local/bin/linbi
+# icone in ~/.local/share/icons/hicolor/*/apps/linbi.png (da build/icons), voce di menu
+# ~/.local/share/applications/linbi.desktop (Exec=…/LinBI.AppImage %f) e tipi MIME .lbix/.pbix/.pbit/.pbip
+python3 -m venv ~/.config/linbi/pbix-venv && ~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow   # apertura .pbix
+```
+
+`linbi report.lbix` (o doppio clic su un file associato) apre il report all'avvio.
 
 ## Architettura
 
