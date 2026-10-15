@@ -6,6 +6,7 @@ const { execFile } = require('child_process');
 const JSZip = require('jszip');
 const db = require('./db.cjs');
 const pbip = require('./pbip.cjs');
+const connect = require('./connect.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -49,7 +50,9 @@ handle('db:query', (sql) => db.query(sql));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
-handle('db:sourceExpr', (file, sheet) => db.sourceExpr(file, sheet));
+handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
+handle('db:connect', (c, password, remember) => connect.connect(c, password, remember));
+handle('db:forget', (c) => connect.forget(c));
 handle('db:calcColumn', (table, column, expr, replace) => db.addCalcColumn(table, column, expr, replace));
 handle('db:dropColumn', (table, column) => db.dropColumn(table, column));
 handle('db:drop', (table) => db.dropTable(table));
@@ -64,6 +67,7 @@ const FILTERS = {
   excel: [{ name: 'Cartella di lavoro di Excel', extensions: ['xlsx'] }],
   json: [{ name: 'JSON', extensions: ['json', 'ndjson', 'jsonl'] }],
   parquet: [{ name: 'Parquet', extensions: ['parquet'] }],
+  sqlite: [{ name: 'Database SQLite', extensions: ['sqlite', 'sqlite3', 'db'] }],
   any: [{ name: 'Tutti i file di dati', extensions: ['csv', 'txt', 'tsv', 'xlsx', 'json', 'ndjson', 'jsonl', 'parquet'] }],
   lbix: [{ name: 'File LinBI', extensions: ['lbix'] }],
   report: [{ name: 'Report (LinBI, Power BI)', extensions: ['lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File LinBI', extensions: ['lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],

@@ -28,7 +28,7 @@ export const vtypeOf = (c?: ColumnMeta): ValueType => {
   return t === 'int' || t === 'decimal' ? 'number' : t === 'date' ? 'date' : t === 'datetime' ? 'datetime' : t === 'bool' ? 'bool' : 'text';
 };
 
-export const srcExpr = (p: string, sheet?: string) => api.sourceExpr(p, sheet);
+export const srcExpr = (source: Parameters<typeof api.sourceExpr>[0]) => api.sourceExpr(source);
 
 export const FILTER_OPS: Record<'text' | 'number', [FilterOp, string][]> = {
   text: [['eq', 'è uguale a'], ['ne', 'non è uguale a'], ['startsWith', 'inizia con'], ['endsWith', 'termina con'], ['contains', 'contiene'], ['notContains', 'non contiene']],

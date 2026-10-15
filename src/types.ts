@@ -7,7 +7,7 @@ export interface TableMeta {
   columns: ColumnMeta[];
   /** `m` keeps the original Power Query expression of tables imported from .pbix/.pbit;
    *  `ref` makes the query start from another query (Power Query "Riferimento"). */
-  source: { path: string; sheet?: string; m?: string; ref?: string; dax?: string };
+  source: { path: string; sheet?: string; m?: string; ref?: string; dax?: string; db?: DbSource };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
   steps?: Step[];
   /** Schema of the source before the steps (types of the M "Origine" step in .pbit export). */
@@ -17,6 +17,10 @@ export interface TableMeta {
   /** Power BI "sort by column": display column → column whose values define its order. */
   sortBy?: Record<string, string>;
 }
+
+/** Database table source (Ottieni dati › Database). The password is stored outside the report. */
+export interface DbSource { kind: 'mysql' | 'postgres' | 'sqlite'; host?: string; port?: string; database?: string; user?: string; file?: string; schema: string; table: string; }
+export type DbConnection = Omit<DbSource, 'schema' | 'table'>;
 
 export interface FieldRef { table: string; column: string; agg: Agg; }
 

@@ -18,7 +18,7 @@ export function Backstage() {
         <button onClick={() => s.exportPbit()} disabled={!s.tables.length}>Esporta modello Power BI (.pbit)</button>
         <button onClick={() => s.exportPbip()} disabled={!s.tables.length}>Salva come progetto Power BI (.pbip)</button>
         <button onClick={() => s.exportPdf()} disabled={!s.report.pages.some((p) => p.visuals.length)}>Esporta in PDF</button>
-        <button disabled>Pubblica</button>
+        <button onClick={() => s.set({ publishDialog: true, fileMenu: false })}>Pubblica</button>
         <div style={{ flex: 1 }} />
         <button disabled>Opzioni e impostazioni</button>
         <button onClick={() => window.api.win.close()}>Esci</button>

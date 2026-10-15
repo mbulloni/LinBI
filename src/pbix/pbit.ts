@@ -25,6 +25,15 @@ function tomType(duck: string): { dataType: string; m: string } {
 function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
   if (t.source.m) return t.source.m;
   if (t.source.ref) return `let\n    Origine = ${mName(t.source.ref)}\nin\n    Origine`;
+  const d = t.source.db;
+  if (d) {
+    const server = mStr(d.port ? `${d.host || 'localhost'}:${d.port}` : d.host || 'localhost');
+    const origin = d.kind === 'mysql' ? `MySQL.Database(${server}, ${mStr(d.database ?? '')}, [ReturnSingleDatabase=true])`
+      : d.kind === 'postgres' ? `PostgreSQL.Database(${server}, ${mStr(d.database ?? '')})`
+        : `Odbc.DataSource(${mStr(`driver={SQLite3 ODBC Driver};database=${d.file}`)}, [HierarchicalNavigation=true])`;
+    const nav = d.kind === 'sqlite' ? `Origine{[Name=${mStr(d.table)},Kind="Table"]}[Data]` : `Origine{[Schema=${mStr(d.schema)},Item=${mStr(d.table)}]}[Data]`;
+    return `let\n    Origine = ${origin},\n    ${mName(d.table)} = ${nav}\nin\n    ${mName(d.table)}`;
+  }
   const p = t.source.path;
   const ext = p.split('.').pop()!.toLowerCase();
   const types = `{${columns.map((c) => `{${mStr(c.name)}, ${tomType(c.type).m}}`).join(', ')}}`;
@@ -120,6 +129,11 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
   const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
   const j = (o: unknown) => JSON.stringify(o, null, 2);
+  const platform = (type: string) => ({
+    $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
+    metadata: { type, displayName: '__BASE__' },
+    config: { version: '2.0', logicalId: crypto.randomUUID() },
+  });
   return [
     { path: '__BASE__.pbip', text: j({ version: '1.0', artifacts: [{ report: { path: '__BASE__.Report' } }], settings: { enableAutoRecovery: true } }) },
     { path: '__BASE__.Report/definition.pbir', text: j({ version: '1.0', datasetReference: { byPath: { path: '../__BASE__.SemanticModel' } } }) },
@@ -127,6 +141,9 @@ export function buildPbipParts(report: Report, tables: TableMeta[]): { path: str
     ...Object.entries(resources).map(([n, d]) => ({ path: `__BASE__.Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
     { path: '__BASE__.SemanticModel/definition.pbism', text: j({ version: '1.0', settings: {} }) },
     { path: '__BASE__.SemanticModel/model.bim', text: j(buildModelSchema(report, tables)) },
+    // Microsoft Fabric Git integration metadata.
+    { path: '__BASE__.Report/.platform', text: j(platform('Report')) },
+    { path: '__BASE__.SemanticModel/.platform', text: j(platform('SemanticModel')) },
     { path: '.gitignore', text: '**/.pbi/localSettings.json\n**/.pbi/cache.abf\n' },
   ];
 }

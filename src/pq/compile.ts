@@ -4,7 +4,7 @@
  * top rows, fill down, index column…). Queries referenced by `ref`, merges and appends are inlined
  * as subqueries, so the editor's drafts always see each other's latest definition.
  */
-import type { FilterOp, Step, ValueType } from '../types';
+import type { FilterOp, Step, TableMeta, ValueType } from '../types';
 import { mToSql, properSql } from './mexpr';
 import type { QueryDef } from './steps';
 
@@ -169,7 +169,7 @@ export interface CompileOptions {
   /** Number of steps to apply (preview of a selected step); default all. */
   upto?: number;
   /** read_csv_auto(...) etc. for a file source (main process, loads extensions). */
-  srcExpr: (path: string, sheet?: string) => Promise<string>;
+  srcExpr: (source: TableMeta['source']) => Promise<string>;
 }
 
 /** Full SELECT for a query, resolving references among `all` queries. */
@@ -180,7 +180,7 @@ export async function compileQuery(q: QueryDef, all: QueryDef[], opts: CompileOp
     if (!other) throw new Error(`La query "${name}" non esiste.`);
     return compileQuery(other, all, { srcExpr: opts.srcExpr }, [...stack, q.name]);
   };
-  const src = q.source.ref ? `(${await sub(q.source.ref)})` : await opts.srcExpr(q.source.path, q.source.sheet);
+  const src = q.source.ref ? `(${await sub(q.source.ref)})` : await opts.srcExpr(q.source);
   const steps = (q.steps ?? []).slice(0, opts.upto ?? undefined);
   if (!steps.length) return `SELECT * FROM ${src}`;
 

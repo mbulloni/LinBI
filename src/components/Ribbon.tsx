@@ -68,7 +68,7 @@ export function Ribbon() {
     <Group label="Dati">
       <Big icon="getData" label={<>Ottieni<br />dati</>} dropdown onClick={openMenu('getdata')} />
       <Big icon="excel" label={<>Cartella di<br />lavoro di Excel</>} onClick={() => s.openNavigator('excel')} />
-      <Big icon="sql" label={<>SQL<br />Server</>} disabled title="Disponibile in una fase successiva" />
+      <Big icon="sql" label={<>Database<br />SQL</>} onClick={() => s.set({ dbDialog: true })} title="MySQL/MariaDB, PostgreSQL, SQLite" />
       <Big icon="enterData" label={<>Immetti<br />dati</>} disabled title="Disponibile in una fase successiva" />
       <Big icon="recent" label={<>Origini<br />recenti</>} disabled dropdown />
     </Group>
@@ -110,7 +110,7 @@ export function Ribbon() {
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
           </Group>
           <Group label="Riservatezza"><Big icon="sensitivity" label="Riservatezza" disabled dropdown /></Group>
-          <Group label="Condividi"><Big icon="publish" label="Pubblica" disabled /></Group>
+          <Group label="Condividi"><Big icon="publish" label="Pubblica" onClick={() => s.set({ publishDialog: true })} /></Group>
         </>}
 
         {tab === 'insert' && <>
@@ -190,7 +190,7 @@ export function Ribbon() {
           <button onClick={() => { close(); s.openNavigator('csv'); }}><Icon name="docs" size={18} />Testo/CSV</button>
           <button onClick={() => { close(); s.openNavigator('json'); }}><Icon name="docs" size={18} />JSON</button>
           <button onClick={() => { close(); s.openNavigator('parquet'); }}><Icon name="sql" size={18} />Parquet</button>
-          <button disabled><Icon name="sql" size={18} />SQL Server</button>
+          <button onClick={() => { close(); s.set({ dbDialog: true }); }}><Icon name="sql" size={18} />Database (MySQL, PostgreSQL, SQLite)</button>
           <hr />
           <button onClick={() => { close(); s.loadSample(); }}><Icon name="sample" size={18} />Dati di esempio (Financials)</button>
           <button onClick={() => { close(); s.openNavigator('any'); }}>Altro…</button>

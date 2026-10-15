@@ -1,4 +1,4 @@
-import type { QueryResult, ColumnMeta } from './types';
+import type { QueryResult, ColumnMeta, TableMeta, DbConnection } from './types';
 import type { PbitPart } from './pbix/pbit';
 
 /** Output of electron/pbix/read_pbix.py */
@@ -22,7 +22,9 @@ interface Api {
   importFile(file: string, table: string, sheet?: string): Promise<TableInfo>;
   dropTable(table: string): Promise<void>;
   materialize(table: string, sql: string): Promise<TableInfo>;
-  sourceExpr(file: string, sheet?: string): Promise<string>;
+  sourceExpr(source: TableMeta['source']): Promise<string>;
+  dbConnect(c: DbConnection, password: string | null, remember: boolean): Promise<{ alias: string; tables: { schema: string; table: string; rows: number | null }[]; stored: boolean }>;
+  dbForget(c: DbConnection): Promise<void>;
   addCalcColumn(table: string, column: string, expr: string, replace: boolean): Promise<TableInfo>;
   dropColumn(table: string, column: string): Promise<TableInfo>;
   sampleData(): Promise<{ financials: string; products: string; countries: string }>;

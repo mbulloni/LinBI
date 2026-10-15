@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { CrossFilter, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
 import { connected, qi, ql } from './query';
@@ -53,7 +53,7 @@ export interface PQQuery { name: string; orig: string | null; source: TableMeta[
 /** `step` = number of applied steps shown (null = all, 0 = Origine). */
 export interface PQState { queries: PQQuery[]; selected: string; step: number | null; deleted: string[]; }
 
-const srcExpr = (path: string, sheet?: string) => api.sourceExpr(path, sheet);
+const srcExpr = (source: TableMeta['source']) => api.sourceExpr(source);
 
 /** Steps Power BI folds into the previous step of the same kind instead of adding a new one. */
 function mergeStep(prev: Step, next: Step): boolean {
@@ -161,7 +161,10 @@ interface State {
   importTheme: () => Promise<void>;
   exportTheme: () => Promise<void>;
 
-  openPowerQuery: (focus?: string, extra?: PQQuery) => void;
+  openPowerQuery: (focus?: string, extra?: PQQuery | PQQuery[]) => void;
+  dbDialog: boolean;
+  publishDialog: boolean;
+  loadDbTables: (c: DbConnection, picks: { schema: string; table: string }[], transform: boolean) => Promise<void>;
   pqSet: (fn: (st: PQState) => void) => void;
   pqAddStep: (step: NewStep) => void;
   pqNewSource: (kind: string) => Promise<void>;
@@ -582,8 +585,9 @@ export const useStore = create<State>((set, get) => {
 
     openPowerQuery: (focus, extra) => {
       const queries: PQQuery[] = get().tables.filter((t) => !t.source.dax).map((t) => ({ name: t.name, orig: t.name, source: clone(t.source), steps: clone(t.steps ?? []) }));
-      if (extra) queries.push(extra);
-      const selected = extra?.name ?? focus ?? queries[0]?.name ?? '';
+      const extras = extra ? (Array.isArray(extra) ? extra : [extra]) : [];
+      queries.push(...extras);
+      const selected = extras[0]?.name ?? focus ?? queries[0]?.name ?? '';
       set({ pq: { queries, selected, step: null, deleted: [] }, fileMenu: false });
     },
     pqSet: (fn) => {
@@ -612,6 +616,29 @@ export const useStore = create<State>((set, get) => {
       const taken = [...get().tables, ...pq.queries] as { name: string }[];
       const name = tableNameFor(path, taken as TableMeta[]);
       get().pqSet((st) => { st.queries.push({ name, orig: null, source: { path }, steps: [] }); st.selected = name; st.step = null; });
+    },
+    dbDialog: false,
+    publishDialog: false,
+    loadDbTables: async (c, picks, transform) => {
+      const taken = new Set(get().tables.map((t) => t.name));
+      const defs = picks.map((p) => {
+        let name = p.table, i = 2;
+        while (taken.has(name)) name = `${p.table} (${i++})`;
+        taken.add(name);
+        return { name, source: { path: '', db: { ...c, schema: p.schema, table: p.table } } };
+      });
+      set({ dbDialog: false });
+      if (transform) { get().openPowerQuery(undefined, defs.map((d) => ({ ...d, orig: null, steps: [] }))); return; }
+      set({ busy: `Caricamento di ${defs.length} ${defs.length === 1 ? 'tabella' : 'tabelle'} dal database…` });
+      const failed: string[] = [];
+      try {
+        for (const d of defs) { try { await loadTable(d); } catch (e: any) { failed.push(`${d.name}: ${e.message.split('\n')[0]}`); } }
+        const loaded = defs.map((d) => d.name).filter((n) => get().tables.some((t) => t.name === n));
+        const n = loaded.length > 0 ? await get().detectRelationships(loaded) : 0;
+        get().notify([loaded.length === 1 ? 'Caricata 1 tabella.' : `Caricate ${loaded.length} tabelle.`, n ? `Rilevate ${n} relazioni.` : '', failed.length ? `Errori: ${failed.join(' · ')}` : ''].filter(Boolean).join(' '), failed.length ? 12000 : 6000);
+      } finally {
+        set({ busy: null });
+      }
     },
     transformNavigator: () => {
       const nav = get().navigator;

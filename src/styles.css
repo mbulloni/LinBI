@@ -468,3 +468,7 @@ thead .pq-rn { z-index: 2; }
   .print-root { position: static; transform: none; }
   .print-page:last-child { break-after: auto; }
 }
+.publish-opt { display: flex; gap: 14px; align-items: flex-start; text-align: left; padding: 12px; border: 1px solid var(--line); border-radius: 4px; }
+.publish-opt:hover:not(:disabled) { background: var(--hover); border-color: #C8C6C4; }
+.publish-opt .txt { display: flex; flex-direction: column; gap: 3px; color: var(--text2); line-height: 1.4; }
+.publish-opt b { color: var(--text); font-size: 13px; }

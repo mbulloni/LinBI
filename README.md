@@ -126,6 +126,22 @@ Le misure DAX importate passano dal motore della fase 5; una funzione non suppor
   sfondi, viene salvato nel report, esportato nel `.pbit`/`.pbip` come tema personalizzato e letto dai file Power BI.
 - **Esporta in PDF** (File): una pagina PDF 1280×720 per ogni pagina del report, con i filtri di ciascuna pagina.
 
+### Connessioni a database
+
+**Home › Database SQL** (o *Ottieni dati › Database*): MySQL/MariaDB, PostgreSQL e SQLite tramite le estensioni di
+DuckDB (`ATTACH … READ_ONLY`, scaricate al primo uso). Modalità *Importa*: lo Strumento di navigazione elenca tabelle
+e viste con anteprima; *Carica* o *Trasforma dati* (Power Query). *Aggiorna* rilegge dal database. Le password non
+finiscono mai nel report: sono cifrate con il portachiavi di sistema (Electron `safeStorage`) in
+`~/.config/linbi/credentials.json`, oppure tenute solo per la sessione. Nel `.pbit` diventano `MySQL.Database` /
+`PostgreSQL.Database`. SQL Server non è disponibile (DuckDB non ha un connettore).
+
+### Pubblica
+
+La pubblicazione diretta su Power BI Service non è possibile: il servizio accetta solo `.pbix` con dati VertiPaq
+(formato proprietario) e un account Microsoft. Il pulsante **Pubblica** propone le alternative: `.pbit` da aprire e
+pubblicare con Power BI Desktop, progetto `.pbip` (con i file `.platform` dell'integrazione Git di Microsoft Fabric)
+da caricare in un repository collegato a un'area di lavoro, PDF, `.lbix` con i dati.
+
 ## Funzionalità (fasi 1–6)
 
 - Barra del titolo personalizzata, ribbon Home/Inserisci/Modellazione/Visualizza/Ottimizza/Guida, menu File

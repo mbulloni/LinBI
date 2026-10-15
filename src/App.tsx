@@ -10,6 +10,8 @@ import { ManageRelationships, RelationshipEditor } from './components/Relationsh
 import { Navigator } from './components/Navigator';
 import { PowerQueryEditor } from './components/PowerQuery';
 import { DaxBar } from './components/DaxBar';
+import { DatabaseDialog } from './components/DatabaseDialog';
+import { PublishDialog } from './components/PublishDialog';
 import { DaxQueryView } from './components/DaxQueryView';
 import { VisualStatic } from './components/VisualContainer';
 import { THEME } from './themes';
@@ -99,6 +101,8 @@ export function App() {
       <StatusBar fitScale={fit} />
       <Backstage />
       <Navigator />
+      <DatabaseDialog />
+      <PublishDialog />
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (
