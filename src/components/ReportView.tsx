@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { THEME } from '../themes';
 import { useStore, PAGE_W, PAGE_H } from '../store';
 import { VisualContainer, VisualBody, FIELD_MIME, autoTitle } from './VisualContainer';
 import { Icon } from './icons';
@@ -116,7 +117,7 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
             <div
               className={'page' + (s.gridlines ? ' grid' : '')}
               style={{
-                width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2,
+                width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2, backgroundColor: THEME.background,
                 ...(page.background ? { backgroundImage: `url(${page.background})`, backgroundSize: '100% 100%' } : {}),
               }}
               onMouseDown={() => { s.selectVisual(null); if (s.crossFilter) s.setCross(null); }}

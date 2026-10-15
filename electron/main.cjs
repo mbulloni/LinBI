@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 const JSZip = require('jszip');
 const db = require('./db.cjs');
+const pbip = require('./pbip.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -65,9 +66,12 @@ const FILTERS = {
   parquet: [{ name: 'Parquet', extensions: ['parquet'] }],
   any: [{ name: 'Tutti i file di dati', extensions: ['csv', 'txt', 'tsv', 'xlsx', 'json', 'ndjson', 'jsonl', 'parquet'] }],
   lbix: [{ name: 'File LinBI', extensions: ['lbix'] }],
-  report: [{ name: 'Report (LinBI, Power BI)', extensions: ['lbix', 'pbix', 'pbit'] }, { name: 'File LinBI', extensions: ['lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit'] }],
-  powerbi: [{ name: 'File Power BI', extensions: ['pbix', 'pbit'] }],
+  report: [{ name: 'Report (LinBI, Power BI)', extensions: ['lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File LinBI', extensions: ['lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
+  powerbi: [{ name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
+  pbip: [{ name: 'Progetto di Power BI', extensions: ['pbip'] }],
   pbit: [{ name: 'Modello di Power BI', extensions: ['pbit'] }],
+  theme: [{ name: 'File di tema JSON', extensions: ['json'] }],
+  pdf: [{ name: 'PDF', extensions: ['pdf'] }],
 };
 
 handle('dialog:openData', async (kind) => {
@@ -75,23 +79,71 @@ handle('dialog:openData', async (kind) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
-handle('file:save', async (content, existingPath) => {
+// .lbix: a zip with report.json and one Parquet file per table (data embedded like a .pbix).
+// `embed` lists the tables to export; plain JSON .lbix files (older versions) still open.
+handle('file:save', async (content, existingPath, embed) => {
   let target = existingPath;
   if (!target) {
     const r = await dialog.showSaveDialog(win, { defaultPath: 'Report.lbix', filters: FILTERS.lbix });
     if (r.canceled) return null;
     target = r.filePath.endsWith('.lbix') ? r.filePath : r.filePath + '.lbix';
   }
-  fs.writeFileSync(target, content);
+  if (!embed) { fs.writeFileSync(target, content); return target; }
+  const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'linbi-'));
+  try {
+    const zip = new JSZip();
+    zip.file('report.json', content);
+    for (const e of embed) {
+      const file = path.join(tmp, path.basename(e.file));
+      await db.exportParquet(e.table, file);
+      zip.file(e.file, fs.readFileSync(file));
+    }
+    const out = target + '.tmp';
+    fs.writeFileSync(out, await zip.generateAsync({ type: 'nodebuffer', compression: 'STORE' }));
+    fs.renameSync(out, target);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
   return target;
 });
 
+// Small text files (themes): open/save with a dialog.
+handle('file:readText', async (kind) => {
+  const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }
+    : await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.any });
+  if (r.canceled) return null;
+  return { path: r.filePaths[0], content: fs.readFileSync(r.filePaths[0], 'utf8') };
+});
+handle('file:saveText', async (content, defaultPath, kind) => {
+  const r = process.env.LINBI_SAVE_PATH ? { canceled: false, filePath: process.env.LINBI_SAVE_PATH }
+    : await dialog.showSaveDialog(win, { defaultPath, filters: FILTERS[kind] || FILTERS.any });
+  if (r.canceled) return null;
+  fs.writeFileSync(r.filePath, content);
+  return r.filePath;
+});
+
 handle('file:open', async (kind) => {
-  const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.report });
+  // LINBI_OPEN_PATH (scripted tests) skips the dialog.
+  const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }
+    : await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.report });
   if (r.canceled) return null;
   const file = r.filePaths[0];
-  if (/\.(pbix|pbit)$/i.test(file)) return { path: file, powerbi: true };
-  return { path: file, content: fs.readFileSync(file, 'utf8') };
+  if (/\.(pbix|pbit|pbip)$/i.test(file)) return { path: file, powerbi: true };
+  const buf = fs.readFileSync(file);
+  if (buf[0] !== 0x50 || buf[1] !== 0x4b) return { path: file, content: buf.toString('utf8') };
+  // Embedded data: unpack the Parquet files next to each other in the user cache.
+  const stat = fs.statSync(file);
+  const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).digest('hex').slice(0, 16);
+  const dir = path.join(app.getPath('userData'), 'lbix-data', key);
+  const zip = await JSZip.loadAsync(buf);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, entry] of Object.entries(zip.files)) {
+    if (entry.dir || name === 'report.json' || name.includes('..')) continue;
+    const dest = path.join(dir, name);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (!fs.existsSync(dest)) fs.writeFileSync(dest, await entry.async('nodebuffer'));
+  }
+  return { path: file, content: await zip.file('report.json').async('string'), dataDir: dir };
 });
 
 // ---- Power BI files -------------------------------------------------------
@@ -104,6 +156,7 @@ function pythonBin() {
 }
 
 handle('pbix:read', (file) => new Promise((resolve, reject) => {
+  if (/\.pbip$/i.test(file)) { try { return resolve(pbip.read(file)); } catch (e) { return reject(new Error('Lettura del progetto Power BI non riuscita: ' + e.message)); } }
   const stat = fs.statSync(file);
   const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).digest('hex').slice(0, 16);
   const outdir = path.join(app.getPath('userData'), 'pbix-cache', key);
@@ -138,6 +191,28 @@ handle('pbit:save', async (parts, suggested) => {
     else if (p.dataUrl) zip.file(p.path, Buffer.from(p.dataUrl.split(',')[1], 'base64'), opts);
   }
   fs.writeFileSync(target, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+  return target;
+});
+
+// Power BI project: parts use __BASE__ for the project name chosen in the dialog.
+handle('pbip:save', async (parts, suggested) => {
+  const r = process.env.LINBI_PBIP_OUT ? { canceled: false, filePath: process.env.LINBI_PBIP_OUT }
+    : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbip', filters: FILTERS.pbip });
+  if (r.canceled) return null;
+  const target = r.filePath.toLowerCase().endsWith('.pbip') ? r.filePath : r.filePath + '.pbip';
+  const base = path.basename(target, path.extname(target));
+  const sub = (s) => s.split('__BASE__').join(base);
+  return pbip.write(target, parts.map((p) => ({ ...p, path: sub(p.path), ...(p.text !== undefined ? { text: sub(p.text) } : {}) })));
+});
+
+// PDF export: the renderer lays out every page (print CSS, 1280×720 each) and Chromium prints it.
+handle('pdf:print', async (suggested) => {
+  const r = process.env.LINBI_PDF_OUT ? { canceled: false, filePath: process.env.LINBI_PDF_OUT }
+    : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pdf', filters: FILTERS.pdf });
+  if (r.canceled) return null;
+  const target = r.filePath.toLowerCase().endsWith('.pdf') ? r.filePath : r.filePath + '.pdf';
+  const data = await win.webContents.printToPDF({ printBackground: true, preferCSSPageSize: true, margins: { top: 0, bottom: 0, left: 0, right: 0 } });
+  fs.writeFileSync(target, data);
   return target;
 });
 

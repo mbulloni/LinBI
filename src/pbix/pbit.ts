@@ -116,8 +116,23 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
   };
 }
 
+/** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
+export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const j = (o: unknown) => JSON.stringify(o, null, 2);
+  return [
+    { path: '__BASE__.pbip', text: j({ version: '1.0', artifacts: [{ report: { path: '__BASE__.Report' } }], settings: { enableAutoRecovery: true } }) },
+    { path: '__BASE__.Report/definition.pbir', text: j({ version: '1.0', datasetReference: { byPath: { path: '../__BASE__.SemanticModel' } } }) },
+    { path: '__BASE__.Report/report.json', text: j(JSON.parse(layout)) },
+    ...Object.entries(resources).map(([n, d]) => ({ path: `__BASE__.Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+    { path: '__BASE__.SemanticModel/definition.pbism', text: j({ version: '1.0', settings: {} }) },
+    { path: '__BASE__.SemanticModel/model.bim', text: j(buildModelSchema(report, tables)) },
+    { path: '.gitignore', text: '**/.pbi/localSettings.json\n**/.pbi/cache.abf\n' },
+  ];
+}
+
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
   const diagram = {
     version: '1.1.0',
     diagrams: [{

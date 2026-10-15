@@ -3,7 +3,8 @@
  * Reference: sections[] → visualContainers[] whose `config` is a JSON string holding
  * singleVisual { visualType, projections, prototypeQuery, objects, vcObjects }.
  */
-import type { Agg, FieldRef, Filter, Page, TableMeta, Visual, VisualType } from '../types';
+import type { Agg, FieldRef, Filter, Page, TableMeta, Theme, Visual, VisualType } from '../types';
+import { parseTheme, themeJson } from '../themes';
 import { defaultFormat, PAGE_H, PAGE_W } from '../store';
 import { visualDef } from '../visuals/catalog';
 import { NULL_KEY } from '../query';
@@ -257,7 +258,21 @@ function filterJson(f: Filter, name: string) {
 const hex = () => Array.from({ length: 20 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 
 /** LinBI report → Report/Layout JSON + image resources to package. */
-export function buildLayout(pages: Page[], reportFilters: Filter[]): { layout: string; resources: Record<string, string> } {
+/** Custom theme referenced by a Report/Layout (themeCollection.customTheme → RegisteredResources). */
+export function themeFromLayout(layoutJson: string, resources: Record<string, string>): Theme | undefined {
+  try {
+    const cfg = JSON.parse(JSON.parse(layoutJson).config ?? '{}');
+    const name: string | undefined = cfg.themeCollection?.customTheme?.name;
+    const url = name ? resources[name] : undefined;
+    if (!url) return undefined;
+    const text = decodeURIComponent(escape(atob(url.split(',')[1])));
+    return parseTheme(text, name!.replace(/\.json$/i, ''));
+  } catch {
+    return undefined;
+  }
+}
+
+export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme): { layout: string; resources: Record<string, string> } {
   const resources: Record<string, string> = {};
   const addResource = (dataUrl: string) => {
     const m = /^data:image\/(\w+)/.exec(dataUrl);
@@ -347,13 +362,19 @@ export function buildLayout(pages: Page[], reportFilters: Filter[]): { layout: s
     };
   });
 
+  let themeName: string | undefined;
+  if (theme) {
+    themeName = `${theme.name.replace(/[^\w -]/g, '_')}${Date.now().toString(36)}.json`;
+    resources[themeName] = 'data:application/json;base64,' + btoa(unescape(encodeURIComponent(themeJson(theme))));
+  }
   const layout = {
     id: 0,
     resourcePackages: Object.keys(resources).length ? [{
-      resourcePackage: { name: 'RegisteredResources', type: 1, items: Object.keys(resources).map((n) => ({ type: 100, path: n, name: n })), disabled: false },
+      // 202 = custom theme, 100 = image.
+      resourcePackage: { name: 'RegisteredResources', type: 1, items: Object.keys(resources).map((n) => ({ type: n === themeName ? 202 : 100, path: n, name: n })), disabled: false },
     }] : [],
     sections,
-    config: JSON.stringify({ version: '5.43', themeCollection: {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true }, objects: {} }),
+    config: JSON.stringify({ version: '5.43', themeCollection: themeName ? { customTheme: { name: themeName, version: '5.43', type: 2 } } : {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true }, objects: {} }),
     filters: JSON.stringify(reportFilters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
     layoutOptimization: 0,
   };

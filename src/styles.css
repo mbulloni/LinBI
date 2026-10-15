@@ -440,3 +440,31 @@ thead .pq-rn { z-index: 2; }
 .daxview-tabs button { height: 31px; padding: 0 12px; position: relative; }
 .daxview-tabs button.active { font-weight: 600; }
 .daxview-tabs button.active::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; background: var(--text); border-radius: 2px; }
+
+/* ---------- themes (phase 6) ---------- */
+.theme-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; padding: 4px 4px 0 0; }
+.theme-swatch { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 2px; border: 1px solid transparent; border-radius: 3px; }
+.theme-swatch:hover { background: var(--hover); }
+.theme-swatch.active { border-color: var(--text); }
+.theme-swatch .sw { width: 54px; height: 30px; border: 1px solid var(--line); border-radius: 2px; display: flex; align-items: center; justify-content: space-between; padding: 0 4px; }
+.theme-swatch .sw b { font-size: 11px; }
+.theme-swatch .bars { display: flex; gap: 2px; align-items: flex-end; height: 18px; }
+.theme-swatch .bars i { display: block; width: 4px; }
+.theme-swatch .bars i:nth-child(1) { height: 18px; } .theme-swatch .bars i:nth-child(2) { height: 12px; }
+.theme-swatch .bars i:nth-child(3) { height: 15px; } .theme-swatch .bars i:nth-child(4) { height: 9px; }
+.theme-swatch .nm { font-size: 11px; max-width: 70px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dropdown .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 6px 10px; }
+.dropdown .theme-grid button { width: auto; height: auto; padding: 4px; }
+.theme-strip .theme-swatch .sw { width: 40px; height: 26px; }
+
+/* ---------- PDF export (phase 6) ---------- */
+.print-root { position: fixed; left: 0; top: 0; transform: translateX(-300vw); pointer-events: none; }
+.print-page { width: 1280px; height: 720px; position: relative; overflow: hidden; background: #fff; break-after: page; }
+.print-vc { position: absolute; display: flex; flex-direction: column; overflow: hidden; }
+@page { size: 1280px 720px; margin: 0; }
+@media print {
+  html, body, #root, .app { height: auto !important; overflow: visible !important; }
+  .app > *:not(.print-root) { display: none !important; }
+  .print-root { position: static; transform: none; }
+  .print-page:last-child { break-after: auto; }
+}

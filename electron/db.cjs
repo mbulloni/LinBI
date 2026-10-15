@@ -87,6 +87,11 @@ async function dropColumn(table, column) {
   return describe(table);
 }
 
+async function exportParquet(table, file) {
+  const c = await connection();
+  await c.run(`COPY (SELECT * FROM ${qi(table)}) TO ${ql(file)} (FORMAT parquet, COMPRESSION zstd)`);
+}
+
 async function dropTable(name) {
   const c = await connection();
   await c.run(`DROP TABLE IF EXISTS ${qi(name)}`);
@@ -101,4 +106,4 @@ async function createEmpty(table, columns) {
   return describe(table);
 }
 
-module.exports = { query, preview, importFile, materialize, sourceExpr, addCalcColumn, dropColumn, describe, dropTable, createEmpty, kindOf };
+module.exports = { query, preview, importFile, materialize, sourceExpr, addCalcColumn, dropColumn, describe, exportParquet, dropTable, createEmpty, kindOf };

@@ -93,7 +93,11 @@ export interface Measure {
   formatString?: string;
 }
 
+/** Report theme (subset of the Power BI theme JSON). */
+export interface Theme { name: string; dataColors: string[]; background?: string; foreground?: string; tableAccent?: string; }
+
 export interface Report {
+  theme?: Theme;
   pages: Page[];
   reportFilters: Filter[];
   relationships: Relationship[];

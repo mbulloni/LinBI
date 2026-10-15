@@ -1,0 +1,249 @@
+// Power BI Project (.pbip): a folder-based, text-only format (no data).
+//   X.pbip                       → { artifacts: [{ report: { path: "X.Report" } }] }
+//   X.Report/definition.pbir     → { datasetReference: { byPath: { path: "../X.SemanticModel" } } }
+//   X.Report/report.json         → legacy Report/Layout JSON   (or)
+//   X.Report/definition/…        → PBIR: report.json, pages/<id>/page.json, pages/<id>/visuals/<id>/visual.json
+//   X.SemanticModel/model.bim    → TMSL JSON (same as DataModelSchema)   (or)
+//   X.SemanticModel/definition/  → TMDL text files (model.tmdl, relationships.tmdl, tables/*.tmdl)
+// read() returns the same structure as electron/pbix/read_pbix.py (model.json).
+const fs = require('fs');
+const path = require('path');
+
+const SKIP_TABLE = /^(LocalDateTable_|DateTableTemplate_)/;
+const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8').replace(/^﻿/, ''));
+const joinExpr = (e) => (Array.isArray(e) ? e.join('\n') : e ?? '');
+
+/* ------------------------------- TMSL (JSON) ------------------------------- */
+
+function fromTmsl(schema, out) {
+  const model = schema.model ?? {};
+  for (const t of model.tables ?? []) {
+    if (SKIP_TABLE.test(t.name)) continue;
+    let m = null, dax = null;
+    for (const p of t.partitions ?? []) {
+      const src = p.source ?? {};
+      if (src.expression === undefined) continue;
+      if (src.type === 'calculated') dax = joinExpr(src.expression); else m = joinExpr(src.expression);
+    }
+    pushTable(out, t.name, m, dax, t.columns ?? [], t.measures ?? [], (c) => c.type);
+  }
+  for (const r of model.relationships ?? []) pushRel(out, r);
+}
+
+function pushTable(out, name, m, dax, columns, measures, kindOf) {
+  const real = columns.filter((c) => kindOf(c) !== 'rowNumber' && !String(c.name).startsWith('RowNumber-'));
+  const allHidden = real.length > 0 && real.every((c) => c.isHidden === true || c.isHidden === 'true');
+  const measureTable = measures.length > 0 && (allHidden || real.length === 0) && !dax;
+  if (!measureTable) {
+    out.tables.push({
+      name, parquet: null, rows: 0, m,
+      columns: real.filter((c) => kindOf(c) !== 'calculated').map((c) => ({ name: c.name, dataType: c.dataType ?? 'string' })),
+      sortBy: Object.fromEntries(real.filter((c) => c.sortByColumn).map((c) => [c.name, c.sortByColumn])),
+      ...(dax ? { dax } : {}),
+      ...(real.some((c) => kindOf(c) === 'calculated') ? { calcColumns: real.filter((c) => kindOf(c) === 'calculated').map((c) => ({ name: c.name, expression: joinExpr(c.expression) })) } : {}),
+    });
+  }
+  for (const ms of measures) out.measures.push({ table: name, name: ms.name, expression: joinExpr(ms.expression), formatString: ms.formatString ?? '' });
+}
+
+function pushRel(out, r) {
+  const fc = r.fromCardinality ?? 'many', tc = r.toCardinality ?? 'one';
+  out.relationships.push({
+    fromTable: r.fromTable, fromColumn: r.fromColumn, toTable: r.toTable, toColumn: r.toColumn,
+    cardinality: fc === 'one' && tc === 'one' ? 'oneToOne' : tc === 'many' ? 'manyToMany' : 'manyToOne',
+    crossFilter: r.crossFilteringBehavior === 'bothDirections' ? 'both' : 'single',
+    active: r.isActive !== false && r.isActive !== 'false',
+  });
+}
+
+/* ------------------------------- TMDL (text) ------------------------------- */
+
+/** Name at the start of `s`: 'quoted ''name''' or a bare token. Returns [name, rest]. */
+function takeName(s) {
+  s = s.trimStart();
+  if (s.startsWith("'")) {
+    let i = 1, name = '';
+    while (i < s.length) {
+      if (s[i] === "'") { if (s[i + 1] === "'") { name += "'"; i += 2; continue; } i++; break; }
+      name += s[i++];
+    }
+    return [name, s.slice(i)];
+  }
+  const m = /^[^\s=:.]+/.exec(s);
+  return [m ? m[0] : '', s.slice(m ? m[0].length : 0)];
+}
+
+/** "Table.Column" with optional quotes on each part. */
+function tableColumn(s) {
+  const [t, rest] = takeName(s);
+  const [c] = takeName(rest.replace(/^\./, ''));
+  return [t, c];
+}
+
+const indentOf = (line) => /^\t*/.exec(line)[0].length + Math.floor(/^\t*( *)/.exec(line)[1].length / 4);
+
+/**
+ * Parses TMDL into objects { kind, name, value (text after "="), props: {k: v}, children: [] }.
+ * Multi-line values: lines indented deeper than the declaration's properties, or ``` fenced blocks.
+ */
+function parseTmdl(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const root = { kind: 'root', children: [], props: {}, indent: -1 };
+  const stack = [root];
+  let i = 0;
+  const block = (start, baseIndent, firstLine) => {
+    // Collect an expression that continues on the following, deeper-indented lines.
+    const out = [];
+    let j = start;
+    if (firstLine.trim().startsWith('```')) {
+      const after = firstLine.trim().slice(3);
+      if (after) out.push(after);
+      while (j < lines.length && !lines[j].trim().startsWith('```')) out.push(lines[j++]);
+      return [dedent(out), j + 1];
+    }
+    if (firstLine.trim()) out.push(firstLine.trim());
+    while (j < lines.length && (lines[j].trim() === '' || indentOf(lines[j]) > baseIndent + 1)) out.push(lines[j++]);
+    while (out.length && !out[out.length - 1].trim()) out.pop();
+    return [dedent(out), j];
+  };
+  while (i < lines.length) {
+    const line = lines[i];
+    const t = line.trim();
+    i++;
+    if (!t || t.startsWith('///') || t.startsWith('//')) continue;
+    const ind = indentOf(line);
+    while (stack.length > 1 && stack[stack.length - 1].indent >= ind) stack.pop();
+    const parent = stack[stack.length - 1];
+    const kw = /^(table|column|measure|partition|relationship|hierarchy|level|annotation|expression|model|database|role|culture|calculationGroup|calculationItem|perspective|dataSource|ref|cultureInfo|linguisticMetadata|variation|changedProperty|extendedProperty|queryGroup|function)\b(?!\s*:)\s*(.*)$/.exec(t);
+    if (kw) {
+      const [name, rest] = takeName(kw[2]);
+      const obj = { kind: kw[1], name, props: {}, children: [], indent: ind };
+      const eq = /^\s*=\s*(.*)$/.exec(rest);
+      if (eq) {
+        const [value, next] = block(i, ind, eq[1]);
+        obj.value = value;
+        i = next;
+      }
+      parent.children.push(obj);
+      stack.push(obj);
+      continue;
+    }
+    const prop = /^([A-Za-z][\w]*)\s*(:|=)\s*(.*)$/.exec(t);
+    if (prop) {
+      if (prop[2] === '=') {
+        const [value, next] = block(i, ind, prop[3]);
+        parent.props[prop[1]] = value;
+        i = next;
+      } else parent.props[prop[1]] = prop[3].trim();
+      continue;
+    }
+    if (/^[A-Za-z]\w*$/.test(t)) parent.props[t] = 'true'; // flags like "isHidden"
+  }
+  return root;
+}
+
+function dedent(lines) {
+  const nonEmpty = lines.filter((l) => l.trim());
+  const min = Math.min(...nonEmpty.map((l) => /^[\t ]*/.exec(l)[0].length), Infinity);
+  return lines.map((l, k) => (k === 0 ? l.trim() : l.slice(Number.isFinite(min) ? min : 0))).join('\n').trim();
+}
+
+const unquote = (v) => (v && /^'.*'$/.test(v) ? v.slice(1, -1).replace(/''/g, "'") : v);
+
+function fromTmdl(dir, out) {
+  const files = [];
+  const walk = (d) => { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); if (fs.statSync(p).isDirectory()) walk(p); else if (f.endsWith('.tmdl')) files.push(p); } };
+  walk(dir);
+  const objs = files.flatMap((f) => parseTmdl(fs.readFileSync(f, 'utf8').replace(/^﻿/, '')).children);
+  for (const t of objs.filter((o) => o.kind === 'table')) {
+    if (SKIP_TABLE.test(t.name)) continue;
+    let m = null, dax = null;
+    for (const p of t.children.filter((c) => c.kind === 'partition')) {
+      const kind = (p.value ?? '').trim();
+      const src = p.props.source ?? '';
+      if (kind === 'calculated') dax = src; else if (kind === 'm' || src) m = src;
+    }
+    const columns = t.children.filter((c) => c.kind === 'column').map((c) => ({
+      name: c.name, dataType: c.props.dataType, isHidden: c.props.isHidden, sortByColumn: unquote(c.props.sortByColumn),
+      type: c.value ? 'calculated' : undefined, expression: c.value,
+    }));
+    const measures = t.children.filter((c) => c.kind === 'measure').map((c) => ({ name: c.name, expression: c.value ?? '', formatString: c.props.formatString }));
+    pushTable(out, t.name, m, dax, columns, measures, (c) => c.type);
+  }
+  for (const r of objs.filter((o) => o.kind === 'relationship')) {
+    const [ft, fc] = tableColumn(r.props.fromColumn ?? '');
+    const [tt, tc] = tableColumn(r.props.toColumn ?? '');
+    pushRel(out, { fromTable: ft, fromColumn: fc, toTable: tt, toColumn: tc, fromCardinality: r.props.fromCardinality, toCardinality: r.props.toCardinality, crossFilteringBehavior: r.props.crossFilteringBehavior, isActive: r.props.isActive });
+  }
+}
+
+/* --------------------------------- reader --------------------------------- */
+
+function mimeOf(f) {
+  const ext = path.extname(f).toLowerCase();
+  return { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.json': 'application/json' }[ext];
+}
+
+function read(file) {
+  const base = path.dirname(file);
+  const pbip = readJson(file);
+  const out = { file, kind: 'pbip', tables: [], relationships: [], measures: [], layout: null, resources: {}, warnings: [] };
+  const rel = pbip.artifacts?.find((a) => a.report)?.report?.path;
+  if (!rel) throw new Error('Il file .pbip non indica la cartella del report');
+  const reportDir = path.resolve(base, rel);
+  const pbir = fs.existsSync(path.join(reportDir, 'definition.pbir')) ? readJson(path.join(reportDir, 'definition.pbir')) : {};
+  const modelRel = pbir.datasetReference?.byPath?.path;
+  if (!modelRel) out.warnings.push('Il report usa un modello remoto (byConnection): vengono importate solo le pagine.');
+
+  // Report: PBIR folder or legacy report.json
+  const defDir = path.join(reportDir, 'definition');
+  if (fs.existsSync(defDir)) {
+    out.pbir = {};
+    const walk = (d) => {
+      for (const f of fs.readdirSync(d)) {
+        const p = path.join(d, f);
+        if (fs.statSync(p).isDirectory()) walk(p);
+        else if (f.endsWith('.json')) out.pbir[path.relative(defDir, p).split(path.sep).join('/')] = fs.readFileSync(p, 'utf8').replace(/^﻿/, '');
+      }
+    };
+    walk(defDir);
+  } else if (fs.existsSync(path.join(reportDir, 'report.json'))) {
+    out.layout = fs.readFileSync(path.join(reportDir, 'report.json'), 'utf8').replace(/^﻿/, '');
+  }
+  const resDir = path.join(reportDir, 'StaticResources', 'RegisteredResources');
+  if (fs.existsSync(resDir)) {
+    for (const f of fs.readdirSync(resDir)) {
+      const mime = mimeOf(f);
+      const p = path.join(resDir, f);
+      if (mime && fs.statSync(p).size <= 6 * 1024 * 1024) out.resources[f] = `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`;
+    }
+  }
+
+  // Semantic model: model.bim (TMSL) or definition/*.tmdl
+  if (modelRel) {
+    const modelDir = path.resolve(reportDir, modelRel);
+    if (fs.existsSync(path.join(modelDir, 'model.bim'))) fromTmsl(readJson(path.join(modelDir, 'model.bim')), out);
+    else if (fs.existsSync(path.join(modelDir, 'definition'))) fromTmdl(path.join(modelDir, 'definition'), out);
+    else out.warnings.push(`Modello semantico non trovato in ${modelDir}`);
+    const names = new Set(out.tables.map((t) => t.name));
+    out.relationships = out.relationships.filter((r) => names.has(r.fromTable) && names.has(r.toTable));
+  }
+  return out;
+}
+
+/* --------------------------------- writer --------------------------------- */
+
+/** Writes a PBIP project next to `file` (X.pbip, X.Report/, X.SemanticModel/) from text/data-URL parts. */
+function write(file, parts) {
+  const base = path.dirname(file);
+  for (const p of parts) {
+    const dest = path.join(base, p.path);
+    if (!dest.startsWith(base)) continue;
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (p.text !== undefined) fs.writeFileSync(dest, p.text);
+    else if (p.dataUrl) fs.writeFileSync(dest, Buffer.from(p.dataUrl.split(',')[1], 'base64'));
+  }
+  return file;
+}
+
+module.exports = { read, write, parseTmdl };

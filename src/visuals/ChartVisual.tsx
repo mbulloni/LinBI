@@ -4,6 +4,10 @@ import type { CrossFilter, Visual } from '../types';
 import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
+import { useStore } from '../store';
+
+/** The default single-series color follows the theme's first color. */
+const main = (c: string) => (c.toUpperCase() === '#118DFF' ? PALETTE[0] : c);
 
 const FONT = "'Segoe UI', 'Selawik', 'Ubuntu Sans', sans-serif";
 const AXIS_TEXT = '#605E5C';
@@ -94,7 +98,7 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
 
   const singleColor = series.length === 1 && !leg;
   const option: echarts.EChartsCoreOption = {
-    color: singleColor ? [f.color] : PALETTE,
+    color: singleColor ? [main(f.color)] : PALETTE,
     textStyle: { fontFamily: FONT },
     animationDuration: 300,
     legend: legendCfg,
@@ -167,7 +171,7 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
         series: [{ type: 'funnel', sort: 'descending', left: '18%', width: '64%', top: 8, bottom: 8, gap: 2,
           label: { show: true, position: 'left', color: AXIS_TEXT, fontSize: 11, formatter: '{b}' },
           labelLine: { show: false },
-          itemStyle: { color: f.color, borderWidth: 0 },
+          itemStyle: { color: main(f.color), borderWidth: 0 },
           data: f.dataLabels ? data.map((x) => ({ ...x, label: { show: true } })) : data }],
       },
     };
@@ -212,7 +216,7 @@ function scatter(v: Visual, d: VisualData, selected: string | null | undefined):
       yAxis: axis(y, f.yAxisShow),
       series: groups.map((g) => ({
         type: 'scatter', name: catLabel(g), symbolSize: 10,
-        itemStyle: groups.length === 1 ? { color: f.color } : undefined,
+        itemStyle: groups.length === 1 ? { color: main(f.color) } : undefined,
         data: d.rows.map((r, i) => ({ r, i })).filter(({ r }) => !leg || r[leg.alias] === g).map(({ r, i }) => ({
           name: catLabel(det ? r[det.alias] : null), value: [x ? r[x.alias] : 0, y ? r[y.alias] : 0], idx: i,
           itemStyle: selected !== undefined && categories[i] !== selected ? { opacity: 0.25 } : undefined,
@@ -234,7 +238,7 @@ function gauge(v: Visual, d: VisualData): Built {
       textStyle: { fontFamily: FONT },
       series: [{
         type: 'gauge', startAngle: 180, endAngle: 0, min: 0, max, center: ['50%', '72%'], radius: '95%',
-        progress: { show: true, width: 36, itemStyle: { color: v.format.color } },
+        progress: { show: true, width: 36, itemStyle: { color: main(v.format.color) } },
         axisLine: { lineStyle: { width: 36, color: [[1, '#E6E6E6']] } },
         pointer: { show: false }, axisTick: { show: false }, splitLine: { show: false },
         axisLabel: { show: true, distance: -20, color: AXIS_TEXT, fontSize: 10, formatter: (n: number) => (n === 0 || Math.abs(n - max) < 1e-9 ? fmtAuto(n) : '') },
@@ -281,12 +285,13 @@ export function ChartVisual({ v, data, cross, onSelect }: {
     return () => { ro.disconnect(); c.dispose(); };
   }, []);
 
+  const theme = useStore((s) => s.report.theme);
   useEffect(() => {
     if (!chart.current || data.error) return;
     const { option, categories } = buildOption(v, data, cross, el.current?.clientWidth ?? 400);
     cats.current = categories;
     chart.current.setOption(option, true);
-  }, [v, data, cross]);
+  }, [v, data, cross, theme]);
 
   return <div ref={el} style={{ position: 'absolute', inset: '0 4px 4px 4px' }} />;
 }

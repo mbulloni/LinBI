@@ -17,6 +17,10 @@ export interface VisualData {
   percent: Set<string>;
 }
 
+let pending = 0;
+/** Visual queries still running (PDF export waits for 0). */
+export const pendingQueries = () => pending;
+
 /** Builds the SQL for a visual from its wells + all filters in scope, and runs it on DuckDB. */
 export function useVisualData(v: Visual): VisualData {
   const tables = useStore((s) => s.tables);
@@ -24,7 +28,8 @@ export function useVisualData(v: Visual): VisualData {
   const pageId = useStore((s) => s.activePageId);
   const cross = useStore((s) => s.crossFilter);
   const dataVersion = useStore((s) => s.dataVersion);
-  const page = report.pages.find((p) => p.id === pageId) ?? report.pages[0];
+  // The visual's own page (PDF export renders every page at once).
+  const page = report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? report.pages.find((p) => p.id === pageId) ?? report.pages[0];
 
   const q = useMemo(
     () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters], page.visuals, cross, report.measures),
@@ -40,6 +45,7 @@ export function useVisualData(v: Visual): VisualData {
     if ('error' in q) { setState({ loading: false, empty: false, error: q.error, items: [], rows: [] }); return; }
     let live = true;
     setState((s) => ({ ...s, loading: true }));
+    pending++;
     Promise.all([
       api.query(q.sql),
       q.totalsSql ? api.query(q.totalsSql) : Promise.resolve(null),
@@ -49,7 +55,7 @@ export function useVisualData(v: Visual): VisualData {
       if (live) setState({ loading: false, empty: false, items: q.items, rows: res.rows, totals: tot?.rows, colTotals: ctot?.rows, rowTotals: rtot?.rows });
     }).catch((e) => {
       if (live) setState({ loading: false, empty: false, error: e.message, items: q.items, rows: [] });
-    });
+    }).finally(() => { pending--; });
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, dataVersion]);

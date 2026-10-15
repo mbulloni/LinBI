@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Rnd } from 'react-rnd';
 import type { Visual } from '../types';
+import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
@@ -55,6 +56,21 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   return <ChartVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
 }
 
+/** Non-interactive visual at its page position (PDF export). */
+export function VisualStatic({ v }: { v: Visual }) {
+  const title = v.format.titleText || autoTitle(v);
+  return (
+    <div className="vc-inner print-vc" style={{
+      left: v.x, top: v.y, width: v.w, height: v.h, zIndex: v.z,
+      background: v.format.background.toUpperCase() === '#FFFFFF' ? THEME.background : v.format.background,
+      border: v.format.border ? '1px solid #C8C6C4' : undefined, borderRadius: v.format.border ? 4 : 0,
+    }}>
+      {v.format.titleShow && title && <div className="vc-title" style={{ fontSize: v.format.titleSize }}>{title}</div>}
+      <div className="vc-body"><VisualBody v={v} selected={false} /></div>
+    </div>
+  );
+}
+
 export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
   const s = useStore();
   const selected = s.selectedVisualId === v.id;
@@ -86,7 +102,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
     >
       <div
         className="vc-inner"
-        style={{ background: v.format.background, border: v.format.border ? '1px solid #C8C6C4' : undefined, borderRadius: v.format.border ? 4 : 0 }}
+        style={{ background: v.format.background.toUpperCase() === '#FFFFFF' ? THEME.background : v.format.background, border: v.format.border ? '1px solid #C8C6C4' : undefined, borderRadius: v.format.border ? 4 : 0 }}
         onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) { e.preventDefault(); e.stopPropagation(); setOver(true); } }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => {

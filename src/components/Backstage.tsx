@@ -14,8 +14,10 @@ export function Backstage() {
         <button onClick={() => s.save()}>Salva</button>
         <button onClick={() => s.save(true)}>Salva con nome</button>
         <button disabled>Ottieni dati</button>
-        <button onClick={async () => { const f = await window.api.openFile('powerbi'); if (f) s.importPowerBI(f.path); }}>Importa da Power BI (.pbix, .pbit)</button>
+        <button onClick={async () => { const f = await window.api.openFile('powerbi'); if (f) s.importPowerBI(f.path); }}>Importa da Power BI (.pbix, .pbit, .pbip)</button>
         <button onClick={() => s.exportPbit()} disabled={!s.tables.length}>Esporta modello Power BI (.pbit)</button>
+        <button onClick={() => s.exportPbip()} disabled={!s.tables.length}>Salva come progetto Power BI (.pbip)</button>
+        <button onClick={() => s.exportPdf()} disabled={!s.report.pages.some((p) => p.visuals.length)}>Esporta in PDF</button>
         <button disabled>Pubblica</button>
         <div style={{ flex: 1 }} />
         <button disabled>Opzioni e impostazioni</button>

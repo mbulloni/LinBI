@@ -24,7 +24,7 @@ npm run dist     # pacchetti AppImage/.deb in dist/
 | VertiPaq          | DuckDB in-memory (`electron/db.cjs`)                           |
 | Query DAX dei visual | SQL generato da `src/query.ts` (GROUP BY + filtri)          |
 | Visual            | Apache ECharts + componenti React (`src/visuals/`)             |
-| File .pbix        | `.lbix` (JSON: report + percorsi origini, dati ricaricati all'apertura) |
+| File .pbix        | `.lbix`: zip con `report.json` (report, origini, passaggi, DAX) e un Parquet per tabella |
 
 Flusso: `Data pane` → drag/checkbox → `store.addField` (posizionamento automatico nei
 contenitori) → `buildVisualQuery` → IPC `db:query` → render.
@@ -107,14 +107,26 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
 |---|---|
 | **Aprire `.pbix`** | Sì: tabelle con dati, relazioni, misure DAX, query M, "ordina per colonna", pagine, visual, filtri, slicer, immagini e sfondi. Il modello VertiPaq (compresso XPress9) è decodificato da [pbixray](https://github.com/Hugoberry/pbixray) in `electron/pbix/read_pbix.py` ed esportato in Parquet per DuckDB. |
 | **Aprire `.pbit`** | Sì: schema, misure, relazioni e report. I dati vengono ricaricati se la query M punta a un file locale, altrimenti le tabelle restano vuote. |
+| **Aprire `.pbip`** | Sì (progetto Power BI, cartelle di testo): report legacy (`report.json`) o **PBIR** (`definition/pages/…/visual.json`), modello TMSL (`model.bim`) o **TMDL** (`definition/*.tmdl`), colonne e tabelle calcolate. I dati vengono caricati dalle query M che puntano a file locali. Lettore in `electron/pbip.cjs`, conversione PBIR → layout in `src/pbix/pbir.ts`. |
+| **Aprire `.pbix` PBIR** | Sì: i report salvati nel nuovo formato PBIR dentro il `.pbix` vengono convertiti come sopra. |
+| **Salvare `.pbip`** | Sì (File › Salva come progetto Power BI): `X.pbip`, `X.Report/report.json`, `X.SemanticModel/model.bim`, risorse e tema; file di testo adatti a git. |
 | **Salvare `.pbit`** | Sì (File › Esporta modello Power BI): modello TOM, query M per ogni tabella, misure, relazioni, layout e immagini. Power BI Desktop ricarica i dati dalle origini, poi si salva come `.pbix`. |
 | **Salvare `.pbix`** | No: richiederebbe la scrittura del backup di Analysis Services con colonne VertiPaq e compressione XPress9 proprietaria; non esiste un writer open source. |
 
 Limiti dell'import: visual personalizzati, mappe, Q&A e simili diventano segnaposto; pulsanti e forme non vengono importati;
-i report in connessione dinamica (Power BI Service/SSAS) non contengono dati; il formato PBIR non è ancora letto.
+i report in connessione dinamica (Power BI Service/SSAS) non contengono dati.
 Le misure DAX importate passano dal motore della fase 5; una funzione non supportata mostra un messaggio esplicito nel visual.
 
-## Funzionalità (fasi 1–5)
+### File, temi e PDF (fase 6)
+
+- **Salva** produce un `.lbix` con i **dati incorporati** (Parquet compresso zstd, come i dati dentro un `.pbix`): il
+  report si riapre anche senza le origini; *Aggiorna* ricarica dalle origini originali. I vecchi `.lbix` JSON si aprono ancora.
+- **Temi** (Visualizza › Temi): galleria di temi incorporati, *Sfoglia temi…* per importare un file JSON di tema Power BI
+  (`name`, `dataColors`, `background`, `foreground`, `tableAccent`), *Salva tema corrente*. Il tema colora grafici e
+  sfondi, viene salvato nel report, esportato nel `.pbit`/`.pbip` come tema personalizzato e letto dai file Power BI.
+- **Esporta in PDF** (File): una pagina PDF 1280×720 per ogni pagina del report, con i filtri di ciascuna pagina.
+
+## Funzionalità (fasi 1–6)
 
 - Barra del titolo personalizzata, ribbon Home/Inserisci/Modellazione/Visualizza/Ottimizza/Guida, menu File
 - Import Testo/CSV, Excel (estensione DuckDB `excel`, richiede rete al primo uso), JSON, Parquet, dati di esempio *Financials*
@@ -133,12 +145,13 @@ Le misure DAX importate passano dal motore della fase 5; una funzione non suppor
 - Scorciatoie: Ctrl+S/O/Z/Y/C/V/D, Canc, frecce (Shift = 10px)
 - Editor di Power Query con passaggi applicati, codice M e SQL equivalente (vedi sopra)
 - DAX: misure, colonne e tabelle calcolate, vista query DAX (vedi sopra)
+- `.lbix` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
 
 ## Roadmap
 
 4. ~~**Power Query**~~ ✔ — prossimi passi: modifica dei passaggi esistenti, Editor avanzato modificabile (parser M), *Usa la prima riga come intestazione*, colonne condizionali, profilo colonna
 5. ~~**DAX completo**~~ ✔ — prossimi passi: misure rapide, IntelliSense nella barra della formula, gerarchie di date automatiche
-6. **File**: `.lbix` con dati incorporati (export DuckDB/Parquet), lettura PBIR, temi, esportazione PDF
+6. ~~**File**~~ ✔ — prossimi passi: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint
 
 ## Test di fumo
 

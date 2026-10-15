@@ -1,12 +1,15 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { CrossFilter, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { CrossFilter, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
-import { connected, qi } from './query';
+import { connected, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
-import { parseLayout } from './pbix/layout';
-import { buildPbitParts } from './pbix/pbit';
+import { parseLayout, themeFromLayout } from './pbix/layout';
+import { pbirToLayout } from './pbix/pbir';
+import { buildPbipParts, buildPbitParts } from './pbix/pbit';
+import { pendingQueries } from './visuals/useVisualData';
+import { applyTheme, parseTheme, themeJson, THEMES } from './themes';
 import { compileQuery } from './pq/compile';
 import { dependencies, renameQueryRef, type QueryDef } from './pq/steps';
 
@@ -152,6 +155,11 @@ interface State {
   deleteMeasure: (name: string) => void;
   deleteCalcColumn: (table: string, name: string) => Promise<void>;
   finalizeModel: () => Promise<void>;
+  setTheme: (t: Theme | undefined) => void;
+  printing: boolean;
+  exportPdf: () => Promise<void>;
+  importTheme: () => Promise<void>;
+  exportTheme: () => Promise<void>;
 
   openPowerQuery: (focus?: string, extra?: PQQuery) => void;
   pqSet: (fn: (st: PQState) => void) => void;
@@ -206,6 +214,7 @@ interface State {
   open: () => Promise<void>;
   importPowerBI: (path: string) => Promise<void>;
   exportPbit: () => Promise<void>;
+  exportPbip: () => Promise<void>;
   sourceName: string | null;
 }
 
@@ -331,6 +340,11 @@ export const useStore = create<State>((set, get) => {
         const failed: string[] = [];
         for (const t of model.tables) {
           try {
+            if (t.dax) {
+              // Calculated table: evaluated by finalizeModel() once the other tables are loaded.
+              set((s) => ({ tables: [...s.tables, { name: t.name, rowCount: 0, columns: [], source: { path: '', dax: t.dax } }] }));
+              continue;
+            }
             if (t.parquet) { await importTable(t.parquet, t.name, undefined, t.m ?? undefined); continue; }
             // .pbit: no data inside; try the local file the Power Query points at, else empty typed table.
             const src = /File\.Contents\("([^"]+)"\)/.exec(t.m ?? '')?.[1];
@@ -347,8 +361,9 @@ export const useStore = create<State>((set, get) => {
           }
         }
         const sortBy = new Map(model.tables.map((t) => [t.name, t.sortBy ?? {}]));
-        set((s) => ({ tables: s.tables.map((t) => ({ ...t, sortBy: sortBy.get(t.name) })) }));
-        const tables = get().tables;
+        // Calculated columns of schema-only files (.pbit/.pbip) are computed here; .pbix data already has them.
+        const calc = new Map(model.tables.filter((t) => !t.parquet && t.calcColumns?.length).map((t) => [t.name, t.calcColumns!]));
+        set((s) => ({ tables: s.tables.map((t) => ({ ...t, sortBy: sortBy.get(t.name), ...(calc.has(t.name) ? { calcColumns: calc.get(t.name) } : {}) })) }));
         const relationships: Relationship[] = model.relationships.map((r) => {
           const swap = r.cardinality === 'oneToMany';
           return {
@@ -360,16 +375,24 @@ export const useStore = create<State>((set, get) => {
           };
         });
         const measures = model.measures.map((m) => ({ table: m.table, name: m.name, expression: m.expression, formatString: m.formatString || undefined }));
-        const parsed = model.layout ? parseLayout(model.layout, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
+        // Calculated tables/columns first: the layout may use their fields.
+        if (get().tables.some((t) => t.source.dax || t.calcColumns?.length)) {
+          set({ report: { ...emptyReport(), relationships, measures } });
+          await get().finalizeModel();
+        }
+        const tables = get().tables;
+        const layoutJson = model.layout ?? (model.pbir ? pbirToLayout(model.pbir) : null);
+        const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures };
+        const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}) };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
         const notes = [
           `Importati: ${tables.length} tabelle, ${relationships.length} relazioni, ${measures.length} misure, ${pages.length} pagine.`,
           ...model.warnings,
-          failed.length ? `Dati non disponibili per: ${failed.join(', ')} (modello .pbit: origini non raggiungibili da Linux).` : '',
+          failed.length ? `Dati non disponibili per: ${failed.join(', ')} (${model.kind === 'pbip' ? 'progetto .pbip' : 'modello .pbit'}: il file non contiene dati e le origini non sono raggiungibili).` : '',
           unsupportedDax ? `${unsupportedDax} misure DAX usano funzioni non ancora supportate.` : '',
           parsed && Object.keys(parsed.skipped).length ? `Oggetti visivi non supportati: ${Object.entries(parsed.skipped).map(([k, n]) => `${k} (${n})`).join(', ')}.` : '',
         ].filter(Boolean);
@@ -391,6 +414,17 @@ export const useStore = create<State>((set, get) => {
         get().notify('Esportazione non riuscita: ' + e.message);
       }
     },
+    exportPbip: async () => {
+      set({ fileMenu: false });
+      const { report, tables, filePath, sourceName } = get();
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      try {
+        const out = await api.savePbip(buildPbipParts(report, tables), base + '.pbip');
+        if (out) get().notify(`Progetto salvato: ${out.split('/').pop()} con le cartelle .Report e .SemanticModel (file di testo, adatti a git).`, 9000);
+      } catch (e: any) {
+        get().notify('Salvataggio del progetto non riuscito: ' + e.message);
+      }
+    },
     relManage: false,
     relEditor: null,
     selectedRelId: null,
@@ -398,6 +432,39 @@ export const useStore = create<State>((set, get) => {
     daxEdit: null,
     daxQueryText: '',
 
+    printing: false,
+    exportPdf: async () => {
+      const { filePath, sourceName } = get();
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      set({ fileMenu: false, crossFilter: null, printing: true, busy: 'Esportazione in PDF…' });
+      try {
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        await wait(400);
+        for (let t = 0; t < 30000 && pendingQueries() > 0; t += 100) await wait(100);
+        await wait(700); // chart animations
+        const out = await api.printPdf(base + '.pdf');
+        if (out) get().notify(`Esportato ${out.split('/').pop()} (${get().report.pages.length} ${get().report.pages.length === 1 ? 'pagina' : 'pagine'}).`);
+      } catch (e: any) {
+        get().notify('Esportazione PDF non riuscita: ' + e.message);
+      } finally {
+        set({ printing: false, busy: null });
+      }
+    },
+    setTheme: (t) => get().mut((r) => { if (t) r.theme = t; else delete r.theme; }),
+    importTheme: async () => {
+      try {
+        const f = await api.readText('theme');
+        if (!f) return;
+        const t = parseTheme(f.content, f.path.split('/').pop()!.replace(/\.json$/i, ''));
+        get().setTheme(t);
+        get().notify(`Tema "${t.name}" applicato.`);
+      } catch (e: any) { get().notify('Tema non valido: ' + e.message); }
+    },
+    exportTheme: async () => {
+      const t = get().report.theme ?? THEMES[0];
+      const p = await api.saveText(themeJson(t), `${t.name}.json`, 'theme');
+      if (p) get().notify(`Tema salvato in ${p.split('/').pop()}.`);
+    },
     model: () => ({ tables: get().tables, rels: get().report.relationships, measures: get().report.measures }),
     startDax: (kind, table, original) => {
       const { tables, report, dataViewTable } = get();
@@ -841,12 +908,20 @@ export const useStore = create<State>((set, get) => {
     },
     save: async (as = false) => {
       const { tables, report, filePath } = get();
-      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, steps: t.steps, sortBy: t.sortBy, calcColumns: t.calcColumns })), report }, null, 2);
+      // Version 2: data embedded as Parquet (like a .pbix), sources and steps kept for refresh.
+      const content = JSON.stringify({
+        format: 'lbix', version: 2,
+        tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, calcColumns: t.calcColumns, data: `data/${i}.parquet` })),
+        report,
+      }, null, 2);
+      set({ busy: 'Salvataggio…' });
       try {
-        const p = await api.saveFile(content, as ? null : filePath);
+        const p = await api.saveFile(content, as ? null : filePath, tables.map((t, i) => ({ table: t.name, file: `data/${i}.parquet` })));
         if (p) set({ filePath: p, dirty: false, fileMenu: false });
       } catch (e: any) {
         get().notify('Salvataggio non riuscito: ' + e.message);
+      } finally {
+        set({ busy: null });
       }
     },
     open: async () => {
@@ -859,8 +934,17 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];
-        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns'] })[];
+        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns']; sourceColumns?: TableMeta['sourceColumns']; data?: string })[];
         for (const t of defs) {
+          if (f.dataDir && t.data) {
+            // Embedded data: no access to the original sources needed (Aggiorna reloads from them).
+            try {
+              const meta = await api.materialize(t.name, `SELECT * FROM read_parquet(${ql(`${f.dataDir}/${t.data}`)})`);
+              const { data: _d, ...def } = t;
+              set((st) => ({ tables: [...st.tables, { ...meta, ...def } as TableMeta], dataVersion: st.dataVersion + 1 }));
+              continue;
+            } catch { /* fall back to the sources */ }
+          }
           if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns }] })); continue; }
           try { await loadTable(t, defs); } catch { failed.push(t.name); }
         }
@@ -879,3 +963,6 @@ export const useStore = create<State>((set, get) => {
     },
   };
 });
+
+// Charts and backgrounds read the theme from shared state: keep it in sync with the report.
+useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) applyTheme(s.report.theme); });

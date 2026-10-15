@@ -121,19 +121,26 @@ def from_schema(z, out):
         name = t["name"]
         if SKIP_TABLE.match(name):
             continue
-        m = None
+        m = dax = None
         for p in t.get("partitions", []):
             src = p.get("source", {})
             expr = src.get("expression")
             if expr is not None:
-                m = "\n".join(expr) if isinstance(expr, list) else expr
+                text = "\n".join(expr) if isinstance(expr, list) else expr
+                if src.get("type") == "calculated":
+                    dax = text  # calculated table (DAX)
+                else:
+                    m = text
+        calc = [{"name": c["name"], "expression": "\n".join(c["expression"]) if isinstance(c.get("expression"), list) else c.get("expression", "")}
+                for c in t.get("columns", []) if c.get("type") == "calculated"]
         cols = [{"name": c["name"], "dataType": c.get("dataType", "string")}
-                for c in t.get("columns", []) if c.get("type") != "rowNumber" and not c["name"].startswith("RowNumber-")]
+                for c in t.get("columns", []) if c.get("type") not in ("rowNumber", "calculated") and not c["name"].startswith("RowNumber-")]
         all_hidden = all(c.get("isHidden") for c in t.get("columns", []) if c.get("type") != "rowNumber")
         measure_table = bool(t.get("measures")) and all_hidden
         sort_by = {c["name"]: c["sortByColumn"] for c in t.get("columns", []) if c.get("sortByColumn")}
         if not measure_table:  # measure tables only carry measures
-            out["tables"].append({"name": name, "parquet": None, "rows": 0, "m": m, "columns": cols, "sortBy": sort_by})
+            out["tables"].append({"name": name, "parquet": None, "rows": 0, "m": m, "columns": cols, "sortBy": sort_by,
+                                  **({"dax": dax} if dax else {}), **({"calcColumns": calc} if calc else {})})
         for ms in t.get("measures", []):
             expr = ms.get("expression", "")
             out["measures"].append({"table": name, "name": ms["name"],
@@ -163,11 +170,13 @@ def main():
         if "Report/Layout" in names:
             out["layout"] = utf16(z, "Report/Layout")
         elif any(n.startswith("Report/definition/") for n in names):
-            out["warnings"].append("Il report usa il formato PBIR: le pagine non vengono importate, solo il modello dati.")
+            # Enhanced report format (PBIR): JSON files per page/visual, converted in src/pbix/pbir.ts.
+            out["pbir"] = {n[len("Report/definition/"):]: z.read(n).decode("utf-8-sig")
+                           for n in names if n.startswith("Report/definition/") and n.endswith(".json")}
         for n in names:
             if n.startswith("Report/StaticResources/RegisteredResources/") and z.getinfo(n).file_size <= MAX_RESOURCE:
                 mime = mimetypes.guess_type(n)[0] or "application/octet-stream"
-                if mime.startswith("image/"):
+                if mime.startswith("image/") or mime == "application/json":
                     out["resources"][n.rsplit("/", 1)[1]] = f"data:{mime};base64," + base64.b64encode(z.read(n)).decode()
         if "DataModel" in names:
             out["kind"] = "pbix"

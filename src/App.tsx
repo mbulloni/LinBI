@@ -11,6 +11,8 @@ import { Navigator } from './components/Navigator';
 import { PowerQueryEditor } from './components/PowerQuery';
 import { DaxBar } from './components/DaxBar';
 import { DaxQueryView } from './components/DaxQueryView';
+import { VisualStatic } from './components/VisualContainer';
+import { THEME } from './themes';
 import { Icon } from './components/icons';
 import { FiltersPane, CollapsedPane } from './panes/FiltersPane';
 import { VisualizationsPane } from './panes/VisualizationsPane';
@@ -97,6 +99,15 @@ export function App() {
       <StatusBar fitScale={fit} />
       <Backstage />
       <Navigator />
+      {s.printing && (
+        <div className="print-root">
+          {s.report.pages.map((p) => (
+            <div key={p.id} className="print-page" style={{ backgroundColor: THEME.background, ...(p.background ? { backgroundImage: `url(${p.background})`, backgroundSize: '100% 100%' } : {}) }}>
+              {p.visuals.map((v) => <VisualStatic key={v.id} v={v} />)}
+            </div>
+          ))}
+        </div>
+      )}
       <PowerQueryEditor />
       <ManageRelationships />
       <RelationshipEditor />

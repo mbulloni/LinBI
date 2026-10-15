@@ -3,6 +3,20 @@ import { useStore } from '../store';
 import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
 import { VISUALS } from '../visuals/catalog';
+import { THEMES } from '../themes';
+import type { Theme } from '../types';
+
+function ThemeSwatch({ t, active, onClick, label }: { t: Theme; active: boolean; onClick: () => void; label?: boolean }) {
+  return (
+    <button className={'theme-swatch' + (active ? ' active' : '')} title={t.name} onClick={onClick}>
+      <span className="sw" style={{ background: t.background ?? '#fff' }}>
+        <b style={{ color: t.foreground ?? '#252423' }}>Aa</b>
+        <span className="bars">{t.dataColors.slice(0, 4).map((c, i) => <i key={i} style={{ background: c }} />)}</span>
+      </span>
+      {label && <span className="nm">{t.name}</span>}
+    </button>
+  );
+}
 
 type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help';
 const TABS: [Tab, string][] = [['home', 'Home'], ['insert', 'Inserisci'], ['modeling', 'Modellazione'], ['view', 'Visualizza'], ['optimize', 'Ottimizza'], ['help', 'Guida']];
@@ -130,7 +144,12 @@ export function Ribbon() {
         </>}
 
         {tab === 'view' && <>
-          <Group label="Temi"><Big icon="themes" label="Temi" disabled dropdown /></Group>
+          <Group label="Temi">
+            <div className="theme-strip">
+              {THEMES.slice(0, 4).map((t) => <ThemeSwatch key={t.name} t={t} active={(s.report.theme?.name ?? 'Predefinito') === t.name} onClick={() => s.setTheme(t.name === 'Predefinito' ? undefined : t)} />)}
+            </div>
+            <Big icon="themes" label="Temi" dropdown onClick={openMenu('themes')} />
+          </Group>
           <Group label="Ridimensiona">
             <Big icon="pageView" label={<>Visualizzazione<br />pagina</>} dropdown onClick={openMenu('pageview')} disabled={!report} />
             <Big icon="mobile" label={<>Layout<br />per dispositivi mobili</>} disabled />
@@ -180,6 +199,18 @@ export function Ribbon() {
       {menu?.kind === 'visuals' && (
         <Menu x={menu.x} y={menu.y} onClose={close}>
           {VISUALS.map((v) => <button key={v.type} onClick={() => { close(); s.addVisual(v.type); }}><VisualIcon type={v.type} />{v.name}</button>)}
+        </Menu>
+      )}
+      {menu?.kind === 'themes' && (
+        <Menu x={menu.x} y={menu.y} onClose={close}>
+          <div className="hdr">Questo report</div>
+          <div className="theme-grid">
+            {THEMES.map((t) => <ThemeSwatch key={t.name} t={t} label active={(s.report.theme?.name ?? 'Predefinito') === t.name} onClick={() => { close(); s.setTheme(t.name === 'Predefinito' ? undefined : t); }} />)}
+            {s.report.theme && !THEMES.some((t) => t.name === s.report.theme!.name) && <ThemeSwatch t={s.report.theme} label active onClick={close} />}
+          </div>
+          <hr />
+          <button onClick={() => { close(); s.importTheme(); }}>Sfoglia temi…</button>
+          <button onClick={() => { close(); s.exportTheme(); }}>Salva tema corrente</button>
         </Menu>
       )}
       {menu?.kind === 'newpage' && (
