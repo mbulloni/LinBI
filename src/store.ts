@@ -1,0 +1,568 @@
+import { create } from 'zustand';
+import { api } from './api';
+import type { CrossFilter, FieldRef, Filter, Page, Relationship, Report, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import { isNumeric, uid } from './format';
+import { visualDef } from './visuals/catalog';
+import { connected, qi } from './query';
+import { compileMeasure } from './dax';
+import { parseLayout } from './pbix/layout';
+import { buildPbitParts } from './pbix/pbit';
+
+export const PAGE_W = 1280;
+export const PAGE_H = 720;
+
+export const defaultFormat = (type: VisualType): VisualFormat => ({
+  titleShow: !['textbox', 'card', 'table', 'matrix'].includes(type),
+  titleText: '',
+  titleSize: 14,
+  legendShow: true,
+  legendPos: 'top',
+  dataLabels: type === 'pie' || type === 'donut' || type === 'treemap' || type === 'funnel',
+  xAxisShow: true,
+  yAxisShow: true,
+  gridlines: true,
+  color: '#118DFF',
+  background: '#FFFFFF',
+  border: false,
+  slicerStyle: 'list',
+});
+
+const newPage = (n: number): Page => ({ id: uid(), name: `Pagina ${n}`, visuals: [], filters: [] });
+const emptyReport = (): Report => ({ pages: [newPage(1)], reportFilters: [], relationships: [], modelLayout: {}, measures: [] });
+
+/** Field dragged/checked from the Data pane; `measure` marks a DAX measure. */
+export type FieldDrop = Omit<FieldRef, 'agg'> & { measure?: boolean };
+
+export interface RelEditor { draft: Relationship; isNew: boolean; }
+
+/** True when every non-null value of table.column is distinct (candidate "one" side). */
+export async function isUnique(table: string, column: string): Promise<boolean> {
+  const r = await api.query(`SELECT COUNT(DISTINCT ${qi(column)}) = COUNT(*) AS u FROM ${qi(table)}`);
+  return r.rows[0]?.u === true;
+}
+
+export type FilterScope = 'visual' | 'page' | 'report';
+
+export interface Navigator { path: string; tableName: string; preview: { columns: string[]; rows: any[] } | null; error?: string; loading: boolean; }
+
+interface State {
+  tables: TableMeta[];
+  report: Report;
+  activePageId: string;
+  view: View;
+  selectedVisualId: string | null;
+  crossFilter: CrossFilter | null;
+  panes: { filters: boolean; viz: boolean; data: boolean };
+  vizTab: 'build' | 'format';
+  dataVersion: number;
+  filePath: string | null;
+  dirty: boolean;
+  past: Report[];
+  future: Report[];
+  navigator: Navigator | null;
+  zoom: number | 'fit';
+  toast: string | null;
+  dataViewTable: string | null;
+  fileMenu: boolean;
+  gridlines: boolean;
+  snapToGrid: boolean;
+  busy: string | null;
+  clipboard: Visual | null;
+  focusId: string | null;
+  relManage: boolean;
+  relEditor: RelEditor | null;
+  selectedRelId: string | null;
+
+  saveRelationship: (r: Relationship) => void;
+  deleteRelationship: (id: string) => void;
+  detectRelationships: (only?: string[]) => Promise<number>;
+  setModelPos: (table: string, pos: { x: number; y: number }) => void;
+
+  set: (p: Partial<State>) => void;
+  mut: (fn: (r: Report) => void) => void;
+  undo: () => void;
+  redo: () => void;
+  notify: (msg: string, ms?: number) => void;
+
+  page: () => Page;
+  setView: (v: View) => void;
+  setActivePage: (id: string) => void;
+  addPage: () => void;
+  renamePage: (id: string, name: string) => void;
+  deletePage: (id: string) => void;
+  duplicatePage: (id: string) => void;
+
+  addVisual: (type: VisualType, at?: { x: number; y: number }) => string;
+  updateVisual: (id: string, patch: Partial<Visual>, commit?: boolean) => void;
+  updateFormat: (id: string, patch: Partial<VisualFormat>) => void;
+  removeVisual: (id: string) => void;
+  duplicateVisual: (id: string) => void;
+  changeVisualType: (id: string, type: VisualType) => void;
+  addField: (visualId: string | null, field: FieldDrop, well?: string, at?: { x: number; y: number }) => void;
+  removeField: (visualId: string, well: string, idx: number) => void;
+  setFieldAgg: (visualId: string, well: string, idx: number, agg: FieldRef['agg']) => void;
+  selectVisual: (id: string | null) => void;
+  setCross: (c: CrossFilter | null) => void;
+
+  addFilter: (scope: FilterScope, field: Omit<FieldRef, 'agg'>) => void;
+  updateFilter: (scope: FilterScope, id: string, values: string[], field?: Omit<FieldRef, 'agg'>) => void;
+  removeFilter: (scope: FilterScope, id: string) => void;
+
+  openNavigator: (kind: string) => Promise<void>;
+  loadNavigator: () => Promise<void>;
+  loadSample: () => Promise<void>;
+  removeTable: (name: string) => Promise<void>;
+  refresh: () => Promise<void>;
+
+  newReport: () => Promise<void>;
+  save: (as?: boolean) => Promise<void>;
+  open: () => Promise<void>;
+  importPowerBI: (path: string) => Promise<void>;
+  exportPbit: () => Promise<void>;
+  sourceName: string | null;
+}
+
+const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+
+function tableNameFor(path: string, existing: TableMeta[]): string {
+  const base = path.split('/').pop()!.replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N} _-]/gu, '_') || 'Tabella';
+  let name = base, i = 2;
+  while (existing.some((t) => t.name === name)) name = `${base} (${i++})`;
+  return name;
+}
+
+export const useStore = create<State>((set, get) => {
+  const init = emptyReport();
+
+  const findVisual = (r: Report, id: string) => {
+    for (const p of r.pages) {
+      const v = p.visuals.find((x) => x.id === id);
+      if (v) return v;
+    }
+    return undefined;
+  };
+
+  const filterList = (r: Report, scope: FilterScope): Filter[] | undefined => {
+    if (scope === 'report') return r.reportFilters;
+    const p = r.pages.find((x) => x.id === get().activePageId)!;
+    if (scope === 'page') return p.filters;
+    const v = p.visuals.find((x) => x.id === get().selectedVisualId);
+    return v ? (v.filters ??= []) : undefined;
+  };
+
+  const columnOf = (f: Omit<FieldRef, 'agg'>) => get().tables.find((t) => t.name === f.table)?.columns.find((c) => c.name === f.column);
+
+  /** Puts a field into the best-fitting well, mimicking Power BI's auto placement. */
+  const placeField = (v: Visual, field: FieldDrop, wellKey?: string) => {
+    const def = visualDef(v.type);
+    const { measure, ...f } = field;
+    const num = measure || isNumeric(columnOf(f));
+    const hasRoom = (k: string) => {
+      const w = def.wells.find((x) => x.key === k)!;
+      return !w.max || (v.fields[k]?.length ?? 0) < w.max;
+    };
+    let well = wellKey ? def.wells.find((w) => w.key === wellKey) : undefined;
+    if (!well) {
+      well = (num ? def.wells.find((w) => w.measure && hasRoom(w.key)) : undefined)
+        ?? def.wells.find((w) => !w.measure && hasRoom(w.key))
+        ?? def.wells.find((w) => hasRoom(w.key))
+        ?? def.wells[0];
+    }
+    if (!well) return;
+    const agg: FieldRef['agg'] = measure ? 'measure' : v.type === 'table' ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
+    const list = (v.fields[well.key] ??= []);
+    if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg)) return;
+    if (well.max && list.length >= well.max) list.splice(well.max - 1);
+    list.push({ ...f, agg });
+  };
+
+  const nextPosition = (p: Page, w: number, h: number) => {
+    const n = p.visuals.length;
+    return { x: 20 + ((n * 30) % 400), y: 20 + ((n * 30) % 240), w, h };
+  };
+
+  const defaultSize = (type: VisualType) =>
+    type === 'card' ? { w: 220, h: 120 } : type === 'slicer' ? { w: 220, h: 260 } : type === 'textbox' ? { w: 300, h: 80 } : { w: 440, h: 300 };
+
+  const importTable = async (path: string, name: string, sheet?: string, m?: string) => {
+    const meta = await api.importFile(path, name, sheet);
+    const prev = get().tables.find((x) => x.name === name);
+    const t: TableMeta = { ...meta, source: { path, sheet, ...(m ? { m } : {}) }, ...(prev?.sortBy ? { sortBy: prev.sortBy } : {}) };
+    set((s) => ({
+      tables: [...s.tables.filter((x) => x.name !== name), t],
+      dataVersion: s.dataVersion + 1,
+      dataViewTable: s.dataViewTable ?? name,
+      dirty: true,
+    }));
+  };
+
+  return {
+    tables: [],
+    report: init,
+    activePageId: init.pages[0].id,
+    view: 'report',
+    selectedVisualId: null,
+    crossFilter: null,
+    panes: { filters: true, viz: true, data: true },
+    vizTab: 'build',
+    dataVersion: 0,
+    filePath: null,
+    dirty: false,
+    past: [],
+    future: [],
+    navigator: null,
+    zoom: 'fit',
+    toast: null,
+    dataViewTable: null,
+    fileMenu: false,
+    gridlines: false,
+    snapToGrid: false,
+    busy: null,
+    clipboard: null,
+    focusId: null,
+    sourceName: null,
+
+    importPowerBI: async (path) => {
+      set({ fileMenu: false, busy: 'Lettura del file Power BI…' });
+      try {
+        const model = await api.readPowerBI(path);
+        await get().newReport();
+        set({ busy: `Caricamento di ${model.tables.length} tabelle…` });
+        const failed: string[] = [];
+        for (const t of model.tables) {
+          try {
+            if (t.parquet) { await importTable(t.parquet, t.name, undefined, t.m ?? undefined); continue; }
+            // .pbit: no data inside; try the local file the Power Query points at, else empty typed table.
+            const src = /File\.Contents\("([^"]+)"\)/.exec(t.m ?? '')?.[1];
+            const sheet = /Item="([^"]+)",Kind="Sheet"/.exec(t.m ?? '')?.[1];
+            let ok = false;
+            if (src) { try { await importTable(src, t.name, sheet, t.m ?? undefined); ok = true; } catch { /* fall through */ } }
+            if (!ok) {
+              const meta = await api.createEmptyTable(t.name, t.columns ?? []);
+              set((s) => ({ tables: [...s.tables, { ...meta, source: { path: src ?? '', m: t.m ?? undefined } }] }));
+              failed.push(t.name);
+            }
+          } catch {
+            failed.push(t.name);
+          }
+        }
+        const sortBy = new Map(model.tables.map((t) => [t.name, t.sortBy ?? {}]));
+        set((s) => ({ tables: s.tables.map((t) => ({ ...t, sortBy: sortBy.get(t.name) })) }));
+        const tables = get().tables;
+        const relationships: Relationship[] = model.relationships.map((r) => {
+          const swap = r.cardinality === 'oneToMany';
+          return {
+            id: uid(),
+            fromTable: swap ? r.toTable : r.fromTable, fromColumn: swap ? r.toColumn : r.fromColumn,
+            toTable: swap ? r.fromTable : r.toTable, toColumn: swap ? r.fromColumn : r.toColumn,
+            cardinality: r.cardinality === 'oneToOne' ? 'oneToOne' : r.cardinality === 'manyToMany' ? 'manyToMany' : 'manyToOne',
+            crossFilter: r.crossFilter, active: r.active,
+          };
+        });
+        const measures = model.measures.map((m) => ({ table: m.table, name: m.name, expression: m.expression, formatString: m.formatString || undefined }));
+        const parsed = model.layout ? parseLayout(model.layout, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
+        const pages = parsed?.pages ?? emptyReport().pages;
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures };
+        set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
+
+        const unsupportedDax = measures.filter((m) => 'error' in compileMeasure(m.name, m.table, measures, tables)).length;
+        const notes = [
+          `Importati: ${tables.length} tabelle, ${relationships.length} relazioni, ${measures.length} misure, ${pages.length} pagine.`,
+          ...model.warnings,
+          failed.length ? `Dati non disponibili per: ${failed.join(', ')} (modello .pbit: origini non raggiungibili da Linux).` : '',
+          unsupportedDax ? `${unsupportedDax} misure DAX usano funzioni non ancora supportate.` : '',
+          parsed && Object.keys(parsed.skipped).length ? `Oggetti visivi non supportati: ${Object.entries(parsed.skipped).map(([k, n]) => `${k} (${n})`).join(', ')}.` : '',
+        ].filter(Boolean);
+        get().notify(notes.join(' '), 15000);
+      } catch (e: any) {
+        get().notify(e.message, 15000);
+      } finally {
+        set({ busy: null });
+      }
+    },
+    exportPbit: async () => {
+      set({ fileMenu: false });
+      const { report, tables, filePath, sourceName } = get();
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit)$/i, '');
+      try {
+        const out = await api.savePbit(buildPbitParts(report, tables), base + '.pbit');
+        if (out) get().notify(`Esportato ${out.split('/').pop()}. Aprirlo in Power BI Desktop: i dati vengono ricaricati dalle origini (percorsi Linux da aggiornare in Trasforma dati › Impostazioni origine dati).`, 12000);
+      } catch (e: any) {
+        get().notify('Esportazione non riuscita: ' + e.message);
+      }
+    },
+    relManage: false,
+    relEditor: null,
+    selectedRelId: null,
+
+    saveRelationship: (rel) => get().mut((r) => {
+      const i = r.relationships.findIndex((x) => x.id === rel.id);
+      if (i >= 0) r.relationships[i] = rel; else r.relationships.push(rel);
+    }),
+    deleteRelationship: (id) => {
+      get().mut((r) => { r.relationships = r.relationships.filter((x) => x.id !== id); });
+      if (get().selectedRelId === id) set({ selectedRelId: null });
+    },
+    // Power BI-style autodetect: same column name (case-insensitive), compatible type,
+    // unique values on exactly one side (→ *:1) or both (→ 1:1). Ambiguous paths stay inactive.
+    detectRelationships: async (only) => {
+      const tables = get().tables;
+      const found: Relationship[] = [];
+      const rels = () => [...get().report.relationships, ...found];
+      const related = (a: string, b: string) => rels().some((x) => (x.fromTable === a && x.toTable === b) || (x.fromTable === b && x.toTable === a));
+      for (let i = 0; i < tables.length; i++) {
+        for (let j = i + 1; j < tables.length; j++) {
+          const a = tables[i], b = tables[j];
+          if (only && !only.includes(a.name) && !only.includes(b.name)) continue;
+          if (related(a.name, b.name)) continue;
+          for (const ca of a.columns) {
+            const cb = b.columns.find((c) => c.name.toLowerCase() === ca.name.toLowerCase());
+            if (!cb || isNumeric(ca) !== isNumeric(cb) || related(a.name, b.name)) continue;
+            const [ua, ub] = await Promise.all([isUnique(a.name, ca.name), isUnique(b.name, cb.name)]);
+            if (!ua && !ub) continue;
+            const [m, mc, o, oc] = ub ? [a.name, ca.name, b.name, cb.name] : [b.name, cb.name, a.name, ca.name];
+            found.push({
+              id: uid(), fromTable: m, fromColumn: mc, toTable: o, toColumn: oc,
+              cardinality: ua && ub ? 'oneToOne' : 'manyToOne', crossFilter: ua && ub ? 'both' : 'single',
+              active: !connected(rels(), m, o),
+            });
+          }
+        }
+      }
+      if (found.length) get().mut((r) => r.relationships.push(...found));
+      return found.length;
+    },
+    setModelPos: (table, pos) => get().mut((r) => { r.modelLayout[table] = pos; }),
+
+    set: (p) => set(p),
+
+    mut: (fn) => {
+      const prev = clone(get().report);
+      const next = clone(prev);
+      fn(next);
+      set((s) => ({ report: next, past: [...s.past.slice(-49), prev], future: [], dirty: true }));
+    },
+    undo: () => {
+      const { past, report, future } = get();
+      if (!past.length) return;
+      const prev = past[past.length - 1];
+      set({ report: prev, past: past.slice(0, -1), future: [report, ...future], dirty: true });
+      if (!prev.pages.some((p) => p.id === get().activePageId)) set({ activePageId: prev.pages[0].id });
+    },
+    redo: () => {
+      const { past, report, future } = get();
+      if (!future.length) return;
+      set({ report: future[0], future: future.slice(1), past: [...past, report], dirty: true });
+    },
+    notify: (msg, ms = 6000) => {
+      set({ toast: msg });
+      setTimeout(() => get().toast === msg && set({ toast: null }), ms);
+    },
+
+    page: () => get().report.pages.find((p) => p.id === get().activePageId) ?? get().report.pages[0],
+    setView: (view) => set({ view, fileMenu: false }),
+    setActivePage: (id) => set({ activePageId: id, selectedVisualId: null, crossFilter: null }),
+    addPage: () => {
+      const p = newPage(get().report.pages.length + 1);
+      while (get().report.pages.some((x) => x.name === p.name)) p.name += '+';
+      get().mut((r) => r.pages.push(p));
+      set({ activePageId: p.id, selectedVisualId: null, crossFilter: null });
+    },
+    renamePage: (id, name) => get().mut((r) => { const p = r.pages.find((x) => x.id === id); if (p && name.trim()) p.name = name.trim(); }),
+    deletePage: (id) => {
+      const pages = get().report.pages;
+      if (pages.length <= 1) return;
+      const idx = pages.findIndex((p) => p.id === id);
+      get().mut((r) => { r.pages = r.pages.filter((p) => p.id !== id); });
+      if (get().activePageId === id) set({ activePageId: get().report.pages[Math.max(0, idx - 1)].id });
+    },
+    duplicatePage: (id) => {
+      const src = get().report.pages.find((p) => p.id === id);
+      if (!src) return;
+      const copy: Page = { ...clone(src), id: uid(), name: `Duplicato di ${src.name}` };
+      copy.visuals.forEach((v) => (v.id = uid()));
+      get().mut((r) => r.pages.splice(r.pages.findIndex((p) => p.id === id) + 1, 0, copy));
+      set({ activePageId: copy.id });
+    },
+
+    addVisual: (type, at) => {
+      const id = uid();
+      const page = get().page();
+      const size = defaultSize(type);
+      const pos = at ? { ...at, ...size } : nextPosition(page, size.w, size.h);
+      const z = Math.max(0, ...page.visuals.map((v) => v.z)) + 1;
+      get().mut((r) => {
+        r.pages.find((p) => p.id === page.id)!.visuals.push({ id, type, ...pos, z, fields: {}, format: defaultFormat(type), text: type === 'textbox' ? '' : undefined });
+      });
+      set({ selectedVisualId: id, vizTab: 'build' });
+      return id;
+    },
+    updateVisual: (id, patch, commit = true) => {
+      if (commit) get().mut((r) => Object.assign(findVisual(r, id)!, patch));
+      else {
+        const r = clone(get().report);
+        Object.assign(findVisual(r, id)!, patch);
+        set({ report: r, dirty: true });
+      }
+    },
+    updateFormat: (id, patch) => get().mut((r) => { const v = findVisual(r, id); if (v) v.format = { ...v.format, ...patch }; }),
+    removeVisual: (id) => {
+      get().mut((r) => r.pages.forEach((p) => (p.visuals = p.visuals.filter((v) => v.id !== id))));
+      set((s) => ({ selectedVisualId: s.selectedVisualId === id ? null : s.selectedVisualId, crossFilter: s.crossFilter?.visualId === id ? null : s.crossFilter }));
+    },
+    duplicateVisual: (id) => {
+      const nid = uid();
+      get().mut((r) => {
+        for (const p of r.pages) {
+          const v = p.visuals.find((x) => x.id === id);
+          if (v) p.visuals.push({ ...clone(v), id: nid, x: v.x + 20, y: v.y + 20, z: Math.max(...p.visuals.map((q) => q.z)) + 1 });
+        }
+      });
+      set({ selectedVisualId: nid });
+    },
+    changeVisualType: (id, type) => get().mut((r) => {
+      const v = findVisual(r, id);
+      if (!v || v.type === type) return;
+      const all = Object.values(v.fields).flat();
+      v.type = type;
+      v.fields = {};
+      v.format = { ...defaultFormat(type), titleText: v.format.titleText, background: v.format.background, border: v.format.border };
+      for (const f of all) placeField(v, { table: f.table, column: f.column, measure: f.agg === 'measure' });
+    }),
+    addField: (visualId, field, well, at) => {
+      let id = visualId;
+      if (!id) {
+        const type: VisualType = field.measure ? 'card' : isNumeric(columnOf(field)) ? 'clusteredColumn' : 'table';
+        id = get().addVisual(type, at);
+        // Fold into the creation step so a single undo removes the new visual.
+        const past = get().past;
+        get().mut((r) => placeField(findVisual(r, id!)!, field, well));
+        set({ past: past });
+        return;
+      }
+      get().mut((r) => { const v = findVisual(r, id!); if (v) placeField(v, field, well); });
+    },
+    removeField: (visualId, well, idx) => get().mut((r) => { const v = findVisual(r, visualId); v?.fields[well]?.splice(idx, 1); }),
+    setFieldAgg: (visualId, well, idx, agg) => get().mut((r) => { const f = findVisual(r, visualId)?.fields[well]?.[idx]; if (f) f.agg = agg; }),
+    selectVisual: (id) => set({ selectedVisualId: id }),
+    setCross: (c) => set({ crossFilter: c }),
+
+    addFilter: (scope, field) => get().mut((r) => {
+      const list = filterList(r, scope);
+      if (list && !list.some((f) => f.table === field.table && f.column === field.column)) list.push({ id: uid(), ...field, values: [] });
+    }),
+    // `field` materialises the implicit per-field filter cards of a visual on first edit.
+    updateFilter: (scope, id, values, field) => get().mut((r) => {
+      const list = filterList(r, scope);
+      if (!list) return;
+      const f = list.find((x) => x.id === id);
+      if (f) f.values = values;
+      else if (field) list.push({ id, ...field, values });
+    }),
+    removeFilter: (scope, id) => get().mut((r) => {
+      const list = filterList(r, scope);
+      if (list) list.splice(0, list.length, ...list.filter((f) => f.id !== id));
+    }),
+
+    openNavigator: async (kind) => {
+      set({ fileMenu: false });
+      const path = await api.openDataDialog(kind);
+      if (!path) return;
+      set({ navigator: { path, tableName: tableNameFor(path, get().tables), preview: null, loading: true } });
+      try {
+        const preview = await api.preview(path);
+        set((s) => ({ navigator: s.navigator && { ...s.navigator, preview, loading: false } }));
+      } catch (e: any) {
+        set((s) => ({ navigator: s.navigator && { ...s.navigator, error: e.message, loading: false } }));
+      }
+    },
+    loadNavigator: async () => {
+      const nav = get().navigator;
+      if (!nav) return;
+      set({ navigator: { ...nav, loading: true }, busy: 'Caricamento dei dati…' });
+      try {
+        await importTable(nav.path, nav.tableName);
+        set({ navigator: null });
+        const n = await get().detectRelationships([nav.tableName]);
+        if (n) get().notify(`Rilevate automaticamente ${n} ${n === 1 ? 'relazione' : 'relazioni'}. Verificarle nella vista modello.`);
+      } catch (e: any) {
+        set({ navigator: { ...nav, loading: false, error: e.message } });
+      } finally {
+        set({ busy: null });
+      }
+    },
+    loadSample: async () => {
+      set({ busy: 'Caricamento dei dati di esempio…', fileMenu: false });
+      try {
+        const p = await api.sampleData();
+        await importTable(p.financials, 'financials');
+        await importTable(p.products, 'products');
+        await importTable(p.countries, 'countries');
+        await get().detectRelationships(['financials', 'products', 'countries']);
+      } catch (e: any) {
+        get().notify('Errore: ' + e.message);
+      } finally {
+        set({ busy: null });
+      }
+    },
+    removeTable: async (name) => {
+      await api.dropTable(name);
+      get().mut((r) => {
+        r.relationships = r.relationships.filter((x) => x.fromTable !== name && x.toTable !== name);
+        delete r.modelLayout[name];
+      });
+      set((s) => ({ tables: s.tables.filter((t) => t.name !== name), dataVersion: s.dataVersion + 1, dataViewTable: s.dataViewTable === name ? null : s.dataViewTable, dirty: true }));
+    },
+    refresh: async () => {
+      set({ busy: 'Aggiornamento in corso…' });
+      try {
+        for (const t of get().tables) await importTable(t.source.path, t.name, t.source.sheet, t.source.m);
+      } catch (e: any) {
+        get().notify('Aggiornamento non riuscito: ' + e.message);
+      } finally {
+        set({ busy: null });
+      }
+    },
+
+    newReport: async () => {
+      for (const t of get().tables) await api.dropTable(t.name);
+      const r = emptyReport();
+      set({ sourceName: null, tables: [], report: r, activePageId: r.pages[0].id, selectedVisualId: null, crossFilter: null, filePath: null, dirty: false, past: [], future: [], fileMenu: false, view: 'report', dataViewTable: null, dataVersion: get().dataVersion + 1 });
+    },
+    save: async (as = false) => {
+      const { tables, report, filePath } = get();
+      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, sortBy: t.sortBy })), report }, null, 2);
+      try {
+        const p = await api.saveFile(content, as ? null : filePath);
+        if (p) set({ filePath: p, dirty: false, fileMenu: false });
+      } catch (e: any) {
+        get().notify('Salvataggio non riuscito: ' + e.message);
+      }
+    },
+    open: async () => {
+      const f = await api.openFile();
+      if (!f) return;
+      if (f.powerbi) return get().importPowerBI(f.path);
+      try {
+        const doc = JSON.parse(f.content!);
+        if (doc.format !== 'lbix') throw new Error('file non valido');
+        await get().newReport();
+        set({ busy: 'Apertura del report…' });
+        const failed: string[] = [];
+        for (const t of doc.tables as { name: string; source: TableMeta['source']; sortBy?: Record<string, string> }[]) {
+          try { await importTable(t.source.path, t.name, t.source.sheet, t.source.m); } catch { failed.push(t.name); }
+          if (t.sortBy) set((st) => ({ tables: st.tables.map((x) => (x.name === t.name ? { ...x, sortBy: t.sortBy } : x)) }));
+        }
+        doc.report.relationships ??= [];
+        doc.report.modelLayout ??= {};
+        doc.report.measures ??= [];
+        set({ report: doc.report, activePageId: doc.report.pages[0].id, filePath: f.path, dirty: false, past: [], future: [] });
+        if (failed.length) get().notify(`Impossibile ricaricare: ${failed.join(', ')}. Verificare il percorso dell'origine dati.`);
+      } catch (e: any) {
+        get().notify('Apertura non riuscita: ' + e.message);
+      } finally {
+        set({ busy: null });
+      }
+    },
+  };
+});

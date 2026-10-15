@@ -1,0 +1,143 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useStore, PAGE_W, PAGE_H } from '../store';
+import { VisualContainer, VisualBody, FIELD_MIME, autoTitle } from './VisualContainer';
+import { Icon } from './icons';
+import { Menu } from './Menu';
+
+function EmptyState() {
+  const s = useStore();
+  return (
+    <div className="page-empty">
+      <h2>Aggiungere dati al report</h2>
+      <p>Dopo il caricamento, i dati verranno visualizzati nel riquadro <b>Dati</b>.</p>
+      <div className="srcs">
+        <button className="src" onClick={() => s.openNavigator('excel')}><Icon name="excel" size={36} />Importa dati da Excel</button>
+        <button className="src" onClick={() => s.openNavigator('csv')}><Icon name="docs" size={36} />Importa dati da Testo/CSV</button>
+        <button className="src" onClick={() => s.openNavigator('parquet')}><Icon name="sql" size={36} />Importa dati da Parquet</button>
+        <button className="src" onClick={() => s.loadSample()}><Icon name="sample" size={36} />Usa dati di esempio</button>
+      </div>
+      <span className="link" onClick={() => s.openNavigator('any')}>Ottieni dati da un'altra origine →</span>
+    </div>
+  );
+}
+
+function PageTabs() {
+  const s = useStore();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  return (
+    <div className="pagetabs">
+      {s.report.pages.map((p) => (
+        <div
+          key={p.id}
+          className={'pagetab' + (p.id === s.activePageId ? ' active' : '')}
+          onClick={() => s.setActivePage(p.id)}
+          onDoubleClick={() => setEditing(p.id)}
+          onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY - 150 }); }}
+        >
+          {editing === p.id ? (
+            <input type="text" autoFocus defaultValue={p.name}
+              onBlur={(e) => { s.renamePage(p.id, e.target.value); setEditing(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(null); }} />
+          ) : p.name}
+        </div>
+      ))}
+      <button className="add" title="Nuova pagina" onClick={() => s.addPage()}><Icon name="plus" /></button>
+      {menu && (
+        <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <button onClick={() => { setEditing(menu.id); setMenu(null); }}>Rinomina pagina</button>
+          <button onClick={() => { s.duplicatePage(menu.id); setMenu(null); }}>Duplica pagina</button>
+          <button disabled={s.report.pages.length <= 1} onClick={() => { s.deletePage(menu.id); setMenu(null); }}>Elimina pagina</button>
+        </Menu>
+      )}
+    </div>
+  );
+}
+
+export function StatusBar({ fitScale }: { fitScale: number }) {
+  const s = useStore();
+  const idx = s.report.pages.findIndex((p) => p.id === s.activePageId) + 1;
+  const pct = Math.round((s.zoom === 'fit' ? fitScale : s.zoom) * 100);
+  const setPct = (n: number) => s.set({ zoom: Math.max(0.1, Math.min(4, n / 100)) });
+  return (
+    <div className="statusbar">
+      {s.view === 'report' && <span>Pagina {idx} di {s.report.pages.length}</span>}
+      {s.view === 'data' && s.dataViewTable && <span>TABELLA: {s.dataViewTable} ({s.tables.find((t) => t.name === s.dataViewTable)?.rowCount.toLocaleString('it-IT')} righe)</span>}
+      {s.crossFilter && <span>Filtro incrociato attivo: {s.crossFilter.column} = {s.crossFilter.value === '__NULL__' ? '(Vuoto)' : s.crossFilter.value}</span>}
+      {s.view === 'report' && (
+        <div className="zoom">
+          <button onClick={() => setPct(pct - 10)}>−</button>
+          <input type="range" min={10} max={400} value={pct} onChange={(e) => setPct(+e.target.value)} />
+          <button onClick={() => setPct(pct + 10)}>+</button>
+          <span style={{ width: 36 }}>{pct}%</span>
+          <button title="Adatta alla pagina" onClick={() => s.set({ zoom: 'fit' })}><Icon name="focus" size={13} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ReportView({ onFit }: { onFit: (n: number) => void }) {
+  const s = useStore();
+  const page = s.page();
+  const wrap = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState(1);
+
+  useLayoutEffect(() => {
+    const el = wrap.current!;
+    const ro = new ResizeObserver(() => {
+      const f = Math.min((el.clientWidth - 48) / PAGE_W, (el.clientHeight - 48) / PAGE_H);
+      setFit(Math.max(0.1, f));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => onFit(fit), [fit, onFit]);
+
+  const scale = s.zoom === 'fit' ? fit : s.zoom;
+  const w = PAGE_W * scale, h = PAGE_H * scale;
+  const cw = Math.max(w + 48, (wrap.current?.clientWidth ?? 0));
+  const ch = Math.max(h + 48, (wrap.current?.clientHeight ?? 0));
+  const focus = s.focusId ? page.visuals.find((v) => v.id === s.focusId) : undefined;
+
+  return (
+    <div className="center">
+      <div className="canvas-wrap" ref={wrap}>
+        {focus ? (
+          <div style={{ position: 'absolute', inset: 16, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1.6px 3.6px rgba(0,0,0,.13)' }}>
+            <div style={{ height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
+              <button className="btn" style={{ minWidth: 0 }} onClick={() => s.set({ focusId: null })}>← Torna al report</button>
+              <span style={{ fontSize: 14 }}>{focus.format.titleText || autoTitle(focus)}</span>
+            </div>
+            <div style={{ flex: 1, position: 'relative' }}><VisualBody v={focus} selected={false} /></div>
+          </div>
+        ) : (
+          <div className="canvas-inner" style={{ width: cw, height: ch }}>
+            <div
+              className={'page' + (s.gridlines ? ' grid' : '')}
+              style={{
+                width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2,
+                ...(page.background ? { backgroundImage: `url(${page.background})`, backgroundSize: '100% 100%' } : {}),
+              }}
+              onMouseDown={() => { s.selectVisual(null); if (s.crossFilter) s.setCross(null); }}
+              onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) e.preventDefault(); }}
+              onDrop={(e) => {
+                const raw = e.dataTransfer.getData(FIELD_MIME);
+                if (!raw) return;
+                e.preventDefault();
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const x = Math.max(0, Math.min(PAGE_W - 440, (e.clientX - r.left) / scale - 40));
+                const y = Math.max(0, Math.min(PAGE_H - 300, (e.clientY - r.top) / scale - 20));
+                s.addField(null, JSON.parse(raw), undefined, { x: Math.round(x), y: Math.round(y) });
+              }}
+            >
+              {page.visuals.map((v) => <VisualContainer key={v.id} v={v} scale={scale} />)}
+            </div>
+            {!s.tables.length && !page.visuals.length && <EmptyState />}
+          </div>
+        )}
+      </div>
+      <PageTabs />
+    </div>
+  );
+}

@@ -1,0 +1,56 @@
+{
+  "name": "linbi",
+  "version": "1.0.0",
+  "description": "LinBI - clone educativo di Power BI Desktop per Linux",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV=1 electron . --no-sandbox\"",
+    "build": "vite build",
+    "start": "vite build && electron . --no-sandbox",
+    "typecheck": "tsc --noEmit",
+    "dist": "vite build && electron-builder --linux AppImage deb",
+    "setup:pbix": "python3 -m venv .venv-pbix && .venv-pbix/bin/pip install pbixray pyarrow"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "@duckdb/node-api": "^1.5.6-r.1",
+    "echarts": "^6.1.0",
+    "jszip": "^3.10.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-rnd": "^10.5.3",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^44.7.2",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4",
+    "wait-on": "^9.5.1"
+  },
+  "build": {
+    "appId": "it.michele.linbi",
+    "productName": "LinBI",
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/@duckdb/**"
+    ],
+    "linux": {
+      "category": "Office",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}
