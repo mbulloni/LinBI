@@ -9,6 +9,8 @@ import { ModelView } from './components/ModelView';
 import { ManageRelationships, RelationshipEditor } from './components/Relationships';
 import { Navigator } from './components/Navigator';
 import { PowerQueryEditor } from './components/PowerQuery';
+import { DaxBar } from './components/DaxBar';
+import { DaxQueryView } from './components/DaxQueryView';
 import { Icon } from './components/icons';
 import { FiltersPane, CollapsedPane } from './panes/FiltersPane';
 import { VisualizationsPane } from './panes/VisualizationsPane';
@@ -75,6 +77,7 @@ export function App() {
     <div className="app">
       <TitleBar />
       <Ribbon />
+      <DaxBar />
       <div className="main">
         <div className="rail">
           {VIEWS.map(([k, icon, label]) => (
@@ -85,12 +88,10 @@ export function App() {
           {s.view === 'report' && <ReportView onFit={onFit} />}
           {s.view === 'data' && <DataView />}
           {s.view === 'model' && <ModelView />}
-          {s.view === 'dax' && (
-            <div className="placeholder-view"><Icon name="dax" size={48} /><h2>Vista query DAX</h2><span>Il motore DAX → SQL arriverà nella fase 5.</span></div>
-          )}
+          {s.view === 'dax' && <DaxQueryView />}
           {s.view === 'report' && (s.panes.filters ? <FiltersPane /> : <CollapsedPane title="Filtri" onOpen={() => s.set({ panes: { ...s.panes, filters: true } })} />)}
           {s.view === 'report' && (s.panes.viz ? <VisualizationsPane /> : <CollapsedPane title="Visualizzazioni" onOpen={() => s.set({ panes: { ...s.panes, viz: true } })} />)}
-          {s.view !== 'dax' && (s.panes.data ? <DataPane /> : <CollapsedPane title="Dati" onOpen={() => s.set({ panes: { ...s.panes, data: true } })} />)}
+          {(s.panes.data ? <DataPane /> : <CollapsedPane title="Dati" onOpen={() => s.set({ panes: { ...s.panes, data: true } })} />)}
         </div>
       </div>
       <StatusBar fitScale={fit} />

@@ -73,15 +73,23 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
         lineageTag: crypto.randomUUID(),
         columns: t.columns.map((c) => {
           const tt = tomType(c.type);
+          const calc = t.calcColumns?.find((x) => x.name === c.name);
+          // Calculated columns keep their DAX; columns of a calculated table come from its expression.
+          const kind = calc ? { type: 'calculated', isDataTypeInferred: true, expression: calc.expression.split('\n') }
+            : t.source.dax ? { type: 'calculatedTableColumn', isNameInferred: true, isDataTypeInferred: true, sourceColumn: `[${c.name}]` }
+              : { sourceColumn: c.name };
           return {
-            name: c.name, dataType: tt.dataType, sourceColumn: c.name, lineageTag: crypto.randomUUID(),
+            name: c.name, dataType: tt.dataType, ...kind, lineageTag: crypto.randomUUID(),
             summarizeBy: numeric(tt.dataType) ? 'sum' : 'none',
             ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'Short Date' : 'General Date' } : {}),
             ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
             annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }],
           };
         }),
-        partitions: [{ name: `${t.name}-${crypto.randomUUID().slice(0, 8)}`, mode: 'import', source: { type: 'm', expression: mExpression(t).split('\n') } }],
+        partitions: [{
+          name: `${t.name}-${crypto.randomUUID().slice(0, 8)}`, mode: 'import',
+          source: t.source.dax ? { type: 'calculated', expression: t.source.dax.split('\n') } : { type: 'm', expression: mExpression(t).split('\n') },
+        }],
         measures: measuresOf(t.name),
         annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
       })).concat(measureOnly.map((name) => ({

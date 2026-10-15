@@ -1,5 +1,5 @@
 import type { CrossFilter, Filter, FieldRef, Measure, Relationship, TableMeta, Visual } from './types';
-import { compileMeasure, type CompiledMeasure } from './dax';
+import { measureSql } from './dax';
 import { isNumeric } from './format';
 import { visualDef } from './visuals/catalog';
 
@@ -22,7 +22,7 @@ export interface FilterSpec { table: string; column: string; values: string[]; }
 /* Relationship graph                                                  */
 /* ------------------------------------------------------------------ */
 
-interface Edge { to: string; parentCol: string; childCol: string; fanout: boolean; }
+export interface Edge { to: string; parentCol: string; childCol: string; fanout: boolean; }
 
 /**
  * Edges along which a filter on `to` reaches `table` (i.e. we can join from table to `to`
@@ -30,7 +30,7 @@ interface Edge { to: string; parentCol: string; childCol: string; fanout: boolea
  * one side to the many side; the reverse only with cross-filter "Entrambe" (or 1:1, *:*).
  * `fanout` marks joins that can multiply rows of the starting table.
  */
-function edgesFrom(rels: Relationship[], table: string): Edge[] {
+export function edgesFrom(rels: Relationship[], table: string): Edge[] {
   const out: Edge[] = [];
   for (const r of rels) {
     if (!r.active || r.fromTable === r.toTable) continue;
@@ -155,6 +155,9 @@ export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[]
 /* Query construction                                                  */
 /* ------------------------------------------------------------------ */
 
+/** Plain (non-DAX) aggregation: base table, columns read, SQL template. */
+interface CompiledMeasure { table: string; cols: string[]; render: (colExprs: string[]) => string; }
+
 interface Ctx { tables: TableMeta[]; rels: Relationship[]; filters: FilterSpec[]; compiled: Map<string, CompiledMeasure>; }
 type Core = { sql: string } | { error: string };
 
@@ -261,9 +264,7 @@ export function buildVisualQuery(
   const compiled = new Map<string, CompiledMeasure>();
   for (const i of items) {
     if (i.field.agg === 'measure') {
-      const c = compileMeasure(i.field.column, i.field.table, daxMeasures, tables);
-      if ('error' in c) return c;
-      compiled.set(i.alias, c);
+      if (!daxMeasures.some((m) => m.name === i.field.column)) return { error: `La misura [${i.field.column}] non esiste più.` };
       continue;
     }
     if (!tables.some((t) => t.name === i.field.table)) return { error: `La tabella "${i.field.table}" non esiste più nel modello.` };
@@ -282,7 +283,26 @@ export function buildVisualQuery(
     const sc = t?.sortBy?.[d.field.column];
     if (sc && sc !== d.field.column && t!.columns.some((c) => c.name === sc)) d.sortCol = sc;
   }
-  const main = core(dims, measures, ctx);
+  // DAX measures run as correlated subqueries over the groups produced by core():
+  // each one sees the visual's filters plus "dim = this group's value".
+  const model = { tables, rels, measures: daxMeasures };
+  const build = (ds: QueryItem[], ms: QueryItem[]): Core => {
+    const plain = ms.filter((m) => m.field.agg !== 'measure');
+    const dax = ms.filter((m) => m.field.agg === 'measure');
+    const c: Core = !ds.length && !plain.length ? { sql: 'SELECT 1 AS __one' } : core(ds, plain, ctx);
+    if ('error' in c || !dax.length) return c;
+    try {
+      const groups = ds.map((d) => ({ table: d.field.table, column: d.field.column, ref: `g.${k(d)}` }));
+      const sel = dax.map((m) => `${measureSql(model, m.field.column, m.field.table, ctx.filters, groups)} AS ${m.alias}`);
+      let sql = `SELECT g.*, ${sel.join(', ')} FROM (${c.sql}) AS g`;
+      // Like Power BI, groups where every measure is blank are not shown.
+      if (ds.length && !plain.length) sql = `SELECT * FROM (${sql}) AS b WHERE NOT (${dax.map((m) => `b.${m.alias} IS NULL`).join(' AND ')})`;
+      return { sql };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  };
+  const main = build(dims, measures);
   if ('error' in main) return main;
 
   // Sorting: explicit choice, else Power BI defaults (time-like axes ascending, charts by value desc).
@@ -307,16 +327,16 @@ export function buildVisualQuery(
   const out: VisualQuery = { sql: finalize(main, dims, measures, order, limit), items };
 
   if ((v.type === 'table' || v.type === 'matrix') && measures.length) {
-    const grand = core([], measures, ctx);
+    const grand = build([], measures);
     if ('sql' in grand) out.totalsSql = finalize(grand, [], measures);
     const colDim = v.type === 'matrix' ? items.find((i) => i.well === 'columns') : undefined;
     const rowDims = items.filter((i) => i.well === 'rows');
     if (colDim) {
-      const ct = core([colDim], measures, ctx);
+      const ct = build([colDim], measures);
       if ('sql' in ct) out.colTotalsSql = finalize(ct, [colDim], measures, dimKey(colDim));
       if (rowDims.length) {
         // Row totals need their own aggregation (AVG etc. are not additive).
-        const rt = core(rowDims, measures, ctx);
+        const rt = build(rowDims, measures);
         if ('sql' in rt) out.rowTotalsSql = finalize(rt, rowDims, measures);
       }
     }

@@ -92,7 +92,7 @@ export function Ribbon() {
             </Group>
           )}
           <Group label="Calcoli">
-            <Big icon="measure" label={<>Nuova<br />misura</>} disabled title="DAX: fase 5" />
+            <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
           </Group>
           <Group label="Riservatezza"><Big icon="sensitivity" label="Riservatezza" disabled dropdown /></Group>
@@ -121,10 +121,10 @@ export function Ribbon() {
             }} />
           </Group>
           <Group label="Calcoli">
-            <Big icon="measure" label={<>Nuova<br />misura</>} disabled />
+            <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
-            <Big icon="newColumn" label={<>Nuova<br />colonna</>} disabled />
-            <Big icon="newTable" label={<>Nuova<br />tabella</>} disabled />
+            <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', s.tables.find((t) => t.name === s.dataViewTable)?.name ?? s.tables[0]?.name)} disabled={!s.tables.length} />
+            <Big icon="newTable" label={<>Nuova<br />tabella</>} onClick={() => s.startDax('table')} />
           </Group>
           <Group label="Dati"><Big icon="refresh" label="Aggiorna" onClick={() => s.refresh()} disabled={!s.tables.length} /></Group>
         </>}

@@ -414,3 +414,29 @@ thead .pq-rn { z-index: 2; }
 .pq-chips { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .pq-chips label { display: flex; align-items: center; gap: 6px; }
 .pq-code { margin: 0; flex: 1; min-height: 300px; max-height: 60vh; overflow: auto; background: #FAFAFA; border: 1px solid var(--line); padding: 12px; font: 12px/1.55 'Cascadia Code', 'Ubuntu Mono', monospace; white-space: pre; user-select: text; }
+
+/* ---------- DAX (phase 5) ---------- */
+.fx-ico { font-style: italic; font-weight: 700; font-size: 10px; color: var(--text2); width: 16px; text-align: center; flex-shrink: 0; }
+.daxbar { background: #fff; border-bottom: 1px solid var(--line); padding: 4px 8px 6px; flex-shrink: 0; }
+.daxbar-tools { display: flex; align-items: center; gap: 16px; font-size: 11.5px; color: var(--text2); height: 26px; }
+.daxbar-tools b { color: var(--text); }
+.daxbar-tools label { display: flex; align-items: center; gap: 6px; }
+.daxbar-tools select { height: 22px; }
+.daxbar-tools .hint, .daxview .hint { color: var(--text3); font-size: 11px; margin-left: auto; }
+.daxbar-row { display: flex; align-items: flex-start; gap: 4px; }
+.daxbar-row > button { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 2px; font-size: 15px; }
+.daxbar-row > button:hover { background: var(--hover); }
+.daxbar-row > button.ok { color: #107C41; font-weight: 700; }
+.daxbar-row textarea { flex: 1; border: 1px solid var(--focus); border-radius: 2px; padding: 5px 8px; font: 13px/1.5 'Cascadia Code', 'Ubuntu Mono', 'DejaVu Sans Mono', monospace; resize: none; outline: none; user-select: text; }
+.daxbar-err { display: flex; gap: 8px; align-items: center; color: #A4262C; padding: 4px 0 0 64px; font-size: 12px; user-select: text; }
+.daxview { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #fff; }
+.daxview-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.daxview-bar .btn { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 28px; }
+.daxview-editor { display: flex; height: 42%; min-height: 140px; border-bottom: 4px solid var(--line2); }
+.daxview-editor .gutter { width: 44px; overflow: hidden; background: #FAF9F8; color: var(--text3); text-align: right; padding: 8px 8px 8px 0; font: 13px/1.55 'Cascadia Code', 'Ubuntu Mono', monospace; }
+.daxview-editor textarea { flex: 1; border: 0; outline: none; resize: none; padding: 8px 12px; font: 13px/1.55 'Cascadia Code', 'Ubuntu Mono', monospace; white-space: pre; user-select: text; }
+.daxview-results { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.daxview-tabs { display: flex; align-items: center; gap: 2px; padding: 0 12px; height: 32px; border-bottom: 1px solid var(--line); }
+.daxview-tabs button { height: 31px; padding: 0 12px; position: relative; }
+.daxview-tabs button.active { font-weight: 600; }
+.daxview-tabs button.active::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; background: var(--text); border-radius: 2px; }

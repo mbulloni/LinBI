@@ -13,3 +13,5 @@ import { compileQuery } from './pq/compile';
 import { mToSql } from './pq/mexpr';
 import { queryM } from './pbix/pbit';
 (window as any).__linbiPQ = { compileQuery, mToSql, queryM };
+import * as dax from './dax';
+(window as any).__linbiDax = dax;

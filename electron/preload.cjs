@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   dropTable: (table) => call('db:drop', table),
   materialize: (table, sql) => call('db:materialize', table, sql),
   sourceExpr: (file, sheet) => call('db:sourceExpr', file, sheet),
+  addCalcColumn: (table, column, expr, replace) => call('db:calcColumn', table, column, expr, replace),
+  dropColumn: (table, column) => call('db:dropColumn', table, column),
   sampleData: () => call('data:sample'),
   openDataDialog: (kind) => call('dialog:openData', kind),
   saveFile: (content, path) => call('file:save', content, path),

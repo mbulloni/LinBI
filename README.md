@@ -67,6 +67,40 @@ colonna con un passaggio non aggiorna gli oggetti visivi che la usano, come in P
 Differenze note: *Modifica tipo* usa `TRY_CAST` (i valori non convertibili diventano `null` invece di *Error*);
 l'Editor avanzato è in sola lettura; i passaggi si eliminano ma non si modificano (rifarli dopo averli eliminati).
 
+### DAX (fase 5)
+
+Motore in `src/dax/` (`parse.ts` lexer/parser, `engine.ts` compilatore DAX → SQL). Il **contesto di filtro** è
+esplicito: un elenco di filtri, ciascuno un predicato SQL sulle righe di una tabella. Un'aggregazione su una tabella
+diventa una sottoquery correlata che applica tutti i filtri, quelli delle altre tabelle tramite *semi-join* lungo le
+relazioni attive nella direzione consentita (uno → molti, o entrambe). Da qui la semantica di Power BI:
+
+- **CALCULATE / CALCULATETABLE**: transizione di contesto (righe → filtri), poi `ALL`/`REMOVEFILTERS`/`ALLEXCEPT`/
+  `ALLSELECTED` rimuovono filtri, gli argomenti filtro **sostituiscono** quelli sulle stesse colonne (`KEEPFILTERS` li
+  interseca), `USERELATIONSHIP` e `CROSSFILTER` cambiano le relazioni. I filtri di tabella seguono le *tabelle espanse*
+  (un filtro su `Sales` filtra anche `Product`).
+- **Iteratori**: `SUMX`, `AVERAGEX`, `MINX`, `MAXX`, `COUNTX`, `PRODUCTX`, `CONCATENATEX`, `RANKX`, `FILTER`, `ADDCOLUMNS`,
+  `SELECTCOLUMNS`, `TOPN`, `SUMMARIZE`, `SUMMARIZECOLUMNS`; una misura dentro un iteratore applica la transizione di contesto.
+- **Time intelligence**: `TOTALYTD/QTD/MTD`, `DATESYTD/QTD/MTD`, `SAMEPERIODLASTYEAR`, `DATEADD`, `PARALLELPERIOD`,
+  `PREVIOUS*`/`NEXT*`, `DATESBETWEEN`, `DATESINPERIOD`, `FIRSTDATE`/`LASTDATE`, `STARTOF*`/`ENDOF*`.
+- Altro: `VAR … RETURN`, `SWITCH`, `SELECTEDVALUE`, `HASONEVALUE`, `ISFILTERED`, `ISINSCOPE`, `RELATED`, `RELATEDTABLE`,
+  `LOOKUPVALUE`, `EARLIER`, `TREATAS`, `CALENDAR`, `CALENDARAUTO`, `FORMAT` (formati italiani), funzioni matematiche,
+  di testo e di data. Misure su più tabelle senza limitazioni.
+
+Ogni valore (VAR, misura usata più volte nello stesso contesto) viene calcolato una sola volta tramite tabelle derivate:
+senza questo, l'SQL di misure annidate cresce in modo esponenziale.
+
+**Nuova misura / Nuova colonna / Nuova tabella** (Home, Modellazione, menu del riquadro Dati) aprono la barra della
+formula: `Nome = espressione`, Invio per confermare. Le colonne calcolate (contesto di riga della tabella) e le tabelle
+calcolate vengono ricalcolate dopo ogni caricamento ed esportate nel `.pbit` come oggetti calcolati.
+La **Vista query DAX** esegue `DEFINE MEASURE … / VAR …`, `EVALUATE …`, `ORDER BY`, con esempi generati dal modello
+e l'SQL DuckDB di ogni query. Clic su un campo del riquadro Dati per inserirlo.
+
+Verificato sulle misure dei sample Microsoft *Retail Analysis* (32/32) e *Sales & Returns* (58/58).
+Differenze note: le funzioni di time intelligence considerano "attributi di calendario" le colonne data/anno/mese/…
+della stessa tabella (o tutta la tabella se il nome ricorda un calendario), al posto di "Contrassegna come tabella date";
+i confronti di testo distinguono maiuscole/minuscole; `TOPN` non include i pari merito; `SUMMARIZECOLUMNS` con colonne
+di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tutte le espressioni vuote.
+
 ## File Power BI
 
 | Operazione | Supporto |
@@ -78,12 +112,9 @@ l'Editor avanzato è in sola lettura; i passaggi si eliminano ma non si modifica
 
 Limiti dell'import: visual personalizzati, mappe, Q&A e simili diventano segnaposto; pulsanti e forme non vengono importati;
 i report in connessione dinamica (Power BI Service/SSAS) non contengono dati; il formato PBIR non è ancora letto.
-Le misure DAX passano dal compilatore minimo di `src/dax.ts`: `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT(A)`, `COUNTBLANK`,
-`DISTINCTCOUNT`, `COUNTROWS`, `DIVIDE`, `IF`, aritmetica, riferimenti ad altre misure e `CALCULATE`/`FILTER` con condizioni
-sulla stessa tabella. Le altre funzioni (`ALL`, `RANKX`, time intelligence, iteratori…) mostrano un messaggio esplicito nel visual.
-Nota: i filtri di `CALCULATE` si sommano al contesto del visual invece di sostituire quelli sulla stessa colonna.
+Le misure DAX importate passano dal motore della fase 5; una funzione non supportata mostra un messaggio esplicito nel visual.
 
-## Funzionalità (fasi 1–4)
+## Funzionalità (fasi 1–5)
 
 - Barra del titolo personalizzata, ribbon Home/Inserisci/Modellazione/Visualizza/Ottimizza/Guida, menu File
 - Import Testo/CSV, Excel (estensione DuckDB `excel`, richiede rete al primo uso), JSON, Parquet, dati di esempio *Financials*
@@ -101,11 +132,12 @@ Nota: i filtri di `CALCULATE` si sommano al contesto del visual invece di sostit
 - Annulla/Ripeti, copia/incolla/duplica visual, salva/apri `.lbix`
 - Scorciatoie: Ctrl+S/O/Z/Y/C/V/D, Canc, frecce (Shift = 10px)
 - Editor di Power Query con passaggi applicati, codice M e SQL equivalente (vedi sopra)
+- DAX: misure, colonne e tabelle calcolate, vista query DAX (vedi sopra)
 
 ## Roadmap
 
 4. ~~**Power Query**~~ ✔ — prossimi passi: modifica dei passaggi esistenti, Editor avanzato modificabile (parser M), *Usa la prima riga come intestazione*, colonne condizionali, profilo colonna
-5. **DAX completo**: `ALL`/`REMOVEFILTERS` con sostituzione del contesto, time intelligence, iteratori (`SUMX`…), misure su più tabelle, editor misure e vista query DAX
+5. ~~**DAX completo**~~ ✔ — prossimi passi: misure rapide, IntelliSense nella barra della formula, gerarchie di date automatiche
 6. **File**: `.lbix` con dati incorporati (export DuckDB/Parquet), lettura PBIR, temi, esportazione PDF
 
 ## Test di fumo

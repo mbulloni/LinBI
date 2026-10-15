@@ -21,6 +21,8 @@ interface Api {
   dropTable(table: string): Promise<void>;
   materialize(table: string, sql: string): Promise<TableInfo>;
   sourceExpr(file: string, sheet?: string): Promise<string>;
+  addCalcColumn(table: string, column: string, expr: string, replace: boolean): Promise<TableInfo>;
+  dropColumn(table: string, column: string): Promise<TableInfo>;
   sampleData(): Promise<{ financials: string; products: string; countries: string }>;
   openDataDialog(kind: string): Promise<string | null>;
   saveFile(content: string, path?: string | null): Promise<string | null>;

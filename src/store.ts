@@ -4,7 +4,7 @@ import type { CrossFilter, FieldRef, Filter, NewStep, Page, Relationship, Report
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
 import { connected, qi } from './query';
-import { compileMeasure } from './dax';
+import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
 import { parseLayout } from './pbix/layout';
 import { buildPbitParts } from './pbix/pbit';
 import { compileQuery } from './pq/compile';
@@ -100,6 +100,19 @@ function renameTableInReport(r: Report, from: string, to: string) {
   }
 }
 
+/** Formula bar edit of a measure, calculated column or calculated table. */
+export interface DaxEdit { kind: 'measure' | 'column' | 'table'; table: string; original: string | null; text: string; formatString?: string; error?: string; }
+
+const DAX_KIND = { measure: 'Misura', column: 'Colonna', table: 'Tabella' } as const;
+
+/** "Name = expression" → parts; names may be written as [Name] or 'Name'. */
+function splitDax(text: string): { name: string; expr: string } | null {
+  const m = /^\s*([^=]+?)\s*=([\s\S]*)$/.exec(text);
+  if (!m) return null;
+  const name = m[1].trim().replace(/^\[(.*)\]$/, '$1').replace(/^'(.*)'$/, '$1').trim();
+  return name ? { name, expr: m[2].trim() } : null;
+}
+
 export interface Navigator { path: string; tableName: string; preview: { columns: string[]; rows: any[] } | null; error?: string; loading: boolean; }
 
 interface State {
@@ -130,6 +143,15 @@ interface State {
   relEditor: RelEditor | null;
   selectedRelId: string | null;
   pq: PQState | null;
+  daxEdit: DaxEdit | null;
+  daxQueryText: string;
+
+  model: () => Model;
+  startDax: (kind: DaxEdit['kind'], table?: string, original?: string) => void;
+  saveDax: () => Promise<boolean>;
+  deleteMeasure: (name: string) => void;
+  deleteCalcColumn: (table: string, name: string) => Promise<void>;
+  finalizeModel: () => Promise<void>;
 
   openPowerQuery: (focus?: string, extra?: PQQuery) => void;
   pqSet: (fn: (st: PQState) => void) => void;
@@ -251,7 +273,7 @@ export const useStore = create<State>((set, get) => {
 
   /** Runs a query (source + applied steps) and stores the result as model table `def.name`.
    *  `context` resolves references to other queries (defaults to the loaded tables). */
-  const loadTable = async (def: QueryDef & { sortBy?: Record<string, string> }, context?: QueryDef[]) => {
+  const loadTable = async (def: QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns'] }, context?: QueryDef[]) => {
     const all = context ?? get().tables;
     const meta = await api.materialize(def.name, await compileQuery(def, all, { srcExpr }));
     const steps = def.steps?.length ? def.steps : undefined;
@@ -262,7 +284,8 @@ export const useStore = create<State>((set, get) => {
     }
     const prev = get().tables.find((x) => x.name === def.name);
     const sortBy = def.sortBy ?? prev?.sortBy;
-    const t: TableMeta = { ...meta, source: def.source, ...(steps ? { steps, sourceColumns } : {}), ...(sortBy ? { sortBy } : {}) };
+    const calcColumns = def.calcColumns ?? prev?.calcColumns;
+    const t: TableMeta = { ...meta, source: def.source, ...(steps ? { steps, sourceColumns } : {}), ...(sortBy ? { sortBy } : {}), ...(calcColumns?.length ? { calcColumns } : {}) };
     set((s) => ({
       tables: prev ? s.tables.map((x) => (x.name === def.name ? t : x)) : [...s.tables, t],
       dataVersion: s.dataVersion + 1,
@@ -342,7 +365,7 @@ export const useStore = create<State>((set, get) => {
         const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
-        const unsupportedDax = measures.filter((m) => 'error' in compileMeasure(m.name, m.table, measures, tables)).length;
+        const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
         const notes = [
           `Importati: ${tables.length} tabelle, ${relationships.length} relazioni, ${measures.length} misure, ${pages.length} pagine.`,
           ...model.warnings,
@@ -372,9 +395,126 @@ export const useStore = create<State>((set, get) => {
     relEditor: null,
     selectedRelId: null,
     pq: null,
+    daxEdit: null,
+    daxQueryText: '',
+
+    model: () => ({ tables: get().tables, rels: get().report.relationships, measures: get().report.measures }),
+    startDax: (kind, table, original) => {
+      const { tables, report, dataViewTable } = get();
+      const home = table ?? dataViewTable ?? tables[0]?.name ?? '';
+      if (!home && kind !== 'table') { get().notify('Caricare prima dei dati.'); return; }
+      let text: string, formatString: string | undefined;
+      if (original && kind === 'measure') {
+        const m = report.measures.find((x) => x.name === original)!;
+        text = `${m.name} = ${m.expression}`;
+        formatString = m.formatString;
+      } else if (original && kind === 'column') {
+        text = `${original} = ${tables.find((t) => t.name === home)?.calcColumns?.find((c) => c.name === original)?.expression ?? ''}`;
+      } else if (original) {
+        text = `${original} = ${tables.find((t) => t.name === original)?.source.dax ?? ''}`;
+      } else {
+        const taken = (n: string) => report.measures.some((m) => m.name === n) || tables.some((t) => t.name === n || t.columns.some((c) => c.name === n));
+        let name: string = DAX_KIND[kind], i = 2;
+        while (taken(name)) name = `${DAX_KIND[kind]} ${i++}`;
+        text = `${name} = `;
+      }
+      set({ daxEdit: { kind, table: home, original: original ?? null, text, formatString }, fileMenu: false });
+    },
+    saveDax: async () => {
+      const ed = get().daxEdit;
+      if (!ed) return false;
+      const fail = (error: string) => { set({ daxEdit: { ...ed, error } }); return false; };
+      const parts = splitDax(ed.text);
+      if (!parts) return fail('Sintassi: Nome = espressione');
+      if (!parts.expr) return fail("Manca l'espressione dopo =");
+      const { name, expr } = parts;
+      const tables = get().tables;
+      try {
+        if (ed.kind === 'measure') {
+          const others = get().report.measures.filter((m) => m.name !== ed.original);
+          if (others.some((m) => m.name.toLowerCase() === name.toLowerCase())) return fail(`Esiste già una misura denominata "${name}".`);
+          if (tables.some((t) => t.columns.some((c) => c.name.toLowerCase() === name.toLowerCase()))) return fail(`Il nome "${name}" è già usato da una colonna.`);
+          const m = { table: ed.table, name, expression: expr, ...(ed.formatString ? { formatString: ed.formatString } : {}) };
+          const err = checkMeasure({ ...get().model(), measures: [...others, m] }, m);
+          if (err) return fail(err);
+          const old = ed.original;
+          get().mut((r) => {
+            const i = r.measures.findIndex((x) => x.name === old);
+            if (i >= 0) r.measures[i] = m; else r.measures.push(m);
+            if (old && old !== name) {
+              // Power BI updates references to a renamed measure.
+              const re = new RegExp(`\\[${reEscape(old)}\\]`, 'gi');
+              for (const x of r.measures) if (x !== m) x.expression = x.expression.replace(re, `[${name}]`);
+              const walk = (o: any) => {
+                if (!o || typeof o !== 'object') return;
+                if (Array.isArray(o)) { o.forEach(walk); return; }
+                if (o.agg === 'measure' && o.column === old) o.column = name;
+                Object.values(o).forEach(walk);
+              };
+              walk(r.pages);
+            }
+          });
+        } else if (ed.kind === 'column') {
+          const t = tables.find((x) => x.name === ed.table)!;
+          if (t.columns.some((c) => c.name.toLowerCase() === name.toLowerCase() && c.name !== ed.original)) return fail(`La tabella contiene già una colonna "${name}".`);
+          const sql = calcColumnSql(get().model(), t.name, expr);
+          if (ed.original && ed.original !== name) await api.dropColumn(t.name, ed.original);
+          const meta = await api.addCalcColumn(t.name, name, sql, ed.original === name);
+          const calcColumns = [...(t.calcColumns ?? []).filter((c) => c.name !== ed.original), { name, expression: expr }];
+          set((s) => ({ tables: s.tables.map((x) => (x.name === t.name ? { ...x, columns: meta.columns, rowCount: meta.rowCount, calcColumns } : x)), dirty: true }));
+        } else {
+          if (tables.some((t) => t.name.toLowerCase() === name.toLowerCase() && t.name !== ed.original)) return fail(`Esiste già una tabella denominata "${name}".`);
+          const sql = calcTableSql(get().model(), expr);
+          const prev = tables.find((t) => t.name === ed.original);
+          if (ed.original && ed.original !== name) {
+            await api.dropTable(ed.original);
+            const from = ed.original;
+            get().mut((r) => renameTableInReport(r, from, name));
+          }
+          const meta = await api.materialize(name, sql);
+          const t: TableMeta = { ...meta, source: { path: '', dax: expr }, ...(prev?.calcColumns ? { calcColumns: prev.calcColumns } : {}) };
+          set((s) => ({ tables: prev ? s.tables.map((x) => (x.name === prev.name ? t : x)) : [...s.tables, t], dirty: true }));
+        }
+      } catch (e: any) {
+        return fail(e.message.split('\n')[0]);
+      }
+      set((s) => ({ daxEdit: null, dataVersion: s.dataVersion + 1 }));
+      return true;
+    },
+    deleteMeasure: (name) => get().mut((r) => {
+      r.measures = r.measures.filter((m) => m.name !== name);
+      for (const p of r.pages) for (const v of p.visuals) for (const k of Object.keys(v.fields)) v.fields[k] = v.fields[k].filter((f) => !(f.agg === 'measure' && f.column === name));
+    }),
+    deleteCalcColumn: async (table, name) => {
+      try {
+        const meta = await api.dropColumn(table, name);
+        set((s) => ({ tables: s.tables.map((t) => (t.name === table ? { ...t, columns: meta.columns, calcColumns: t.calcColumns?.filter((c) => c.name !== name) } : t)), dataVersion: s.dataVersion + 1, dirty: true }));
+      } catch (e: any) { get().notify(e.message); }
+    },
+    // Calculated tables, then calculated columns, after any data load (they read loaded data).
+    finalizeModel: async () => {
+      const errors: string[] = [];
+      for (const t of get().tables.filter((x) => x.source.dax)) {
+        try {
+          const meta = await api.materialize(t.name, calcTableSql(get().model(), t.source.dax!));
+          set((s) => ({ tables: s.tables.map((x) => (x.name === t.name ? { ...x, ...meta } : x)) }));
+        } catch (e: any) { errors.push(`${t.name}: ${e.message.split('\n')[0]}`); }
+      }
+      for (const t of get().tables.filter((x) => x.calcColumns?.length)) {
+        for (const cc of t.calcColumns!) {
+          try {
+            const cur = get().tables.find((x) => x.name === t.name)!;
+            const meta = await api.addCalcColumn(t.name, cc.name, calcColumnSql(get().model(), t.name, cc.expression), cur.columns.some((c) => c.name === cc.name));
+            set((s) => ({ tables: s.tables.map((x) => (x.name === t.name ? { ...x, columns: meta.columns, rowCount: meta.rowCount } : x)) }));
+          } catch (e: any) { errors.push(`${t.name}[${cc.name}]: ${e.message.split('\n')[0]}`); }
+        }
+      }
+      if (errors.length) get().notify('Calcolo DAX non riuscito — ' + errors.join(' · '), 12000);
+      set((s) => ({ dataVersion: s.dataVersion + 1 }));
+    },
 
     openPowerQuery: (focus, extra) => {
-      const queries: PQQuery[] = get().tables.map((t) => ({ name: t.name, orig: t.name, source: clone(t.source), steps: clone(t.steps ?? []) }));
+      const queries: PQQuery[] = get().tables.filter((t) => !t.source.dax).map((t) => ({ name: t.name, orig: t.name, source: clone(t.source), steps: clone(t.steps ?? []) }));
       if (extra) queries.push(extra);
       const selected = extra?.name ?? focus ?? queries[0]?.name ?? '';
       set({ pq: { queries, selected, step: null, deleted: [] }, fileMenu: false });
@@ -447,7 +587,9 @@ export const useStore = create<State>((set, get) => {
           try { await loadTable({ name: q.name, source: q.source, steps: q.steps }, pq.queries); } catch (e: any) { failed.push(`${q.name}: ${e.message}`); }
         }
         const order = pq.queries.map((q) => q.name);
-        set((s) => ({ tables: [...s.tables].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)), dataVersion: s.dataVersion + 1 }));
+        const pos = (n: string) => (order.includes(n) ? order.indexOf(n) : order.length);
+        set((s) => ({ tables: [...s.tables].sort((a, b) => pos(a.name) - pos(b.name)), dataVersion: s.dataVersion + 1 }));
+        await get().finalizeModel();
         if (failed.length) { get().notify('Caricamento non riuscito — ' + failed.join(' · '), 15000); return; }
         set({ pq: null });
         const fresh = pq.queries.filter((q) => !q.orig).map((q) => q.name);
@@ -683,7 +825,8 @@ export const useStore = create<State>((set, get) => {
     refresh: async () => {
       set({ busy: 'Aggiornamento in corso…' });
       try {
-        for (const t of get().tables) await loadTable(t);
+        for (const t of get().tables) if (!t.source.dax) await loadTable(t);
+        await get().finalizeModel();
       } catch (e: any) {
         get().notify('Aggiornamento non riuscito: ' + e.message);
       } finally {
@@ -698,7 +841,7 @@ export const useStore = create<State>((set, get) => {
     },
     save: async (as = false) => {
       const { tables, report, filePath } = get();
-      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, steps: t.steps, sortBy: t.sortBy })), report }, null, 2);
+      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, steps: t.steps, sortBy: t.sortBy, calcColumns: t.calcColumns })), report }, null, 2);
       try {
         const p = await api.saveFile(content, as ? null : filePath);
         if (p) set({ filePath: p, dirty: false, fileMenu: false });
@@ -716,14 +859,17 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];
-        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string> })[];
+        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns'] })[];
         for (const t of defs) {
+          if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns }] })); continue; }
           try { await loadTable(t, defs); } catch { failed.push(t.name); }
         }
         doc.report.relationships ??= [];
         doc.report.modelLayout ??= {};
         doc.report.measures ??= [];
         set({ report: doc.report, activePageId: doc.report.pages[0].id, filePath: f.path, dirty: false, past: [], future: [] });
+        await get().finalizeModel();
+        set({ dirty: false });
         if (failed.length) get().notify(`Impossibile ricaricare: ${failed.join(', ')}. Verificare il percorso dell'origine dati.`);
       } catch (e: any) {
         get().notify('Apertura non riuscita: ' + e.message);

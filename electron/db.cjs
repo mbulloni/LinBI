@@ -8,6 +8,8 @@ async function connection() {
   if (!conn) {
     const instance = await DuckDBInstance.create(':memory:');
     conn = await instance.connect();
+    // Nested DAX measures compile to deeply nested SQL.
+    await conn.run('SET max_expression_depth TO 20000');
   }
   return conn;
 }
@@ -69,6 +71,22 @@ async function materialize(tableName, sql) {
   return describe(tableName);
 }
 
+// Calculated column: rebuilds the table with the column appended (row order kept).
+async function addCalcColumn(table, column, expr, replace) {
+  const c = await connection();
+  const tmp = '__linbi_calc';
+  await c.run(`CREATE OR REPLACE TABLE ${qi(tmp)} AS SELECT r.*${replace ? ` EXCLUDE (${qi(column)})` : ''}, (${expr}) AS ${qi(column)} FROM ${qi(table)} r ORDER BY r.rowid`);
+  await c.run(`DROP TABLE ${qi(table)}`);
+  await c.run(`ALTER TABLE ${qi(tmp)} RENAME TO ${qi(table)}`);
+  return describe(table);
+}
+
+async function dropColumn(table, column) {
+  const c = await connection();
+  await c.run(`ALTER TABLE ${qi(table)} DROP COLUMN ${qi(column)}`);
+  return describe(table);
+}
+
 async function dropTable(name) {
   const c = await connection();
   await c.run(`DROP TABLE IF EXISTS ${qi(name)}`);
@@ -83,4 +101,4 @@ async function createEmpty(table, columns) {
   return describe(table);
 }
 
-module.exports = { query, preview, importFile, materialize, sourceExpr, dropTable, createEmpty, kindOf };
+module.exports = { query, preview, importFile, materialize, sourceExpr, addCalcColumn, dropColumn, describe, dropTable, createEmpty, kindOf };

@@ -7,11 +7,13 @@ export interface TableMeta {
   columns: ColumnMeta[];
   /** `m` keeps the original Power Query expression of tables imported from .pbix/.pbit;
    *  `ref` makes the query start from another query (Power Query "Riferimento"). */
-  source: { path: string; sheet?: string; m?: string; ref?: string };
+  source: { path: string; sheet?: string; m?: string; ref?: string; dax?: string };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
   steps?: Step[];
   /** Schema of the source before the steps (types of the M "Origine" step in .pbit export). */
   sourceColumns?: ColumnMeta[];
+  /** DAX calculated columns, re-evaluated after every load (`source.dax` = calculated table). */
+  calcColumns?: { name: string; expression: string }[];
   /** Power BI "sort by column": display column → column whose values define its order. */
   sortBy?: Record<string, string>;
 }

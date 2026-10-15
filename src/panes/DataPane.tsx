@@ -5,12 +5,13 @@ import { isDate, isNumeric } from '../format';
 import { Icon } from '../components/icons';
 import { Menu } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
+import { insertDax } from '../components/DaxQueryView';
 
 export function DataPane() {
   const s = useStore();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; table: string; column?: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; table: string; column?: string; measure?: string } | null>(null);
   if (!s.panes.data) return null;
 
   const report = s.view === 'report';
@@ -22,7 +23,9 @@ export function DataPane() {
     .map((name) => ({ name, rowCount: 0, columns: [], source: { path: '' } }));
   const isOpen = (t: string) => open[t] ?? (q !== '' || s.tables.length === 1);
 
+  const daxRef = (table: string, column: string, measure: boolean) => (measure ? `[${column}]` : `'${table.replace(/'/g, "''")}'[${column}]`);
   const toggleField = (table: string, column: string, measure = false) => {
+    if (s.view === 'dax') { insertDax(daxRef(table, column, measure)); return; }
     if (!report) return;
     const key = table + '\u0001' + column;
     if (v && used.has(key)) {
@@ -53,8 +56,8 @@ export function DataPane() {
                 onClick={() => (report ? setOpen({ ...open, [t.name]: !isOpen(t.name) }) : s.set({ dataViewTable: t.name }))}
                 onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name }); }}>
                 <span onClick={(e) => { e.stopPropagation(); setOpen({ ...open, [t.name]: !isOpen(t.name) }); }}><Icon name={isOpen(t.name) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
-                <Icon name="tableSmall" />
-                <span className="nm" title={t.name}>{t.name}</span>
+                {t.source.dax ? <i className="fx-ico" title="Tabella calcolata">fx</i> : <Icon name="tableSmall" />}
+                <span className="nm" title={t.source.dax ? `${t.name} = ${t.source.dax}` : t.name}>{t.name}</span>
                 <button className="more" onClick={(e) => { e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, table: t.name }); }}><Icon name="more" size={14} /></button>
               </div>
               {isOpen(t.name) && (
@@ -64,7 +67,9 @@ export function DataPane() {
                     return (
                       <div key={'m:' + m.name} className="tnode field" draggable={report}
                         onDragStart={(e) => { e.dataTransfer.setData(FIELD_MIME, JSON.stringify({ table: t.name, column: m.name, measure: true })); e.dataTransfer.effectAllowed = 'copy'; }}
-                        onClick={() => toggleField(t.name, m.name, true)}>
+                        onClick={() => toggleField(t.name, m.name, true)}
+                        onDoubleClick={() => s.startDax('measure', m.table, m.name)}
+                        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name, measure: m.name }); }}>
                         {report && <input type="checkbox" checked={checked} readOnly />}
                         <span className="ty"><Icon name="calc" size={13} /></span>
                         <span className="nm" title={`${m.name} = ${m.expression}`}>{m.name}</span>
@@ -79,7 +84,7 @@ export function DataPane() {
                         onClick={() => toggleField(t.name, c.name)}
                         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name, column: c.name }); }}>
                         {report && <input type="checkbox" checked={checked} readOnly />}
-                        <span className="ty">{isNumeric(c) ? <Icon name="sigma" size={13} /> : isDate(c) ? <Icon name="calendar" size={13} /> : null}</span>
+                        <span className="ty">{t.calcColumns?.some((x) => x.name === c.name) ? <i className="fx-ico">fx</i> : isNumeric(c) ? <Icon name="sigma" size={13} /> : isDate(c) ? <Icon name="calendar" size={13} /> : null}</span>
                         <span className="nm" title={`${c.name} (${c.type})`}>{c.name}</span>
                       </div>
                     );
@@ -92,14 +97,26 @@ export function DataPane() {
       </div>
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          {menu.column ? <>
+          {menu.measure ? <>
+            <button onClick={() => { s.startDax('measure', menu.table, menu.measure); setMenu(null); }}><Icon name="calc" />Modifica misura</button>
+            <button onClick={() => { s.deleteMeasure(menu.measure!); setMenu(null); }}><Icon name="trash" />Elimina misura</button>
+          </> : menu.column ? <>
+            {s.tables.find((t) => t.name === menu.table)?.calcColumns?.some((c) => c.name === menu.column) && <>
+              <button onClick={() => { s.startDax('column', menu.table, menu.column); setMenu(null); }}><Icon name="calc" />Modifica colonna calcolata</button>
+              <button onClick={() => { s.deleteCalcColumn(menu.table, menu.column!); setMenu(null); }}><Icon name="trash" />Elimina colonna</button>
+              <hr />
+            </>}
             <button disabled={!report} onClick={() => { s.addFilter('page', { table: menu.table, column: menu.column! }); setMenu(null); }}>Aggiungi a filtri › Livello di pagina</button>
             <button disabled={!report} onClick={() => { s.addFilter('report', { table: menu.table, column: menu.column! }); setMenu(null); }}>Aggiungi a filtri › Livello di report</button>
             <button disabled={!report} onClick={() => { const id = s.addVisual('slicer'); s.addField(id, { table: menu.table, column: menu.column! }); setMenu(null); }}>Crea filtro dei dati</button>
           </> : <>
+            <button onClick={() => { s.startDax('measure', menu.table); setMenu(null); }}><Icon name="calc" />Nuova misura</button>
+            <button disabled={!s.tables.some((t) => t.name === menu.table)} onClick={() => { s.startDax('column', menu.table); setMenu(null); }}><Icon name="calc" />Nuova colonna</button>
+            {s.tables.find((t) => t.name === menu.table)?.source.dax && <button onClick={() => { s.startDax('table', menu.table, menu.table); setMenu(null); }}><Icon name="calc" />Modifica tabella calcolata</button>}
+            <hr />
             <button onClick={() => { s.set({ view: 'data', dataViewTable: menu.table }); setMenu(null); }}>Visualizza in vista tabella</button>
             <button onClick={() => { setOpen({ ...open, [menu.table]: !isOpen(menu.table) }); setMenu(null); }}>{isOpen(menu.table) ? 'Comprimi' : 'Espandi'}</button>
-            <button disabled={!s.tables.some((t) => t.name === menu.table)} onClick={() => { s.openPowerQuery(menu.table); setMenu(null); }}><Icon name="transform" size={16} box={32} />Modifica query</button>
+            <button disabled={!s.tables.some((t) => t.name === menu.table && !t.source.dax)} onClick={() => { s.openPowerQuery(menu.table); setMenu(null); }}><Icon name="transform" size={16} box={32} />Modifica query</button>
             <button onClick={() => { s.refresh(); setMenu(null); }}>Aggiorna dati</button>
             <hr />
             <button onClick={() => { s.removeTable(menu.table); setMenu(null); }}><Icon name="trash" />Elimina dal modello</button>
