@@ -47,6 +47,8 @@ function handle(channel, fn) {
 handle('db:query', (sql) => db.query(sql));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
+handle('db:materialize', (table, sql) => db.materialize(table, sql));
+handle('db:sourceExpr', (file, sheet) => db.sourceExpr(file, sheet));
 handle('db:drop', (table) => db.dropTable(table));
 handle('db:createEmpty', (table, columns) => db.createEmpty(table, columns));
 handle('data:sample', () => {

@@ -5,8 +5,13 @@ export interface TableMeta {
   name: string;
   rowCount: number;
   columns: ColumnMeta[];
-  /** `m` keeps the original Power Query expression of tables imported from .pbix/.pbit. */
-  source: { path: string; sheet?: string; m?: string };
+  /** `m` keeps the original Power Query expression of tables imported from .pbix/.pbit;
+   *  `ref` makes the query start from another query (Power Query "Riferimento"). */
+  source: { path: string; sheet?: string; m?: string; ref?: string };
+  /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
+  steps?: Step[];
+  /** Schema of the source before the steps (types of the M "Origine" step in .pbit export). */
+  sourceColumns?: ColumnMeta[];
   /** Power BI "sort by column": display column → column whose values define its order. */
   sortBy?: Record<string, string>;
 }
@@ -104,3 +109,38 @@ export interface CrossFilter {
 export type View = 'report' | 'data' | 'model' | 'dax';
 
 export interface QueryResult { columns: string[]; rows: Record<string, any>[]; }
+
+// ---- Power Query (phase 4) ----
+
+export type PQType = 'text' | 'int' | 'decimal' | 'date' | 'datetime' | 'bool';
+/** Literal kind of a value typed in a step dialog (decides SQL/M quoting). */
+export type ValueType = 'text' | 'number' | 'date' | 'datetime' | 'bool';
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'ge' | 'lt' | 'le' | 'contains' | 'notContains' | 'startsWith' | 'endsWith' | 'blank' | 'notBlank' | 'in' | 'notIn';
+export type TransformFn = 'upper' | 'lower' | 'proper' | 'trim' | 'length' | 'round' | 'abs' | 'year' | 'month' | 'day' | 'quarter';
+export type GroupOp = 'count' | 'countd' | 'sum' | 'avg' | 'median' | 'min' | 'max';
+export type JoinKind = 'left' | 'right' | 'full' | 'inner' | 'leftAnti';
+
+export type Step = { id: string } & (
+  | { kind: 'removeColumns'; columns: string[] }
+  | { kind: 'selectColumns'; columns: string[] }
+  | { kind: 'renameColumns'; renames: [string, string][] }
+  | { kind: 'changeType'; columns: [string, PQType][] }
+  | { kind: 'filterRows'; column: string; op: FilterOp; value?: string; vtype?: ValueType; values?: (string | null)[] }
+  | { kind: 'sort'; by: [string, 'asc' | 'desc'][] }
+  | { kind: 'removeDuplicates'; columns: string[] }
+  | { kind: 'keepTop' | 'keepBottom' | 'removeTop' | 'removeBottom'; n: number }
+  | { kind: 'replaceValues'; columns: string[]; find: string; replace: string; vtype: ValueType; whole: boolean }
+  | { kind: 'transform'; columns: string[]; fn: TransformFn; digits?: number }
+  | { kind: 'fillDown' | 'fillUp'; columns: string[] }
+  | { kind: 'splitColumn'; column: string; delimiter: string; parts: number }
+  | { kind: 'customColumn'; name: string; formula: string }
+  | { kind: 'indexColumn'; name: string; start: number }
+  | { kind: 'duplicateColumn'; column: string; name: string }
+  | { kind: 'groupBy'; keys: string[]; aggs: { name: string; op: GroupOp; column?: string }[] }
+  | { kind: 'unpivot'; columns: string[]; other: boolean; cast: boolean }
+  | { kind: 'merge'; table: string; left: string[]; right: string[]; join: JoinKind; expand: string[] }
+  | { kind: 'append'; tables: string[] }
+);
+export type StepKind = Step['kind'];
+/** A step before it gets its id (distributes Omit over the union). */
+export type NewStep = Step extends infer S ? (S extends Step ? Omit<S, 'id'> : never) : never;

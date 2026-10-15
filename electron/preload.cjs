@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
   preview: (file, sheet) => call('db:preview', file, sheet),
   importFile: (file, table, sheet) => call('db:import', file, table, sheet),
   dropTable: (table) => call('db:drop', table),
+  materialize: (table, sql) => call('db:materialize', table, sql),
+  sourceExpr: (file, sheet) => call('db:sourceExpr', file, sheet),
   sampleData: () => call('data:sample'),
   openDataDialog: (kind) => call('dialog:openData', kind),
   saveFile: (content, path) => call('file:save', content, path),

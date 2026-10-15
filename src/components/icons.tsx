@@ -70,6 +70,28 @@ const UI: Record<string, ReactNode> = {
   pause: <><circle cx="16" cy="16" r="11" fill="none" stroke={K} strokeWidth="1.3" />{P('M13 11 V21 M19 11 V21', K, 2)}</>,
   analyzer: <><circle cx="14" cy="14" r="8" fill="none" stroke={K} strokeWidth="1.3" />{P('M20 20 L27 27', K, 2)}<rect x="10" y="14" width="2" height="4" fill={B} /><rect x="13" y="11" width="2" height="7" fill={B} /><rect x="16" y="13" width="2" height="5" fill={B} /></>,
   sensitivity: <><path d="M16 3 L27 7 V15 C27 22 22 27 16 29 C10 27 5 22 5 15 V7 Z" fill="#fff" stroke={K} strokeWidth="1.2" /></>,
+  // Power Query editor (viewBox 32)
+  closeApply: <><rect x="3" y="6" width="17" height="18" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M3 12 H20 M3 18 H20 M9 6 V24', G, .9)}<rect x="3" y="6" width="17" height="3" fill="#F2C811" />{P('M18 22 H29 M25 18 L29 22 L25 26', '#107C41', 1.8)}</>,
+  chooseColumns: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M4 11 H28 M12 5 V27 M20 5 V27', G, .9)}{P('M6 8 L7.5 9.5 L10 6.5 M14 8 L15.5 9.5 L18 6.5', '#107C41', 1.3)}</>,
+  removeColumns: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="12" y="5" width="8" height="22" fill={B} opacity=".3" />{P('M4 11 H28 M12 5 V27 M20 5 V27', G, .9)}{P('M13 14 L19 20 M19 14 L13 20', '#D13438', 1.6)}</>,
+  keepRows: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="4" y="5" width="24" height="10" fill="#1AAB40" opacity=".35" />{P('M4 10 H28 M4 15 H28 M4 21 H28 M12 5 V27', G, .9)}</>,
+  removeRows: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="4" y="10" width="24" height="5" fill="#D13438" opacity=".3" />{P('M4 10 H28 M4 15 H28 M4 21 H28 M12 5 V27', G, .9)}{P('M22 9 L27 14 M27 9 L22 14', '#D13438', 1.4)}</>,
+  splitColumn: <><rect x="5" y="5" width="9" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="18" y="5" width="9" height="22" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M9.5 16 H3 M22.5 16 H29', B, 1.4)}{P('M16 3 V29', '#D13438', 1.2)}</>,
+  groupBy: <><rect x="3" y="5" width="12" height="22" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M3 10 H15 M3 15 H15 M3 20 H15', G, .9)}{P('M16 9 L21 16 L16 23', B, 1.3)}<rect x="22" y="11" width="8" height="10" fill={B} opacity=".35" stroke={K} /></>,
+  replaceValues: <><text x="3" y="13" fontSize="10" fill={K} fontWeight="600">ab</text><text x="15" y="28" fontSize="10" fill={B} fontWeight="600">cd</text>{P('M6 17 V22 H13 M11 20 L13 22 L11 24', K, 1.2)}</>,
+  mergeQueries: <><rect x="2" y="4" width="11" height="13" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="19" y="4" width="11" height="13" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M7.5 17 V22 H24.5 V17 M16 22 V28', B, 1.4)}</>,
+  appendQueries: <><rect x="6" y="3" width="20" height="11" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="6" y="17" width="20" height="11" fill={B} opacity=".3" stroke={K} strokeWidth="1.2" />{P('M2 9 V22 H5 M3.5 20.5 L5 22 L3.5 23.5', B, 1.2)}</>,
+  customColumn: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="18" y="5" width="10" height="22" fill={B} opacity=".3" />{P('M4 11 H28 M18 5 V27', G, .9)}<text x="8" y="22" fontSize="9" fill={K} fontStyle="italic" fontWeight="600">fx</text></>,
+  indexColumn: <><rect x="4" y="5" width="24" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="4" y="5" width="9" height="22" fill={B} opacity=".3" />{P('M4 11 H28 M13 5 V27', G, .9)}<text x="8.5" y="18" fontSize="5.5" textAnchor="middle" fill={K}>1</text><text x="8.5" y="24" fontSize="5.5" textAnchor="middle" fill={K}>2</text></>,
+  duplicateColumn: <><rect x="5" y="5" width="9" height="22" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="18" y="5" width="9" height="22" fill={B} opacity=".3" stroke={K} strokeWidth="1.2" strokeDasharray="2 1.5" />{P('M5 11 H14 M18 11 H27', G, .9)}</>,
+  advancedEditor: <><path d="M6 3 H20 L26 9 V29 H6 Z" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M12 15 L9 18 L12 21 M20 15 L23 18 L20 21 M17.5 13.5 L14.5 22.5', B, 1.3)}</>,
+  unpivot: <><rect x="3" y="4" width="16" height="7" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M8.3 4 V11 M13.6 4 V11', G, .9)}<rect x="19" y="14" width="10" height="15" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M19 19 H29 M19 24 H29 M24 14 V29', G, .9)}{P('M11 13 V20 H16 M14 18 L16 20 L14 22', B, 1.3)}</>,
+  fillDown: <><rect x="8" y="4" width="16" height="24" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="8" y="4" width="16" height="6" fill={B} opacity=".35" />{P('M8 10 H24 M8 16 H24 M8 22 H24', G, .9)}{P('M16 12 V25 M13 22 L16 25 L19 22', B, 1.4)}</>,
+  formatText: <><text x="4" y="22" fontSize="15" fill={K} fontWeight="600">A</text><text x="16" y="22" fontSize="12" fill={B} fontWeight="600">a</text>{P('M4 26 H28', G, 1)}</>,
+  dataType: <><rect x="3" y="7" width="26" height="18" rx="2" fill="#fff" stroke={K} strokeWidth="1.2" /><text x="16" y="20" fontSize="9" textAnchor="middle" fill={K} fontWeight="600">1.2</text></>,
+  rename: <><rect x="3" y="10" width="26" height="12" rx="1" fill="#fff" stroke={K} strokeWidth="1.2" />{P('M7 14 V18 M7 16 H12', K, 1.2)}{P('M20 7 V25 M17 7 H23 M17 25 H23', B, 1.3)}</>,
+  round: <><text x="16" y="21" fontSize="11" textAnchor="middle" fill={K} fontWeight="600">.00</text>{P('M5 25 C10 29 22 29 27 25', B, 1.3)}</>,
+  calendarBig: <><rect x="4" y="6" width="24" height="22" rx="1.5" fill="#fff" stroke={K} strokeWidth="1.2" /><rect x="4" y="6" width="24" height="6" fill={B} opacity=".35" />{P('M10 3 V9 M22 3 V9', K, 1.3)}<text x="16" y="24" fontSize="9" textAnchor="middle" fill={K}>31</text></>,
   // small glyphs (viewBox 16)
   cut: <>{P('M4 2 L11 11 M12 2 L5 11', K, 1)}<circle cx="4" cy="12.5" r="2" fill="none" stroke={K} /><circle cx="12" cy="12.5" r="2" fill="none" stroke={K} /></>,
   copy: <><rect x="5" y="5" width="9" height="10" rx="1" fill="#fff" stroke={K} /><path d="M3 11 V2 H10" stroke={K} fill="none" /></>,
@@ -102,11 +124,14 @@ const UI: Record<string, ReactNode> = {
   brush: <>{P('M13.5 2.5 L7 9', K, 1.6)}{P('M7 9 C4 9 3.5 11 3 14 C6 13.5 8 13 7 9 Z', K, 1)}</>,
   analytics: <>{P('M2 2 V14 H14', K, 1)}{P('M3 11 L7 6 L10 9 L14 4', K, 1.1)}</>,
   calc: <><rect x="3" y="1.5" width="10" height="13" rx="1" fill="none" stroke={K} /><rect x="5" y="3.5" width="6" height="2.5" fill={K} /><circle cx="5.8" cy="9" r=".7" fill={K} /><circle cx="8" cy="9" r=".7" fill={K} /><circle cx="10.2" cy="9" r=".7" fill={K} /><circle cx="5.8" cy="11.7" r=".7" fill={K} /><circle cx="8" cy="11.7" r=".7" fill={K} /><circle cx="10.2" cy="11.7" r=".7" fill={K} /></>,
+  sortDesc: <>{P('M4 2 V14 M1.5 11.5 L4 14 L6.5 11.5', K, 1)}<text x="12" y="7" fontSize="6" textAnchor="middle" fill={K}>Z</text><text x="12" y="14" fontSize="6" textAnchor="middle" fill={K}>A</text></>,
+  gear: <><circle cx="8" cy="8" r="2.2" fill="none" stroke={K} />{P('M8 1.5 V3.5 M8 12.5 V14.5 M1.5 8 H3.5 M12.5 8 H14.5 M3.4 3.4 L4.8 4.8 M11.2 11.2 L12.6 12.6 M3.4 12.6 L4.8 11.2 M11.2 4.8 L12.6 3.4', K, 1.1)}</>,
+  warning: <><path d="M8 1.5 L15 14 H1 Z" fill="#F2C811" stroke="#8A6D00" strokeWidth=".8" />{P('M8 6 V10', K, 1.4)}<circle cx="8" cy="12" r=".8" fill={K} /></>,
   pin: P('M10 2 L14 6 L11 7 L8 10 L8.5 13 L3 7.5 L6 8 L9 5 Z M5.5 10.5 L2 14', K, 1),
 };
 
 export function Icon({ name, size = 16, box }: { name: string; size?: number; box?: number }) {
-  const big = ['getData', 'excel', 'sql', 'enterData', 'sample', 'recent', 'transform', 'refresh', 'newVisual', 'textBox', 'moreVisuals', 'measure', 'quickMeasure', 'publish', 'paste', 'newPage', 'relationships', 'newColumn', 'newTable', 'themes', 'pageView', 'mobile', 'info', 'docs', 'pause', 'analyzer', 'sensitivity'];
+  const big = ['getData', 'excel', 'sql', 'enterData', 'sample', 'recent', 'transform', 'refresh', 'newVisual', 'textBox', 'moreVisuals', 'measure', 'quickMeasure', 'publish', 'paste', 'newPage', 'relationships', 'newColumn', 'newTable', 'themes', 'pageView', 'mobile', 'info', 'docs', 'pause', 'analyzer', 'sensitivity', 'closeApply', 'chooseColumns', 'removeColumns', 'keepRows', 'removeRows', 'splitColumn', 'groupBy', 'replaceValues', 'mergeQueries', 'appendQueries', 'customColumn', 'indexColumn', 'duplicateColumn', 'advancedEditor', 'unpivot', 'fillDown', 'formatText', 'dataType', 'rename', 'round', 'calendarBig'];
   const rail = ['report', 'tableView', 'model', 'dax'];
   const vb = box ?? (big.includes(name) ? 32 : rail.includes(name) ? 24 : 16);
   return <svg width={size} height={size} viewBox={`0 0 ${vb} ${vb}`} style={{ flexShrink: 0 }}>{UI[name]}</svg>;

@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { CrossFilter, FieldRef, Filter, Page, Relationship, Report, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { CrossFilter, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
 import { connected, qi } from './query';
 import { compileMeasure } from './dax';
 import { parseLayout } from './pbix/layout';
 import { buildPbitParts } from './pbix/pbit';
+import { compileQuery } from './pq/compile';
+import { dependencies, renameQueryRef, type QueryDef } from './pq/steps';
 
 export const PAGE_W = 1280;
 export const PAGE_H = 720;
@@ -43,6 +45,61 @@ export async function isUnique(table: string, column: string): Promise<boolean> 
 
 export type FilterScope = 'visual' | 'page' | 'report';
 
+/** Query being edited in the Power Query editor; `orig` is the model table it came from (null = new). */
+export interface PQQuery { name: string; orig: string | null; source: TableMeta['source']; steps: Step[]; }
+/** `step` = number of applied steps shown (null = all, 0 = Origine). */
+export interface PQState { queries: PQQuery[]; selected: string; step: number | null; deleted: string[]; }
+
+const srcExpr = (path: string, sheet?: string) => api.sourceExpr(path, sheet);
+
+/** Steps Power BI folds into the previous step of the same kind instead of adding a new one. */
+function mergeStep(prev: Step, next: Step): boolean {
+  if (prev.kind === 'renameColumns' && next.kind === 'renameColumns') {
+    for (const [a, b] of next.renames) {
+      const hit = prev.renames.find((r) => r[1] === a);
+      if (hit) hit[1] = b; else prev.renames.push([a, b]);
+    }
+    prev.renames = prev.renames.filter(([a, b]) => a !== b);
+    return true;
+  }
+  if (prev.kind === 'changeType' && next.kind === 'changeType') {
+    for (const [c, t] of next.columns) {
+      const hit = prev.columns.find((x) => x[0] === c);
+      if (hit) hit[1] = t; else prev.columns.push([c, t]);
+    }
+    return true;
+  }
+  if (prev.kind === 'sort' && next.kind === 'sort') {
+    for (const [c, d] of next.by) {
+      const hit = prev.by.find((x) => x[0] === c);
+      if (hit) hit[1] = d; else prev.by.push([c, d]);
+    }
+    return true;
+  }
+  return false;
+}
+
+const reEscape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Renames a table everywhere the report refers to it (fields, filters, relationships, measures). */
+function renameTableInReport(r: Report, from: string, to: string) {
+  const walk = (o: any) => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    for (const k of ['table', 'fromTable', 'toTable']) if (o[k] === from) o[k] = to;
+    Object.values(o).forEach(walk);
+  };
+  walk(r.pages); walk(r.reportFilters); walk(r.relationships); walk(r.measures);
+  if (r.modelLayout[from]) { r.modelLayout[to] = r.modelLayout[from]; delete r.modelLayout[from]; }
+  const quoted = (n: string) => `'${n.replace(/'/g, "''")}'`;
+  const bare = /^[A-Za-z_]\w*$/.test(from) ? new RegExp(`(^|[^\\w'\\]])${reEscape(from)}\\[`, 'g') : null;
+  const target = /^[A-Za-z_]\w*$/.test(to) ? to : quoted(to);
+  for (const m of r.measures) {
+    m.expression = m.expression.split(quoted(from) + '[').join(target + '[');
+    if (bare) m.expression = m.expression.replace(bare, (_x, pre) => `${pre}${target}[`);
+  }
+}
+
 export interface Navigator { path: string; tableName: string; preview: { columns: string[]; rows: any[] } | null; error?: string; loading: boolean; }
 
 interface State {
@@ -72,6 +129,14 @@ interface State {
   relManage: boolean;
   relEditor: RelEditor | null;
   selectedRelId: string | null;
+  pq: PQState | null;
+
+  openPowerQuery: (focus?: string, extra?: PQQuery) => void;
+  pqSet: (fn: (st: PQState) => void) => void;
+  pqAddStep: (step: NewStep) => void;
+  pqNewSource: (kind: string) => Promise<void>;
+  pqApply: () => Promise<void>;
+  transformNavigator: () => void;
 
   saveRelationship: (r: Relationship) => void;
   deleteRelationship: (id: string) => void;
@@ -184,17 +249,29 @@ export const useStore = create<State>((set, get) => {
   const defaultSize = (type: VisualType) =>
     type === 'card' ? { w: 220, h: 120 } : type === 'slicer' ? { w: 220, h: 260 } : type === 'textbox' ? { w: 300, h: 80 } : { w: 440, h: 300 };
 
-  const importTable = async (path: string, name: string, sheet?: string, m?: string) => {
-    const meta = await api.importFile(path, name, sheet);
-    const prev = get().tables.find((x) => x.name === name);
-    const t: TableMeta = { ...meta, source: { path, sheet, ...(m ? { m } : {}) }, ...(prev?.sortBy ? { sortBy: prev.sortBy } : {}) };
+  /** Runs a query (source + applied steps) and stores the result as model table `def.name`.
+   *  `context` resolves references to other queries (defaults to the loaded tables). */
+  const loadTable = async (def: QueryDef & { sortBy?: Record<string, string> }, context?: QueryDef[]) => {
+    const all = context ?? get().tables;
+    const meta = await api.materialize(def.name, await compileQuery(def, all, { srcExpr }));
+    const steps = def.steps?.length ? def.steps : undefined;
+    let sourceColumns: TableMeta['sourceColumns'];
+    if (steps) {
+      const d = await api.query(`DESCRIBE SELECT * FROM (${await compileQuery({ ...def, steps: [] }, all, { srcExpr })})`);
+      sourceColumns = d.rows.map((r) => ({ name: r.column_name, type: r.column_type }));
+    }
+    const prev = get().tables.find((x) => x.name === def.name);
+    const sortBy = def.sortBy ?? prev?.sortBy;
+    const t: TableMeta = { ...meta, source: def.source, ...(steps ? { steps, sourceColumns } : {}), ...(sortBy ? { sortBy } : {}) };
     set((s) => ({
-      tables: [...s.tables.filter((x) => x.name !== name), t],
+      tables: prev ? s.tables.map((x) => (x.name === def.name ? t : x)) : [...s.tables, t],
       dataVersion: s.dataVersion + 1,
-      dataViewTable: s.dataViewTable ?? name,
+      dataViewTable: s.dataViewTable ?? def.name,
       dirty: true,
     }));
   };
+  const importTable = (path: string, name: string, sheet?: string, m?: string) =>
+    loadTable({ name, source: { path, sheet, ...(m ? { m } : {}) } });
 
   return {
     tables: [],
@@ -294,6 +371,96 @@ export const useStore = create<State>((set, get) => {
     relManage: false,
     relEditor: null,
     selectedRelId: null,
+    pq: null,
+
+    openPowerQuery: (focus, extra) => {
+      const queries: PQQuery[] = get().tables.map((t) => ({ name: t.name, orig: t.name, source: clone(t.source), steps: clone(t.steps ?? []) }));
+      if (extra) queries.push(extra);
+      const selected = extra?.name ?? focus ?? queries[0]?.name ?? '';
+      set({ pq: { queries, selected, step: null, deleted: [] }, fileMenu: false });
+    },
+    pqSet: (fn) => {
+      const pq = get().pq;
+      if (!pq) return;
+      const next = clone(pq);
+      fn(next);
+      set({ pq: next });
+    },
+    pqAddStep: (raw) => get().pqSet((st) => {
+      const q = st.queries.find((x) => x.name === st.selected);
+      if (!q) return;
+      const step = { ...raw, id: uid() } as Step;
+      const pos = st.step ?? q.steps.length;
+      if (pos > 0 && mergeStep(q.steps[pos - 1], step)) {
+        if (q.steps[pos - 1].kind === 'renameColumns' && !(q.steps[pos - 1] as any).renames.length) q.steps.splice(pos - 1, 1);
+        return;
+      }
+      q.steps.splice(pos, 0, step);
+      st.step = pos + 1 >= q.steps.length ? null : pos + 1;
+    }),
+    pqNewSource: async (kind) => {
+      const path = await api.openDataDialog(kind);
+      const pq = get().pq;
+      if (!path || !pq) return;
+      const taken = [...get().tables, ...pq.queries] as { name: string }[];
+      const name = tableNameFor(path, taken as TableMeta[]);
+      get().pqSet((st) => { st.queries.push({ name, orig: null, source: { path }, steps: [] }); st.selected = name; st.step = null; });
+    },
+    transformNavigator: () => {
+      const nav = get().navigator;
+      if (!nav) return;
+      set({ navigator: null });
+      get().openPowerQuery(undefined, { name: nav.tableName.trim(), orig: null, source: { path: nav.path }, steps: [] });
+    },
+    pqApply: async () => {
+      const pq = get().pq;
+      if (!pq) return;
+      set({ busy: 'Applicazione delle modifiche alle query…' });
+      const failed: string[] = [];
+      try {
+        for (const name of pq.deleted) await get().removeTable(name);
+        const before = get().tables;
+        const key = (q: QueryDef) => JSON.stringify([q.source, q.steps ?? []]);
+        const changed = new Set(pq.queries.filter((q) => {
+          const t = before.find((x) => x.name === q.orig);
+          return !t || q.orig !== q.name || key(t) !== key(q);
+        }).map((q) => q.name));
+        // References are inlined in the SQL, so dependents of a changed query reload too.
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const q of pq.queries) {
+            if (!changed.has(q.name) && dependencies(q).some((d) => changed.has(d))) { changed.add(q.name); grew = true; }
+          }
+        }
+        for (const q of pq.queries) {
+          if (!q.orig || q.orig === q.name) continue;
+          await api.dropTable(q.orig);
+          const from = q.orig;
+          get().mut((r) => renameTableInReport(r, from, q.name));
+          set((s) => ({
+            tables: s.tables.map((t) => (t.name === from ? { ...t, name: q.name } : t)),
+            dataViewTable: s.dataViewTable === from ? q.name : s.dataViewTable,
+          }));
+        }
+        for (const q of pq.queries) {
+          if (!changed.has(q.name)) continue;
+          try { await loadTable({ name: q.name, source: q.source, steps: q.steps }, pq.queries); } catch (e: any) { failed.push(`${q.name}: ${e.message}`); }
+        }
+        const order = pq.queries.map((q) => q.name);
+        set((s) => ({ tables: [...s.tables].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name)), dataVersion: s.dataVersion + 1 }));
+        if (failed.length) { get().notify('Caricamento non riuscito — ' + failed.join(' · '), 15000); return; }
+        set({ pq: null });
+        const fresh = pq.queries.filter((q) => !q.orig).map((q) => q.name);
+        if (fresh.length) {
+          const n = await get().detectRelationships(fresh);
+          if (n) get().notify(`Rilevate automaticamente ${n} ${n === 1 ? 'relazione' : 'relazioni'}. Verificarle nella vista modello.`);
+        }
+      } catch (e: any) {
+        get().notify('Applicazione non riuscita: ' + e.message, 12000);
+      } finally {
+        set({ busy: null });
+      }
+    },
 
     saveRelationship: (rel) => get().mut((r) => {
       const i = r.relationships.findIndex((x) => x.id === rel.id);
@@ -516,7 +683,7 @@ export const useStore = create<State>((set, get) => {
     refresh: async () => {
       set({ busy: 'Aggiornamento in corso…' });
       try {
-        for (const t of get().tables) await importTable(t.source.path, t.name, t.source.sheet, t.source.m);
+        for (const t of get().tables) await loadTable(t);
       } catch (e: any) {
         get().notify('Aggiornamento non riuscito: ' + e.message);
       } finally {
@@ -531,7 +698,7 @@ export const useStore = create<State>((set, get) => {
     },
     save: async (as = false) => {
       const { tables, report, filePath } = get();
-      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, sortBy: t.sortBy })), report }, null, 2);
+      const content = JSON.stringify({ format: 'lbix', version: 1, tables: tables.map((t) => ({ name: t.name, source: t.source, steps: t.steps, sortBy: t.sortBy })), report }, null, 2);
       try {
         const p = await api.saveFile(content, as ? null : filePath);
         if (p) set({ filePath: p, dirty: false, fileMenu: false });
@@ -549,9 +716,9 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];
-        for (const t of doc.tables as { name: string; source: TableMeta['source']; sortBy?: Record<string, string> }[]) {
-          try { await importTable(t.source.path, t.name, t.source.sheet, t.source.m); } catch { failed.push(t.name); }
-          if (t.sortBy) set((st) => ({ tables: st.tables.map((x) => (x.name === t.name ? { ...x, sortBy: t.sortBy } : x)) }));
+        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string> })[];
+        for (const t of defs) {
+          try { await loadTable(t, defs); } catch { failed.push(t.name); }
         }
         doc.report.relationships ??= [];
         doc.report.modelLayout ??= {};

@@ -99,6 +99,7 @@ export function DataPane() {
           </> : <>
             <button onClick={() => { s.set({ view: 'data', dataViewTable: menu.table }); setMenu(null); }}>Visualizza in vista tabella</button>
             <button onClick={() => { setOpen({ ...open, [menu.table]: !isOpen(menu.table) }); setMenu(null); }}>{isOpen(menu.table) ? 'Comprimi' : 'Espandi'}</button>
+            <button disabled={!s.tables.some((t) => t.name === menu.table)} onClick={() => { s.openPowerQuery(menu.table); setMenu(null); }}><Icon name="transform" size={16} box={32} />Modifica query</button>
             <button onClick={() => { s.refresh(); setMenu(null); }}>Aggiorna dati</button>
             <hr />
             <button onClick={() => { s.removeTable(menu.table); setMenu(null); }}><Icon name="trash" />Elimina dal modello</button>

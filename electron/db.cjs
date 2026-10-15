@@ -62,6 +62,13 @@ async function importFile(file, tableName, sheet) {
   return describe(tableName);
 }
 
+// Power Query result (SQL compiled by src/pq/compile.ts) materialised as a model table.
+async function materialize(tableName, sql) {
+  const c = await connection();
+  await c.run(`CREATE OR REPLACE TABLE ${qi(tableName)} AS ${sql}`);
+  return describe(tableName);
+}
+
 async function dropTable(name) {
   const c = await connection();
   await c.run(`DROP TABLE IF EXISTS ${qi(name)}`);
@@ -76,4 +83,4 @@ async function createEmpty(table, columns) {
   return describe(table);
 }
 
-module.exports = { query, preview, importFile, dropTable, createEmpty, kindOf };
+module.exports = { query, preview, importFile, materialize, sourceExpr, dropTable, createEmpty, kindOf };

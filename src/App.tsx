@@ -8,6 +8,7 @@ import { DataView } from './components/DataView';
 import { ModelView } from './components/ModelView';
 import { ManageRelationships, RelationshipEditor } from './components/Relationships';
 import { Navigator } from './components/Navigator';
+import { PowerQueryEditor } from './components/PowerQuery';
 import { Icon } from './components/icons';
 import { FiltersPane, CollapsedPane } from './panes/FiltersPane';
 import { VisualizationsPane } from './panes/VisualizationsPane';
@@ -28,6 +29,7 @@ function useShortcuts() {
       const t = e.target as HTMLElement;
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
       const ctrl = e.ctrlKey || e.metaKey;
+      if (s.pq) return;
       if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); s.save(e.shiftKey); return; }
       if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); s.open(); return; }
       if (typing) return;
@@ -94,6 +96,7 @@ export function App() {
       <StatusBar fitScale={fit} />
       <Backstage />
       <Navigator />
+      <PowerQueryEditor />
       <ManageRelationships />
       <RelationshipEditor />
       {s.toast && <div className="toast" onClick={() => s.set({ toast: null })}>{s.toast}</div>}

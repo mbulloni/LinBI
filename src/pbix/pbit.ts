@@ -4,7 +4,8 @@
  * Power Query (M) per table, relationships, DAX measures and the report layout; Power BI
  * reloads the data from the sources when the template is opened.
  */
-import type { Report, TableMeta } from '../types';
+import type { ColumnMeta, Report, TableMeta } from '../types';
+import { appendSteps, mName, mStr } from '../pq/m';
 import { buildLayout } from './layout';
 
 export interface PbitPart { path: string; utf16?: string; utf8bom?: string; dataUrl?: string; }
@@ -20,16 +21,16 @@ function tomType(duck: string): { dataType: string; m: string } {
   return { dataType: 'string', m: 'type text' };
 }
 
-const mStr = (s: string) => '"' + s.replace(/"/g, '""') + '"';
-const mName = (s: string) => (/^[A-Za-z_][\w.]*$/.test(s) ? s : `#${mStr(s)}`);
-
-/** Power Query expression for a LinBI source; keeps the original M of tables imported from Power BI. */
-function mExpression(t: TableMeta): string {
+/** Power Query expression of the source ("Origine" + header/type steps); keeps the original M of Power BI tables. */
+function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
   if (t.source.m) return t.source.m;
+  if (t.source.ref) return `let\n    Origine = ${mName(t.source.ref)}\nin\n    Origine`;
   const p = t.source.path;
   const ext = p.split('.').pop()!.toLowerCase();
-  const types = `{${t.columns.map((c) => `{${mStr(c.name)}, ${tomType(c.type).m}}`).join(', ')}}`;
-  const typed = (prev: string) => `    #"Tipo modificato" = Table.TransformColumnTypes(${prev}, ${types})\nin\n    #"Tipo modificato"`;
+  const types = `{${columns.map((c) => `{${mStr(c.name)}, ${tomType(c.type).m}}`).join(', ')}}`;
+  const typed = (prev: string) => columns.length
+    ? `    #"Modificato tipo" = Table.TransformColumnTypes(${prev}, ${types})\nin\n    #"Modificato tipo"`
+    : `    Fine = ${prev}\nin\n    Fine`;
   if (ext === 'csv' || ext === 'txt' || ext === 'tsv') {
     return `let\n    Origine = Csv.Document(File.Contents(${mStr(p)}), [Delimiter="${ext === 'tsv' ? '#(tab)' : ','}", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),\n` +
       `    #"Intestazioni alzate di livello" = Table.PromoteHeaders(Origine, [PromoteAllScalars=true]),\n${typed('#"Intestazioni alzate di livello"')}`;
@@ -43,6 +44,13 @@ function mExpression(t: TableMeta): string {
   if (ext === 'json') return `let\n    Origine = Table.FromRecords(Json.Document(File.Contents(${mStr(p)}))),\n${typed('Origine')}`;
   return `let\n    Origine = Csv.Document(File.Contents(${mStr(p)}))\nin\n    Origine`;
 }
+
+/** Full M of a query: source followed by its applied steps (Editor avanzato, .pbit partitions). */
+export function queryM(t: Pick<TableMeta, 'source' | 'steps'>, sourceColumns: ColumnMeta[]): string {
+  return appendSteps(sourceM(t, sourceColumns), t.steps ?? []);
+}
+
+const mExpression = (t: TableMeta) => queryM(t, t.steps?.length ? t.sourceColumns ?? [] : t.columns);
 
 export function buildModelSchema(report: Report, tables: TableMeta[]) {
   const numeric = (t: string) => ['int64', 'double', 'decimal'].includes(t);

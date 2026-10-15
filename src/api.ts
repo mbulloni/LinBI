@@ -19,6 +19,8 @@ interface Api {
   preview(file: string, sheet?: string): Promise<QueryResult>;
   importFile(file: string, table: string, sheet?: string): Promise<TableInfo>;
   dropTable(table: string): Promise<void>;
+  materialize(table: string, sql: string): Promise<TableInfo>;
+  sourceExpr(file: string, sheet?: string): Promise<string>;
   sampleData(): Promise<{ financials: string; products: string; countries: string }>;
   openDataDialog(kind: string): Promise<string | null>;
   saveFile(content: string, path?: string | null): Promise<string | null>;

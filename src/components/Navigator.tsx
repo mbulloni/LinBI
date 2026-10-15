@@ -34,7 +34,7 @@ export function Navigator() {
         </div>
         <div className="df">
           <button className="btn primary" disabled={nav.loading || !nav.preview || !nav.tableName.trim()} onClick={() => s.loadNavigator()}>Carica</button>
-          <button className="btn" disabled title="Editor di Power Query: fase 4">Trasforma dati</button>
+          <button className="btn" disabled={nav.loading || !nav.preview || !nav.tableName.trim()} onClick={() => s.transformNavigator()}>Trasforma dati</button>
           <button className="btn" onClick={close}>Annulla</button>
         </div>
       </div>

@@ -7,20 +7,20 @@ import { VISUALS } from '../visuals/catalog';
 type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help';
 const TABS: [Tab, string][] = [['home', 'Home'], ['insert', 'Inserisci'], ['modeling', 'Modellazione'], ['view', 'Visualizza'], ['optimize', 'Ottimizza'], ['help', 'Guida']];
 
-function Group({ label, children }: { label: string; children: ReactNode }) {
+export function Group({ label, children }: { label: string; children: ReactNode }) {
   return <div className="rgroup"><div className="items">{children}</div><div className="label">{label}</div></div>;
 }
 
-function Big({ icon, label, onClick, disabled, dropdown, title }: { icon: string; label: ReactNode; onClick?: (e: React.MouseEvent) => void; disabled?: boolean; dropdown?: boolean; title?: string }) {
+export function Big({ icon, label, onClick, disabled, dropdown, title }: { icon: string; label: ReactNode; onClick?: (e: React.MouseEvent) => void; disabled?: boolean; dropdown?: boolean; title?: string }) {
   return (
     <button className="rbtn-l" onClick={onClick} disabled={disabled} title={title}>
       <Icon name={icon} size={32} />
-      <span className="lbl">{label}{dropdown && <Icon name="chevronDown" size={10} />}</span>
+      <span className="lbl"><span>{label}{dropdown && <span className="chev"><Icon name="chevronDown" size={10} /></span>}</span></span>
     </button>
   );
 }
 
-function Small({ icon, label, onClick, disabled }: { icon: string; label: string; onClick?: () => void; disabled?: boolean }) {
+export function Small({ icon, label, onClick, disabled }: { icon: string; label: string; onClick?: () => void; disabled?: boolean }) {
   return <button className="rbtn-s" onClick={onClick} disabled={disabled}><Icon name={icon} size={16} />{label}</button>;
 }
 
@@ -78,7 +78,7 @@ export function Ribbon() {
           </Group>
           {dataGroup}
           <Group label="Query">
-            <Big icon="transform" label={<>Trasforma<br />dati</>} dropdown disabled title="Editor di Power Query: fase 4" />
+            <Big icon="transform" label={<>Trasforma<br />dati</>} onClick={() => s.openPowerQuery(s.dataViewTable ?? undefined)} title="Apre l'editor di Power Query" />
             <Big icon="refresh" label="Aggiorna" onClick={() => s.refresh()} disabled={!s.tables.length} />
           </Group>
           <Group label="Inserisci">
