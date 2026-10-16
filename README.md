@@ -188,3 +188,7 @@ nella pagina (lo store è esposto come `window.__linbi`, il query builder come `
 stampa il valore restituito dallo script (`SCRIPT_RESULT {...}`), cattura uno screenshot ed esce.
 `LINBI_PBIT_OUT=out.pbit` salva l'esportazione `.pbit` senza finestra di dialogo. File `.pbix` di prova: cartella `data/`
 del repository di pbixray (sample Microsoft).
+
+## Licenza
+
+MIT — vedi [LICENSE](LICENSE). Progetto indipendente, non affiliato a Microsoft; Power BI è un marchio di Microsoft.
