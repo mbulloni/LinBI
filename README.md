@@ -6,7 +6,30 @@ stesso flusso di lavoro (Ottieni dati → Strumento di navigazione → trascina 
 
 Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 
-## Avvio
+## Scaricare e installare
+
+Dalla pagina [Releases](https://github.com/mbulloni/LinBI/releases) (Linux x64):
+
+```bash
+# AppImage (qualsiasi distribuzione)
+chmod +x LinBI-1.0.0.AppImage && ./LinBI-1.0.0.AppImage
+
+# oppure pacchetto Debian/Ubuntu (voce di menu e associazioni file incluse)
+sudo apt install ./linbi_1.0.0_amd64.deb
+```
+
+Per aprire i file `.pbix` di Power BI serve Python 3 con la libreria `pbixray` (una volta sola):
+
+```bash
+sudo apt install python3-venv     # se manca il modulo venv
+python3 -m venv ~/.config/linbi/pbix-venv
+~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow
+```
+
+LinBI usa da solo questo ambiente. I file `.pbit`, `.pbip`, `.lbix` e tutte le altre origini non richiedono Python.
+La prima volta che si usano Excel o un database, DuckDB scarica la relativa estensione (serve la rete).
+
+## Sviluppo
 
 ```bash
 npm install
@@ -14,7 +37,7 @@ npm run setup:pbix                      # opzionale: lettura dei file .pbix (Pyt
 node node_modules/electron/install.js   # solo se npm ha bloccato lo script di Electron
 npm run dev      # Vite + Electron con hot reload
 npm start        # build di produzione + Electron
-npm run dist     # AppImage in release/ (npm run dist:deb per il .deb: richiede "homepage" in package.json)
+npm run dist     # AppImage in release/ (npm run dist:deb per il .deb)
 ```
 
 ### Installazione (utente, senza root)
