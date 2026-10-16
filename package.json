@@ -106,5 +106,10 @@
     "name": "Michele",
     "email": "m.bulloni@gmail.com"
   },
-  "desktopName": "linbi.desktop"
+  "desktopName": "linbi.desktop",
+  "homepage": "https://github.com/mbulloni/LinBI",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mbulloni/LinBI.git"
+  }
 }
