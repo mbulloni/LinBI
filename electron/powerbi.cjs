@@ -1,0 +1,458 @@
+// Publish to the Power BI service from Linux, through the public REST APIs (no Power BI Desktop):
+//  - "push": Power BI Pro. A push dataset (tables, relationships, DAX measures) filled with the rows
+//    of the DuckDB model, plus a thin report (.pbix with only the layout and a live connection to it).
+//  - "fabric": workspaces on Fabric / Premium / PPU capacity. Semantic model (TMSL) and report
+//    (report.json) created from their text definitions; the service builds and refreshes the model.
+//    Local data is embedded in the M of each table (like "Immetti dati"), so no gateway is needed.
+// Sign-in: OAuth 2.0 device code flow against the user's own Entra ID app registration (public client).
+const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
+const crypto = require('crypto');
+const JSZip = require('jszip');
+const { app, safeStorage } = require('electron');
+const db = require('./db.cjs');
+
+// Endpoints can be redirected for tests (LINBI_PBI_* = local mock server).
+const LOGIN = process.env.LINBI_PBI_LOGIN || 'https://login.microsoftonline.com';
+const PBI = process.env.LINBI_PBI_API || 'https://api.powerbi.com/v1.0/myorg';
+const FABRIC = process.env.LINBI_PBI_FABRIC || 'https://api.fabric.microsoft.com/v1';
+const SCOPES = {
+  pbi: 'https://analysis.windows.net/powerbi/api/.default',
+  fabric: 'https://api.fabric.microsoft.com/.default',
+};
+
+const qi = (s) => '"' + String(s).replace(/"/g, '""') + '"';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const cfgFile = () => path.join(app.getPath('userData'), 'powerbi.json');
+
+// ---------- configuration and tokens ----------
+
+let refreshToken = null;
+const tokens = new Map();
+
+function loadCfg() {
+  try { return JSON.parse(fs.readFileSync(cfgFile(), 'utf8')); } catch { return {}; }
+}
+function saveCfg(patch) {
+  const cfg = { ...loadCfg(), ...patch };
+  fs.writeFileSync(cfgFile(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  return cfg;
+}
+
+function storedRefresh() {
+  if (refreshToken) return refreshToken;
+  const enc = loadCfg().refresh;
+  if (enc && safeStorage.isEncryptionAvailable()) {
+    try { refreshToken = safeStorage.decryptString(Buffer.from(enc, 'base64')); } catch { /* sign in again */ }
+  }
+  return refreshToken;
+}
+
+function keepRefresh(rt) {
+  refreshToken = rt;
+  if (safeStorage.isEncryptionAvailable()) saveCfg({ refresh: safeStorage.encryptString(rt).toString('base64') });
+}
+
+function claims(idToken) {
+  try { return JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url').toString('utf8')); } catch { return {}; }
+}
+
+/** Public state for the dialog: configuration, signed-in account, last workspace. */
+function status() {
+  const cfg = loadCfg();
+  return { clientId: cfg.clientId ?? '', tenant: cfg.tenant ?? 'organizations', account: storedRefresh() ? cfg.account ?? null : null, lastWorkspace: cfg.lastWorkspace ?? null, persistent: safeStorage.isEncryptionAvailable() };
+}
+
+function configure(clientId, tenant) {
+  if (!/^[0-9a-f-]{36}$/i.test(clientId.trim())) throw new Error('ID applicazione (client) non valido: deve essere un GUID.');
+  signOut();
+  saveCfg({ clientId: clientId.trim(), tenant: tenant.trim() || 'organizations' });
+  return status();
+}
+
+function signOut() {
+  refreshToken = null;
+  tokens.clear();
+  const cfg = loadCfg();
+  delete cfg.refresh; delete cfg.account;
+  fs.writeFileSync(cfgFile(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+}
+
+async function form(url, params) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(params) });
+  const j = await r.json().catch(() => ({}));
+  return { ok: r.ok, j };
+}
+
+let pending = null;
+
+/** Starts the device code flow: the user types `user_code` at `verification_uri` in any browser. */
+async function loginStart() {
+  const cfg = loadCfg();
+  if (!cfg.clientId) throw new Error('Configurare prima l\'ID applicazione.');
+  const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/devicecode`, {
+    client_id: cfg.clientId, scope: `${SCOPES.pbi} offline_access openid profile`,
+  });
+  if (!ok) throw new Error(j.error_description?.split('\r\n')[0] || j.error || 'Accesso non riuscito');
+  pending = { device: j.device_code, interval: (j.interval || 5) * 1000, until: Date.now() + (j.expires_in || 900) * 1000 };
+  return { userCode: j.user_code, verificationUri: j.verification_uri, message: j.message };
+}
+
+/** Waits for the user to complete the sign-in started by loginStart(). */
+async function loginWait() {
+  const cfg = loadCfg();
+  const p = pending;
+  if (!p) throw new Error('Nessun accesso in corso.');
+  while (Date.now() < p.until && pending === p) {
+    await sleep(p.interval);
+    const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/token`, {
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: cfg.clientId, device_code: p.device,
+    });
+    if (ok) {
+      pending = null;
+      tokens.set('pbi', { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
+      const c = claims(j.id_token || '');
+      keepRefresh(j.refresh_token);
+      saveCfg({ account: c.preferred_username || c.upn || c.name || 'account Microsoft' });
+      return status();
+    }
+    if (j.error === 'authorization_pending') continue;
+    if (j.error === 'slow_down') { p.interval += 5000; continue; }
+    pending = null;
+    throw new Error(j.error_description?.split('\r\n')[0] || j.error);
+  }
+  throw new Error('Accesso annullato o scaduto.');
+}
+
+function loginCancel() { pending = null; }
+
+async function token(kind) {
+  const t = tokens.get(kind);
+  if (t && t.until > Date.now()) return t.token;
+  const rt = storedRefresh();
+  if (!rt) throw new Error('Accedere a Power BI prima di pubblicare.');
+  const cfg = loadCfg();
+  const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/token`, {
+    grant_type: 'refresh_token', client_id: cfg.clientId, refresh_token: rt, scope: `${SCOPES[kind]} offline_access`,
+  });
+  // Fabric and Power BI are the same Entra resource: a Power BI token also works for Fabric APIs.
+  if (!ok && kind === 'fabric' && j.error !== 'invalid_grant') return token('pbi');
+  if (!ok) {
+    if (j.error === 'invalid_grant') signOut();
+    throw new Error(`Token ${kind === 'fabric' ? 'Fabric' : 'Power BI'} non ottenuto: ${j.error_description?.split('\r\n')[0] || j.error}`);
+  }
+  if (j.refresh_token) keepRefresh(j.refresh_token);
+  tokens.set(kind, { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
+  return j.access_token;
+}
+
+// ---------- REST helpers ----------
+
+async function call(kind, method, url, body, extra = {}) {
+  for (let attempt = 0; ; attempt++) {
+    const headers = { Authorization: `Bearer ${await token(kind)}` };
+    let payload = body;
+    if (body !== undefined && !(body instanceof FormData)) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body); }
+    const r = await fetch(url, { method, headers, body: payload });
+    if ((r.status === 429 || r.status === 503) && attempt < 8) {
+      await sleep(Math.min(60, Number(r.headers.get('Retry-After')) || 2 ** attempt) * 1000);
+      continue;
+    }
+    const text = await r.text();
+    let j = null;
+    try { j = text ? JSON.parse(text) : null; } catch { j = { raw: text }; }
+    if (!r.ok) {
+      const e = j?.error;
+      const msg = e?.pbi?.error?.details?.[0]?.detail?.value || e?.message || j?.message || e?.code || j?.errorCode || text.slice(0, 300) || r.statusText;
+      const err = new Error(`${method} ${url.replace(/^https?:\/\/[^/]+/, '')}: ${r.status} ${msg}`);
+      err.status = r.status;
+      throw err;
+    }
+    return extra.raw ? { status: r.status, headers: r.headers, json: j } : j;
+  }
+}
+
+/** Fabric long-running operation: 202 + Location, poll until Succeeded, then fetch /result. */
+async function fabricLro(method, url, body) {
+  const r = await call('fabric', method, url, body, { raw: true });
+  if (r.status !== 202) return r.json;
+  const loc = r.headers.get('Location');
+  if (!loc) return null;
+  let wait = Number(r.headers.get('Retry-After')) || 2;
+  for (let i = 0; i < 300; i++) {
+    await sleep(wait * 1000);
+    const op = await call('fabric', 'GET', loc, undefined, { raw: true });
+    const st = op.json?.status;
+    if (st === 'Succeeded') {
+      try { return await call('fabric', 'GET', loc.replace(/\/?$/, '/result')); } catch { return null; }
+    }
+    if (st === 'Failed') throw new Error(`Operazione Fabric non riuscita: ${op.json?.error?.message || JSON.stringify(op.json?.error)}`);
+    wait = Number(op.headers.get('Retry-After')) || wait;
+  }
+  throw new Error('Operazione Fabric troppo lunga: controllare l\'area di lavoro nel browser.');
+}
+
+const group = (ws) => (ws ? `${PBI}/groups/${ws}` : PBI);
+
+async function workspaces() {
+  const r = await call('pbi', 'GET', `${PBI}/groups?$top=5000`);
+  return [{ id: '', name: 'Area di lavoro personale', dedicated: false },
+    ...(r.value ?? []).map((g) => ({ id: g.id, name: g.name, dedicated: !!g.isOnDedicatedCapacity }))];
+}
+
+// ---------- data access ----------
+
+const isInt = (t) => /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT)$/i.test(t);
+const isNum = (t) => isInt(t) || /^(FLOAT|REAL|DOUBLE)$/i.test(t) || /^DECIMAL/i.test(t);
+const isTs = (t) => /^TIMESTAMP/i.test(t);
+
+async function* chunks(table, columns, size) {
+  const cols = columns.map(qi).join(', ');
+  for (let off = 0; ; off += size) {
+    const r = await db.query(`SELECT ${cols} FROM ${qi(table)} LIMIT ${size} OFFSET ${off}`);
+    if (!r.rows.length) return;
+    yield r.rows;
+    if (r.rows.length < size) return;
+  }
+}
+
+async function columnTypes(table) {
+  const d = await db.describe(table);
+  return { rows: d.rowCount, types: Object.fromEntries(d.columns.map((c) => [c.name, c.type])) };
+}
+
+// ---------- push dataset (Power BI Pro) ----------
+
+function pushValue(v, type) {
+  if (v === null || v === undefined) return null;
+  if (isNum(type)) return Number(v);
+  if (type === 'BOOLEAN') return v === true || v === 'true';
+  if (isTs(type)) return String(v).replace(' ', 'T');
+  return v;
+}
+
+const MAX_PUSH_ROWS = 5_000_000;
+const ROWS_PER_POST = 10_000;
+
+/** spec: { workspace, name, schema (push dataset definition), thinParts (report package parts) } */
+async function publishPush(spec, progress) {
+  const base = group(spec.workspace);
+  const schema = { ...spec.schema, name: spec.name, defaultMode: 'Push' };
+  let total = 0;
+  for (const t of schema.tables) total += t.rows ?? 0;
+  for (const t of schema.tables) {
+    if ((t.rows ?? 0) > MAX_PUSH_ROWS) throw new Error(`La tabella "${t.name}" ha ${t.rows} righe: i dataset push ne accettano al massimo 5 milioni per tabella. Usare un'area di lavoro con capacità (modello completo).`);
+  }
+  if (total > 1_000_000) progress(`Attenzione: ${total.toLocaleString('it-IT')} righe in totale. Il servizio accetta circa 1 milione di righe all'ora per dataset push: il caricamento verrà rallentato dai limiti di velocità.`);
+  const clean = { ...schema, tables: schema.tables.map(({ rows, virtual, ...t }) => t) };
+
+  progress('Ricerca del dataset esistente…');
+  const existing = ((await call('pbi', 'GET', `${base}/datasets`)).value ?? []).find((d) => d.name === spec.name && d.addRowsAPIEnabled);
+  let datasetId = existing?.id;
+  if (existing) {
+    // Tables and relationships cannot be added to an existing push dataset: recreate it if they changed.
+    const cur = (await call('pbi', 'GET', `${base}/datasets/${datasetId}/tables`)).value ?? [];
+    const same = cur.length === clean.tables.length && clean.tables.every((t) => cur.some((c) => c.name === t.name));
+    const relKey = crypto.createHash('sha1').update(JSON.stringify(clean.relationships ?? [])).digest('hex');
+    if (!same || (loadCfg().pushRelationships ?? {})[datasetId] !== relKey) {
+      progress('Struttura cambiata: ricreazione del dataset (i report collegati vengono ripubblicati).');
+      await call('pbi', 'DELETE', `${base}/datasets/${datasetId}`);
+      datasetId = null;
+    } else {
+      for (const t of clean.tables) {
+        progress(`Aggiornamento schema e misure: ${t.name}`);
+        await call('pbi', 'PUT', `${base}/datasets/${datasetId}/tables/${encodeURIComponent(t.name)}`, t);
+      }
+    }
+  }
+  if (!datasetId) {
+    progress('Creazione del dataset push…');
+    datasetId = (await call('pbi', 'POST', `${base}/datasets?defaultRetentionPolicy=None`, clean)).id;
+    const relKey = crypto.createHash('sha1').update(JSON.stringify(clean.relationships ?? [])).digest('hex');
+    saveCfg({ pushRelationships: { ...(loadCfg().pushRelationships ?? {}), [datasetId]: relKey } });
+  }
+
+  let sent = 0;
+  for (const t of schema.tables) {
+    if (t.virtual) continue;
+    if (existing && datasetId === existing.id) await call('pbi', 'DELETE', `${base}/datasets/${datasetId}/tables/${encodeURIComponent(t.name)}/rows`);
+    const { types } = await columnTypes(t.name);
+    const cols = t.columns.map((c) => c.name);
+    for await (const rows of chunks(t.name, cols, ROWS_PER_POST)) {
+      const out = rows.map((r) => Object.fromEntries(cols.map((c) => [c, pushValue(r[c], types[c])])));
+      await call('pbi', 'POST', `${base}/datasets/${datasetId}/tables/${encodeURIComponent(t.name)}/rows`, { rows: out });
+      sent += rows.length;
+      progress(`Righe inviate: ${sent.toLocaleString('it-IT')} / ${total.toLocaleString('it-IT')} (${t.name})`, sent / Math.max(1, total));
+      // 120 POST rows requests per minute per dataset.
+      await sleep(500);
+    }
+  }
+
+  progress('Pubblicazione del report…');
+  const report = await publishThinReport(spec, base, datasetId, progress);
+  saveCfg({ lastWorkspace: spec.workspace });
+  return { datasetId, reportId: report?.id ?? null, webUrl: report?.webUrl ?? null, warnings: report ? [] : ['Report non creato: aprire il dataset nel browser e scegliere "Crea report".'] };
+}
+
+async function zipParts(parts, substitutions) {
+  const zip = new JSZip();
+  const sub = (s) => Object.entries(substitutions).reduce((a, [k, v]) => a.split(k).join(v), s);
+  for (const p of parts) {
+    const opts = { createFolders: false };
+    if (p.utf16 !== undefined) zip.file(p.path, Buffer.from(sub(p.utf16), 'utf16le'), opts);
+    else if (p.utf8bom !== undefined) zip.file(p.path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(sub(p.utf8bom), 'utf8')]), opts);
+    else if (p.utf8 !== undefined) zip.file(p.path, Buffer.from(sub(p.utf8), 'utf8'), opts);
+    else if (p.dataUrl) zip.file(p.path, Buffer.from(p.dataUrl.split(',')[1], 'base64'), opts);
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+/** Thin report: .pbix with the layout and a live connection; imported, then bound to the dataset. */
+async function publishThinReport(spec, base, datasetId, progress) {
+  const pbix = await zipParts(spec.thinParts, { __DATASET_ID__: datasetId, __REPORT_ID__: crypto.randomUUID(), __WORKSPACE_ID__: spec.workspace || '' });
+  if (process.env.LINBI_PBI_THIN_OUT) fs.writeFileSync(process.env.LINBI_PBI_THIN_OUT, pbix);
+  try {
+    const fd = new FormData();
+    fd.append('file', new Blob([pbix]), `${spec.name}.pbix`);
+    const imp = await call('pbi', 'POST', `${base}/imports?datasetDisplayName=${encodeURIComponent(spec.name + '.pbix')}&nameConflict=CreateOrOverwrite`, fd);
+    let st = imp;
+    for (let i = 0; i < 120 && st.importState !== 'Succeeded'; i++) {
+      if (st.importState === 'Failed') throw new Error(st.error?.details || st.error?.code || 'importazione non riuscita');
+      await sleep(2000);
+      st = await call('pbi', 'GET', `${base}/imports/${imp.id}`);
+    }
+    const report = st.reports?.[0];
+    if (!report) throw new Error('importazione senza report');
+    await call('pbi', 'POST', `${base}/reports/${report.id}/Rebind`, { datasetId });
+    return report;
+  } catch (e) {
+    progress(`Importazione .pbix del report non riuscita (${e.message}). Tentativo con l'API Fabric…`);
+  }
+  // Fallback: Fabric item definition API (report.json + definition.pbir bound to the dataset).
+  if (!spec.workspace) return null;
+  try {
+    const r = await upsertFabricReport(spec.workspace, spec.name, spec.reportParts, datasetId, progress);
+    return { id: r.id, webUrl: `https://app.powerbi.com/groups/${spec.workspace}/reports/${r.id}` };
+  } catch (e) {
+    progress(`Report non creato: ${e.message}`);
+    return null;
+  }
+}
+
+// ---------- Fabric item definitions (capacity workspaces) ----------
+
+const b64 = (s) => Buffer.from(s, 'utf8').toString('base64');
+
+function pbirByConnection(datasetId) {
+  return JSON.stringify({
+    version: '1.0',
+    datasetReference: {
+      byPath: null,
+      byConnection: {
+        connectionString: `Data Source=pbiazure://api.powerbi.com/;Initial Catalog=${datasetId};semanticmodelid=${datasetId}`,
+        pbiServiceModelId: null, pbiModelVirtualServerName: 'sobe_wowvirtualserver', pbiModelDatabaseName: datasetId,
+        name: 'EntityDataSource', connectionType: 'pbiServiceXmlaStyleLive',
+      },
+    },
+  }, null, 2);
+}
+
+async function upsertFabricReport(ws, name, reportParts, datasetId, progress) {
+  const parts = [
+    { path: 'definition.pbir', payload: b64(pbirByConnection(datasetId)), payloadType: 'InlineBase64' },
+    ...reportParts.map((p) => ({ path: p.path, payload: p.text !== undefined ? b64(p.text) : p.dataUrl.split(',')[1], payloadType: 'InlineBase64' })),
+  ];
+  const list = (await call('fabric', 'GET', `${FABRIC}/workspaces/${ws}/reports`)).value ?? [];
+  const cur = list.find((r) => r.displayName === name);
+  if (cur) {
+    progress('Aggiornamento del report…');
+    await fabricLro('POST', `${FABRIC}/workspaces/${ws}/reports/${cur.id}/updateDefinition`, { definition: { parts } });
+    return cur;
+  }
+  progress('Creazione del report…');
+  return fabricLro('POST', `${FABRIC}/workspaces/${ws}/reports`, { displayName: name, definition: { parts } });
+}
+
+/** M of a table snapshot: rows as deflate-compressed JSON, like Power BI "Immetti dati". */
+async function embeddedM(table, columns) {
+  const { types } = await columnTypes(table);
+  const rows = [];
+  for await (const chunk of chunks(table, columns.map((c) => c.name), 50_000)) {
+    for (const r of chunk) {
+      rows.push(columns.map((c) => {
+        const v = r[c.name];
+        if (v === null || v === undefined) return null;
+        return isTs(types[c.name]) ? String(v).replace(' ', 'T') : String(v);
+      }));
+    }
+  }
+  const data = zlib.deflateRawSync(Buffer.from(JSON.stringify(rows), 'utf8'), { level: 9 }).toString('base64');
+  const name = (n) => `#"${n.replace(/"/g, '""')}"`;
+  const str = (s) => `"${s.replace(/"/g, '""')}"`;
+  const m = [
+    'let',
+    `    Origine = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("${data}", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [${columns.map((c) => `${name(c.name)} = _t`).join(', ')}]),`,
+    // Values were serialised with "." decimals and ISO dates: convert with an invariant culture.
+    `    #"Modificato tipo" = Table.TransformColumnTypes(Origine, {${columns.map((c) => `{${str(c.name)}, ${c.m}}`).join(', ')}}, "en-US")`,
+    'in',
+    '    #"Modificato tipo"',
+  ];
+  return { lines: m, bytes: data.length };
+}
+
+const MAX_EMBED = 32 * 1024 * 1024;
+
+/** spec: { workspace, name, model (TMSL), embed: [{ table, columns: [{name, m}] }], reportParts, refresh } */
+async function publishFabric(spec, progress) {
+  if (!spec.workspace) throw new Error('Il modello completo richiede un\'area di lavoro su capacità Fabric, Premium o Premium Per User.');
+  const ws = spec.workspace;
+  const model = spec.model;
+  for (const e of spec.embed) {
+    progress(`Incorporamento dati: ${e.table}`);
+    const { lines, bytes } = await embeddedM(e.table, e.columns);
+    if (bytes > MAX_EMBED) throw new Error(`La tabella "${e.table}" è troppo grande da incorporare (${(bytes / 1048576).toFixed(0)} MB compressi). Usare un'origine raggiungibile dal servizio o un dataset push.`);
+    const t = model.model.tables.find((x) => x.name === e.table);
+    t.partitions[0].source = { type: 'm', expression: lines };
+  }
+  const parts = [
+    { path: 'definition.pbism', payload: b64(JSON.stringify({ version: '1.0', settings: {} })), payloadType: 'InlineBase64' },
+    { path: 'model.bim', payload: b64(JSON.stringify(model)), payloadType: 'InlineBase64' },
+  ];
+  progress('Ricerca del modello semantico esistente…');
+  const list = (await call('fabric', 'GET', `${FABRIC}/workspaces/${ws}/semanticModels`)).value ?? [];
+  let sm = list.find((m) => m.displayName === spec.name);
+  if (sm) {
+    progress('Aggiornamento della definizione del modello semantico…');
+    await fabricLro('POST', `${FABRIC}/workspaces/${ws}/semanticModels/${sm.id}/updateDefinition`, { definition: { parts } });
+  } else {
+    progress('Creazione del modello semantico…');
+    sm = await fabricLro('POST', `${FABRIC}/workspaces/${ws}/semanticModels`, { displayName: spec.name, definition: { parts } });
+    if (!sm?.id) sm = ((await call('fabric', 'GET', `${FABRIC}/workspaces/${ws}/semanticModels`)).value ?? []).find((m) => m.displayName === spec.name);
+  }
+  if (!sm?.id) throw new Error('Modello semantico creato ma non trovato nell\'area di lavoro.');
+
+  const warnings = [];
+  progress('Aggiornamento dei dati nel servizio…');
+  try {
+    await call('pbi', 'POST', `${PBI}/groups/${ws}/datasets/${sm.id}/refreshes`, { notifyOption: 'NoNotification' });
+    for (let i = 0; i < 360; i++) {
+      await sleep(5000);
+      const h = (await call('pbi', 'GET', `${PBI}/groups/${ws}/datasets/${sm.id}/refreshes?$top=1`)).value?.[0];
+      if (!h || h.status === 'Unknown') continue;
+      if (h.status === 'Completed') { progress('Dati aggiornati.'); break; }
+      let detail = h.serviceExceptionJson ?? '';
+      try { const x = JSON.parse(detail); detail = x.errorDescription || x.errorCode || detail; } catch { /* raw */ }
+      warnings.push(`Aggiornamento dei dati non riuscito: ${detail || h.status}. Se il modello usa database, impostare le credenziali (o un gateway) in Impostazioni › Modello semantico › Credenziali origine dati.`);
+      break;
+    }
+  } catch (e) {
+    warnings.push(`Aggiornamento dei dati non avviato: ${e.message}`);
+  }
+
+  const report = await upsertFabricReport(ws, spec.name, spec.reportParts, sm.id, progress);
+  saveCfg({ lastWorkspace: ws });
+  return { datasetId: sm.id, reportId: report?.id ?? null, webUrl: report?.id ? `https://app.powerbi.com/groups/${ws}/reports/${report.id}` : null, warnings };
+}
+
+module.exports = { status, configure, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric };

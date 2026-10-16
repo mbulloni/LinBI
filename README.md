@@ -149,10 +149,27 @@ finiscono mai nel report: sono cifrate con il portachiavi di sistema (Electron `
 
 ### Pubblica
 
-La pubblicazione diretta su Power BI Service non è possibile: il servizio accetta solo `.pbix` con dati VertiPaq
-(formato proprietario) e un account Microsoft. Il pulsante **Pubblica** propone le alternative: `.pbit` da aprire e
-pubblicare con Power BI Desktop, progetto `.pbip` (con i file `.platform` dell'integrazione Git di Microsoft Fabric)
-da caricare in un repository collegato a un'area di lavoro, PDF, `.lbix` con i dati.
+**Pubblica** invia il report al servizio Power BI con le API REST, senza Power BI Desktop
+(`electron/powerbi.cjs`). Serve un account aziendale con licenza Power BI e, una volta sola, un'app registrata
+in Microsoft Entra ID (client pubblico, autorizzazioni delegate *Power BI Service*: Workspace.Read.All,
+Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create, Item.ReadWrite.All): la finestra spiega i passi.
+L'accesso usa il codice dispositivo (si completa nel browser); il token di aggiornamento è cifrato con
+`safeStorage` in `~/.config/linbi/powerbi.json`.
+
+- **Dataset push + report** (Power BI Pro, qualsiasi area di lavoro): dataset push con tabelle, relazioni e misure
+  DAX, righe lette da DuckDB (10.000 per richiesta); colonne/tabelle calcolate come valori fissi, relazioni inattive e
+  molti-a-molti omesse, max 5 milioni di righe per tabella. Il report è un `.pbix` "thin" (solo layout + connessione
+  al dataset) caricato con *Imports* e collegato con *Rebind*; se l'importazione viene rifiutata si prova con l'API
+  Fabric *Create Report*. Ripubblicando: schema aggiornato e righe sostituite (dataset ricreato se tabelle o relazioni
+  cambiano).
+- **Modello semantico completo** (aree di lavoro su capacità Fabric/Premium/PPU): API Fabric *Create/Update Semantic
+  Model* con `model.bim` (TMSL) e *Create/Update Report* con `report.json` + `definition.pbir` collegato al modello,
+  poi aggiornamento dati nel servizio. I dati locali sono incorporati nell'M di ogni tabella (JSON compresso, come
+  *Immetti dati*): nessun gateway. Opzione per mantenere le connessioni MySQL/PostgreSQL (server raggiungibile o gateway).
+
+Non verificato su un tenant reale: i flussi sono provati contro un server finto che riproduce le API.
+Restano anche le alternative su file: `.pbit` per Power BI Desktop, progetto `.pbip` per l'integrazione Git di
+Fabric, PDF, `.lbix` con i dati.
 
 ## Funzionalità (fasi 1–6)
 

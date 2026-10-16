@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -7,6 +7,7 @@ const JSZip = require('jszip');
 const db = require('./db.cjs');
 const pbip = require('./pbip.cjs');
 const connect = require('./connect.cjs');
+const powerbi = require('./powerbi.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -57,6 +58,23 @@ handle('db:materialize', (table, sql) => db.materialize(table, sql));
 handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
 handle('db:connect', (c, password, remember) => connect.connect(c, password, remember));
 handle('db:forget', (c) => connect.forget(c));
+
+// Power BI service (electron/powerbi.cjs): progress lines go to the renderer as 'pbi:progress'.
+handle('pbi:status', () => powerbi.status());
+handle('pbi:configure', (clientId, tenant) => powerbi.configure(clientId, tenant));
+handle('pbi:signOut', () => powerbi.signOut());
+handle('pbi:loginStart', () => powerbi.loginStart());
+handle('pbi:loginWait', () => powerbi.loginWait());
+handle('pbi:loginCancel', () => powerbi.loginCancel());
+handle('pbi:workspaces', () => powerbi.workspaces());
+handle('pbi:publish', (mode, spec) => {
+  const progress = (msg, frac) => win.webContents.send('pbi:progress', msg, frac ?? null);
+  return mode === 'fabric' ? powerbi.publishFabric(spec, progress) : powerbi.publishPush(spec, progress);
+});
+handle('shell:open', (url) => {
+  if (!/^https:\/\//.test(url)) throw new Error('URL non valido');
+  return shell.openExternal(url);
+});
 handle('db:calcColumn', (table, column, expr, replace) => db.addCalcColumn(table, column, expr, replace));
 handle('db:dropColumn', (table, column) => db.dropColumn(table, column));
 handle('db:drop', (table) => db.dropTable(table));

@@ -29,6 +29,22 @@ contextBridge.exposeInMainWorld('api', {
   savePbit: (parts, suggested) => call('pbit:save', parts, suggested),
   printPdf: (suggested) => call('pdf:print', suggested),
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
+  pbi: {
+    status: () => call('pbi:status'),
+    configure: (clientId, tenant) => call('pbi:configure', clientId, tenant),
+    signOut: () => call('pbi:signOut'),
+    loginStart: () => call('pbi:loginStart'),
+    loginWait: () => call('pbi:loginWait'),
+    loginCancel: () => call('pbi:loginCancel'),
+    workspaces: () => call('pbi:workspaces'),
+    publish: (mode, spec) => call('pbi:publish', mode, spec),
+    onProgress: (cb) => {
+      const listener = (_e, msg, frac) => cb(msg, frac);
+      ipcRenderer.on('pbi:progress', listener);
+      return () => ipcRenderer.removeListener('pbi:progress', listener);
+    },
+  },
+  openExternal: (url) => call('shell:open', url),
   createEmptyTable: (table, columns) => call('db:createEmpty', table, columns),
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),

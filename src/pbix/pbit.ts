@@ -177,3 +177,102 @@ export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] 
     ...Object.entries(resources).map(([n, d]) => ({ path: `Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
   ];
 }
+
+// ---------- Power BI service publishing (electron/powerbi.cjs) ----------
+
+const PUSH_TYPES: Record<string, string> = { int64: 'Int64', double: 'Double', decimal: 'Double', boolean: 'Boolean', dateTime: 'DateTime', string: 'String' };
+
+/** Push dataset definition (Power BI Pro): calculated columns and tables travel as plain data,
+ *  measure-only tables get a hidden placeholder column, `rows` is used for limits and progress. */
+export function buildPushSchema(report: Report, tables: TableMeta[]) {
+  const warnings: string[] = [];
+  const measuresOf = (table: string) => report.measures.filter((m) => m.table === table)
+    .map((m) => ({ name: m.name, expression: m.expression, ...(m.formatString ? { formatString: m.formatString } : {}) }));
+  const measureOnly = [...new Set(report.measures.map((m) => m.table))].filter((n) => !tables.some((t) => t.name === n));
+  const calc = tables.filter((t) => t.calcColumns?.length || t.source.dax).map((t) => t.name);
+  if (calc.length) warnings.push(`Colonne e tabelle calcolate pubblicate come valori fissi (${calc.join(', ')}): vengono ricalcolate a ogni nuova pubblicazione.`);
+  const relationships = report.relationships.filter((r) => {
+    if (!r.active) { warnings.push(`Relazione inattiva ${r.fromTable}[${r.fromColumn}] → ${r.toTable}[${r.toColumn}] non supportata dai dataset push: omessa.`); return false; }
+    if (r.cardinality === 'manyToMany') { warnings.push(`Relazione molti-a-molti ${r.fromTable} → ${r.toTable} non supportata dai dataset push: omessa.`); return false; }
+    return true;
+  }).map((r) => ({
+    name: r.id, fromTable: r.fromTable, fromColumn: r.fromColumn, toTable: r.toTable, toColumn: r.toColumn,
+    crossFilteringBehavior: r.crossFilter === 'both' || r.cardinality === 'oneToOne' ? 'BothDirections' : 'OneDirection',
+  }));
+  const schema = {
+    tables: [
+      ...tables.map((t) => ({
+        name: t.name,
+        rows: t.rowCount,
+        columns: t.columns.map((c) => {
+          const tt = tomType(c.type);
+          return {
+            name: c.name, dataType: PUSH_TYPES[tt.dataType],
+            ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'dd/mm/yyyy' : 'dd/mm/yyyy hh:nn:ss' } : {}),
+            ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
+            summarizeBy: ['int64', 'double', 'decimal'].includes(tt.dataType) ? 'sum' : 'none',
+          };
+        }),
+        measures: measuresOf(t.name),
+      })),
+      ...measureOnly.map((name) => ({ name, rows: 0, virtual: true, columns: [{ name: 'Colonna1', dataType: 'String', isHidden: true }], measures: measuresOf(name) })),
+    ],
+    relationships,
+  };
+  return { schema, warnings };
+}
+
+/** Report part of a publication: report.json and images, paths relative to the report item. */
+export function buildReportParts(report: Report): { path: string; text?: string; dataUrl?: string }[] {
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  return [
+    { path: 'report.json', text: layout },
+    ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+  ];
+}
+
+/** Thin report (.pbix without data model): layout + live connection to a dataset of the service.
+ *  __DATASET_ID__ / __REPORT_ID__ / __WORKSPACE_ID__ are filled in once the dataset exists. */
+export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string })[] {
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="json" ContentType="" /><Default Extension="png" ContentType="" /><Default Extension="jpg" ContentType="" /><Default Extension="gif" ContentType="" />' +
+    '<Override PartName="/Version" ContentType="" /><Override PartName="/Connections" ContentType="" />' +
+    '<Override PartName="/Report/Layout" ContentType="" /><Override PartName="/Settings" ContentType="" /><Override PartName="/Metadata" ContentType="" /></Types>';
+  const connections = {
+    Version: 3,
+    Connections: [{
+      Name: 'EntityDataSource',
+      ConnectionString: 'Data Source=pbiazure://api.powerbi.com/;Initial Catalog=__DATASET_ID__;Integrated Security=ClaimsToken',
+      ConnectionType: 'pbiServiceXmlaStyleLive',
+      PbiServiceModelId: null,
+      PbiModelVirtualServerName: 'sobe_wowvirtualserver',
+      PbiModelDatabaseName: '__DATASET_ID__',
+    }],
+    RemoteArtifacts: [{ DatasetId: '__DATASET_ID__', ReportId: '__REPORT_ID__' }],
+    OriginalWorkspaceObjectId: '__WORKSPACE_ID__',
+  };
+  return [
+    { path: 'Version', utf16: '1.28' },
+    { path: '[Content_Types].xml', utf8bom: contentTypes },
+    { path: 'Connections', utf8: JSON.stringify(connections) },
+    { path: 'Report/Layout', utf16: layout },
+    { path: 'Settings', utf16: JSON.stringify({ Version: 4, ReportSettings: {}, QueriesSettings: { TypeDetectionEnabled: true, RelationshipImportEnabled: true, Version: '2.128.184.0' } }) },
+    { path: 'Metadata', utf16: JSON.stringify({ Version: 5, AutoCreatedRelationships: [], CreatedFrom: 'Cloud', CreatedFromRelease: '2025.10' }) },
+    ...Object.entries(resources).map(([n, d]) => ({ path: `Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+  ];
+}
+
+/** Full semantic model for Fabric: TMSL plus the tables whose data is embedded in their M
+ *  (all of them, or only the non-database ones when `keepDb`). Calculated objects keep their DAX. */
+export function buildFabricModel(report: Report, tables: TableMeta[], keepDb: boolean) {
+  const model = buildModelSchema(report, tables);
+  const warnings: string[] = [];
+  const embed = tables.filter((t) => !t.source.dax && !(keepDb && t.source.db && t.source.db.kind !== 'sqlite')).map((t) => ({
+    table: t.name,
+    columns: t.columns.filter((c) => !t.calcColumns?.some((x) => x.name === c.name)).map((c) => ({ name: c.name, m: tomType(c.type).m })),
+  }));
+  const kept = tables.filter((t) => keepDb && t.source.db && t.source.db.kind !== 'sqlite').map((t) => t.name);
+  if (kept.length) warnings.push(`Tabelle collegate al database (${kept.join(', ')}): il servizio deve poter raggiungere il server, altrimenti serve un gateway dati locale.`);
+  return { model, embed, warnings };
+}

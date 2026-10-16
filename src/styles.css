@@ -472,3 +472,14 @@ thead .pq-rn { z-index: 2; }
 .publish-opt:hover:not(:disabled) { background: var(--hover); border-color: #C8C6C4; }
 .publish-opt .txt { display: flex; flex-direction: column; gap: 3px; color: var(--text2); line-height: 1.4; }
 .publish-opt b { color: var(--text); font-size: 13px; }
+.publish-opt.sel { border-color: var(--accent, #117865); background: var(--hover); }
+.publish-opt > input[type=radio] { margin-top: 3px; }
+.pbi-steps { margin: 6px 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.pbi-code { font: 600 22px/1.3 Consolas, "DejaVu Sans Mono", monospace; letter-spacing: 3px; color: var(--text); }
+.pbi-log { border: 1px solid var(--line); background: #FAF9F8; padding: 8px 10px; font-size: 11.5px; max-height: 150px; overflow: auto; display: flex; flex-direction: column; gap: 2px; user-select: text; }
+.pbi-bar { height: 3px; background: var(--line); margin-bottom: 6px; }
+.pbi-bar > div { height: 100%; background: #117865; transition: width .3s; }
+.pbi-other { display: flex; flex-direction: column; gap: 6px; }
+.pbi-other summary { cursor: pointer; font-weight: 600; font-size: 12px; padding: 4px 0; }
+.pbi-other[open] { display: flex; }
+.pbi-other .publish-opt { margin-top: 6px; width: 100%; }

@@ -14,6 +14,9 @@ export interface PowerBIModel {
   resources: Record<string, string>;
   warnings: string[];
 }
+export interface PbiStatus { clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; }
+export interface PbiWorkspace { id: string; name: string; dedicated: boolean; }
+export interface PbiResult { datasetId: string; reportId: string | null; webUrl: string | null; warnings: string[]; }
 type TableInfo = { name: string; rowCount: number; columns: ColumnMeta[] };
 
 interface Api {
@@ -39,6 +42,18 @@ interface Api {
   savePbit(parts: PbitPart[], suggested?: string): Promise<string | null>;
   printPdf(suggested?: string): Promise<string | null>;
   savePbip(parts: { path: string; text?: string; dataUrl?: string }[], suggested?: string): Promise<string | null>;
+  pbi: {
+    status(): Promise<PbiStatus>;
+    configure(clientId: string, tenant: string): Promise<PbiStatus>;
+    signOut(): Promise<void>;
+    loginStart(): Promise<{ userCode: string; verificationUri: string; message: string }>;
+    loginWait(): Promise<PbiStatus>;
+    loginCancel(): Promise<void>;
+    workspaces(): Promise<PbiWorkspace[]>;
+    publish(mode: 'push' | 'fabric', spec: unknown): Promise<PbiResult>;
+    onProgress(cb: (msg: string, frac: number | null) => void): () => void;
+  };
+  openExternal(url: string): Promise<void>;
   createEmptyTable(table: string, columns: { name: string; dataType: string }[]): Promise<TableInfo>;
   win: {
     minimize(): void;
