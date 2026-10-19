@@ -231,6 +231,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       if (typeof tf === 'string') format.titleFont = tf;
       if (typeof ts === 'number') format.titleSize = pt(ts)!;
       if (typeof tbold === 'boolean') format.titleBold = tbold;
+      // Report-page tooltip: section name for now, turned into the page id once all pages are read.
+      const tsec = decode(prop(sv.vcObjects, 'visualTooltip').section);
+      if (typeof tsec === 'string' && tsec) format.tooltipPage = tsec;
       const bd = prop(sv.vcObjects, 'border');
       if (decode(bd.show) === true) {
         format.border = true;
@@ -304,8 +307,19 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       ...(typeof wallColor === 'string' ? { wallpaper: wallColor } : {}),
       ...(secCfg.visibility === 1 ? { hidden: true } : {}),
       ...(sec.name ? { pbiName: sec.name } : {}),
+      ...(secCfg.type === 1 ? { tooltip: true } : {}),
+      ...(() => {
+        const pb = secCfg.pageBinding ?? sec.pageBinding;
+        if (pb?.type !== 'Drillthrough' && pb?.type !== 0) return {};
+        const fields = (pb.parameters ?? []).map((x: any) => exprToField(x.fieldExpr, {})).filter((f: FieldRef | null): f is FieldRef => !!f)
+          .map((f: FieldRef) => ({ table: f.table, column: f.column, ...(f.datePart ? { datePart: f.datePart } : {}) }));
+        return fields.length ? { drillthrough: { fields, ...(pb.acceptsFilterContext === 1 || secCfg.keepAllFilters ? { keepAll: true } : {}) } } : {};
+      })(),
     };
   });
+  for (const p of pages) for (const v of p.visuals) {
+    if (v.format.tooltipPage) { const t = pages.find((x) => x.pbiName === v.format.tooltipPage); if (t) v.format.tooltipPage = t.id; else delete v.format.tooltipPage; }
+  }
   return {
     pages: pages.length ? pages : [{ id: uid(), name: 'Pagina 1', visuals: [], filters: [] }],
     reportFilters: parseFilters(layout.filters, tables), skipped,
@@ -489,6 +503,9 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         ...(fm.titleFont ? { fontFamily: Ls(fm.titleFont) } : {}), ...(fm.titleBg ? { background: color(fm.titleBg) } : {}),
         ...(fm.titleBold !== undefined ? { bold: L(String(fm.titleBold)) } : {}), fontSize: L(`${Math.round(fm.titleSize * 0.75 * 10) / 10}D`),
       });
+      const tp = fm.tooltipPage ? pages.find((x) => x.id === fm.tooltipPage) : undefined;
+      if (tp) put(vcObjects, 'visualTooltip', { show: L('true'), section: Ls(sname(tp)) });
+      else if (vcObjects.visualTooltip) for (const e of vcObjects.visualTooltip) delete e.properties?.section;
       if (fm.background === 'transparent') put(vcObjects, 'background', { show: L('false') });
       else put(vcObjects, 'background', { show: L('true'), color: color(fm.background), transparency: L(`${fm.bgTransparency ?? 0}D`) });
       if (fm.border) put(vcObjects, 'border', { show: L('true'), ...(fm.borderColor ? { color: color(fm.borderColor) } : {}), ...(fm.borderRadius !== undefined ? { radius: L(`${fm.borderRadius}D`) } : {}) });
@@ -551,10 +568,21 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
     if (Object.keys(bgProps).length) secConfig.objects.background = [{ properties: bgProps }];
     if (p.wallpaper) secConfig.objects.outspace = [{ properties: { color: { solid: { color: Ls(p.wallpaper) } } } }];
     if (p.hidden) secConfig.visibility = 1;
+    if (p.tooltip) secConfig.type = 1;
+    const dtFilters: any[] = [];
+    if (p.drillthrough?.fields.length) {
+      secConfig.pageBinding = {
+        name: 'Pod' + hex().slice(0, 8), type: 'Drillthrough', ...(p.drillthrough.keepAll ? { acceptsFilterContext: 1 } : {}),
+        parameters: p.drillthrough.fields.map((f, i) => {
+          dtFilters.push({ name: `DrillFilter${i}`, expression: { Column: { Expression: { SourceRef: { Entity: f.table } }, Property: f.column } }, type: 'Categorical', howCreated: 5 });
+          return { name: `Param_DrillFilter${i}`, boundFilter: `DrillFilter${i}`, fieldExpr: { Column: { Expression: { SourceRef: { Entity: f.table } }, Property: f.column } } };
+        }),
+      };
+    }
     return {
       name: sname(p), displayName: p.name, ordinal: i, displayOption: 1, width: p.width ?? PAGE_W, height: p.height ?? PAGE_H,
       config: JSON.stringify(secConfig),
-      filters: JSON.stringify(p.filters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
+      filters: JSON.stringify([...p.filters.filter((f) => f.values.length && !f.drillthrough).map((f) => filterJson(f, hex())), ...dtFilters]),
       // Groups are containers too (singleVisualGroup), placed around their members.
       visualContainers: [...containers, ...(p.groups ?? []).map((g, gi) => {
         const members = p.visuals.filter((v) => v.group === g.id);

@@ -3,7 +3,7 @@ import { api } from './api';
 import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
-import { connected, qi, ql } from './query';
+import { connected, NULL_KEY, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
 import { parseLayout, themeFromLayout } from './pbix/layout';
 import { pbirToLayout } from './pbix/pbir';
@@ -217,6 +217,8 @@ interface State {
   ungroup: (groupId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   moveLayer: (id: string, dir: 1 | -1) => void;
+  /** Drill-through: go to `pageId` filtered on the source data point (values per field). */
+  drillThrough: (pageId: string, values: { table: string; column: string; datePart?: import('./types').DatePart; value: string | null }[]) => void;
   addBookmark: () => void;
   updateBookmark: (id: string) => void;
   applyBookmark: (id: string) => void;
@@ -861,6 +863,22 @@ export const useStore = create<State>((set, get) => {
       [order[i], order[j]] = [order[j], order[i]];
       order.forEach((v, k) => (v.z = k + 1));
     }),
+    drillThrough: (pageId, values) => {
+      const source = get().page();
+      get().mut((r) => {
+        const p = r.pages.find((x) => x.id === pageId);
+        if (!p?.drillthrough) return;
+        const fields = p.drillthrough.fields;
+        const own = values.filter((x) => fields.some((f) => f.table === x.table && f.column === x.column && f.datePart === x.datePart));
+        p.filters = [
+          ...p.filters.filter((f) => !f.drillthrough),
+          // "Mantieni tutti i filtri": the source page filters come along too.
+          ...(p.drillthrough.keepAll ? source.filters.filter((f) => f.values.length && !f.drillthrough).map((f) => ({ ...clone(f), id: uid(), drillthrough: true })) : []),
+          ...own.map((x) => ({ id: uid(), table: x.table, column: x.column, values: [x.value === null ? NULL_KEY : x.value], drillthrough: true, ...(x.datePart ? { datePart: x.datePart } : {}) })),
+        ];
+      });
+      set({ activePageId: pageId, selectedVisualId: null, crossFilter: null });
+    },
     addBookmark: () => {
       const id = uid();
       get().mut((r) => {

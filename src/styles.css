@@ -580,3 +580,5 @@ thead .pq-rn { z-index: 2; }
 .side-empty { color: var(--text2); font-size: 12px; padding: 8px 0; }
 .vc-header button.on { background: #DEECF9; color: #0F6CBD; }
 .vc-header button:disabled { opacity: .35; }
+.tt-page { position: fixed; z-index: 3000; pointer-events: none; overflow: hidden; box-shadow: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.11); border-radius: 2px; }
+.tt-page .print-vc { position: absolute; }

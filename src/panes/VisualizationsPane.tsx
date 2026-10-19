@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { useStore } from '../store';
+import { useStore, defaultFormat } from '../store';
+import { uid } from '../format';
 import type { Agg, Visual, VisualFormat } from '../types';
 import { VISUALS, visualDef, isChart } from '../visuals/catalog';
 import { AGG_LABEL, fieldLabel, isNumeric } from '../format';
@@ -7,7 +8,7 @@ import { Icon, VisualIcon } from '../components/icons';
 import { Menu, Toggle } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
 import { DEFAULT_CF, fieldKey } from '../visuals/condfmt';
-import type { ColorScale, CondFormat } from '../types';
+import type { ColorScale, CondFormat, Page } from '../types';
 
 function ColorPick({ label, value, onChange }: { label: string; value: string; onChange: (c: string) => void }) {
   return (
@@ -169,6 +170,17 @@ function FormatPane({ v }: { v: Visual }) {
           </Card>
         )}
         {(v.type === 'table' || v.type === 'matrix') && <CondFormatCard v={v} />}
+        {(chart || mapv) && (
+          <Card title="Descrizioni comando">
+            <label className="fmt-row"><span>Tipo</span>
+              <select value={f.tooltipPage ?? ''} onChange={(e) => up({ tooltipPage: e.target.value || undefined })}>
+                <option value="">Predefinito</option>
+                {s.report.pages.filter((p) => p.tooltip).map((p) => <option key={p.id} value={p.id}>Pagina del report: {p.name}</option>)}
+              </select>
+            </label>
+            {!s.report.pages.some((p) => p.tooltip) && <div style={{ color: 'var(--text2)', fontSize: 11 }}>Nessuna pagina impostata come descrizione comando.</div>}
+          </Card>
+        )}
         {v.type === 'slicer' && (
           <Card title="Impostazioni filtro dei dati" defaultOpen>
             <label className="fmt-row"><span>Stile</span>
@@ -205,6 +217,82 @@ function FormatPane({ v }: { v: Visual }) {
   );
 }
 
+/** Page settings (no visual selected): size, background, tooltip page, drill-through fields. */
+function PageSettings() {
+  const s = useStore();
+  const p = s.page();
+  const [over, setOver] = useState(false);
+  const up = (fn: (pg: Page) => void) => s.mut((r) => { const pg = r.pages.find((x) => x.id === p.id); if (pg) fn(pg); });
+  const w = p.width ?? 1280, h = p.height ?? 720;
+  const kind = w === 1280 && h === 720 ? '16:9' : w === 960 && h === 720 ? '4:3' : w === 320 && h === 240 ? 'tooltip' : 'custom';
+  const dt = p.drillthrough?.fields ?? [];
+  return (
+    <div>
+      <div style={{ fontWeight: 600, margin: '8px 0' }}>Pagina «{p.name}»</div>
+      <Card title="Impostazioni area di disegno" defaultOpen>
+        <label className="fmt-row"><span>Tipo</span>
+          <select value={kind} onChange={(e) => up((pg) => {
+            const [nw, nh] = ({ '16:9': [1280, 720], '4:3': [960, 720], tooltip: [320, 240], custom: [w, h] } as Record<string, number[]>)[e.target.value];
+            if (nw === 1280 && nh === 720) { delete pg.width; delete pg.height; } else { pg.width = nw; pg.height = nh; }
+            if (e.target.value === 'tooltip') pg.tooltip = true;
+          })}>
+            <option value="16:9">16:9</option><option value="4:3">4:3</option><option value="tooltip">Descrizione comando (320 × 240)</option><option value="custom">Personalizzato</option>
+          </select>
+        </label>
+        {kind === 'custom' && <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label className="fmt-row"><span>Larghezza</span><input type="number" min={100} value={w} onChange={(e) => up((pg) => { pg.width = Math.max(100, +e.target.value); pg.height = h; })} /></label>
+          <label className="fmt-row"><span>Altezza</span><input type="number" min={100} value={h} onChange={(e) => up((pg) => { pg.height = Math.max(100, +e.target.value); pg.width = w; })} /></label>
+        </div>}
+      </Card>
+      <Card title="Sfondo area di disegno">
+        <ColorPick label="Colore" value={p.backgroundColor ?? '#FFFFFF'} onChange={(c) => up((pg) => { pg.backgroundColor = c; })} />
+        <label className="fmt-row"><span>Trasparenza (%)</span><input type="number" min={0} max={100} value={p.backgroundTransparency ?? 0} onChange={(e) => up((pg) => { pg.backgroundTransparency = Math.max(0, Math.min(100, +e.target.value)); })} /></label>
+      </Card>
+      <Card title="Informazioni pagina" defaultOpen>
+        <div className="fmt-row inline"><span>Consenti l'uso come descrizione comando</span><Toggle on={!!p.tooltip} onChange={(b) => up((pg) => { pg.tooltip = b || undefined; })} /></div>
+        <div className="fmt-row inline"><span>Nascondi pagina</span><Toggle on={!!p.hidden} onChange={(b) => up((pg) => { pg.hidden = b || undefined; })} /></div>
+      </Card>
+      <div className="wells">
+        <div className={'well' + (over ? ' over' : '')}
+          onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) { e.preventDefault(); setOver(true); } }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            setOver(false);
+            const raw = e.dataTransfer.getData(FIELD_MIME);
+            if (!raw) return;
+            const f = JSON.parse(raw);
+            if (f.measure) { s.notify('Il drill-through usa colonne, non misure.'); return; }
+            up((pg) => {
+              const first = !pg.drillthrough;
+              const list = (pg.drillthrough ??= { fields: [] }).fields;
+              if (!list.some((x) => x.table === f.table && x.column === f.column)) list.push({ table: f.table, column: f.column });
+              // Like Power BI, a new drill-through page gets a Back button (Ctrl+click in edit mode).
+              if (first && !pg.visuals.some((v) => v.type === 'button')) {
+                const L = (x: string) => ({ expr: { Literal: { Value: x } } });
+                pg.visuals.push({
+                  id: uid(), type: 'button', x: 16, y: 16, w: 40, h: 40, z: Math.max(0, ...pg.visuals.map((v) => v.z)) + 1, fields: {}, format: defaultFormat('button'),
+                  style: {
+                    pbiType: 'actionButton',
+                    objects: { icon: [{ properties: { shapeType: L("'back'"), lineColor: { solid: { color: L("'#252423'") } } } }], outline: [{ properties: { show: L('false') } }] },
+                    vcObjects: { visualLink: [{ properties: { show: L('true'), type: L("'Back'"), tooltip: L("'Indietro'") } }] },
+                  },
+                });
+              }
+            });
+          }}>
+          <div className="wl">Drill-through</div>
+          {dt.map((f, i) => (
+            <div className="pill" key={i}><span className="nm">{f.column}</span>
+              <button title="Rimuovi campo" onClick={() => up((pg) => { pg.drillthrough!.fields.splice(i, 1); if (!pg.drillthrough!.fields.length) delete pg.drillthrough; })}><Icon name="close" size={11} /></button></div>
+          ))}
+          <div className={'add' + (over ? ' over' : '')}>Aggiungi i campi di drill-through qui</div>
+        </div>
+        {dt.length > 0 && <div className="fmt-row inline"><span>Mantieni tutti i filtri</span><Toggle on={!!p.drillthrough?.keepAll} onChange={(b) => up((pg) => { pg.drillthrough!.keepAll = b || undefined; })} /></div>}
+      </div>
+    </div>
+  );
+}
+
 export function VisualizationsPane() {
   const s = useStore();
   if (!s.panes.viz) return null;
@@ -231,7 +319,7 @@ export function VisualizationsPane() {
               </button>
             ))}
           </div>
-          {v ? <Wells v={v} /> : <div style={{ color: 'var(--text2)', borderTop: '1px solid var(--line)', paddingTop: 10 }}>Selezionare o aggiungere un oggetto visivo, quindi trascinare i campi dal riquadro Dati.</div>}
+          {v ? <Wells v={v} /> : <PageSettings />}
         </>}
         {s.vizTab === 'format' && (v ? <FormatPane key={v.id} v={v} /> : <div style={{ color: 'var(--text2)', paddingTop: 10 }}>Selezionare un oggetto visivo per formattarlo.</div>)}
       </div>

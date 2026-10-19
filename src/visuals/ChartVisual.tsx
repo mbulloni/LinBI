@@ -431,14 +431,22 @@ export function buildOption(v: Visual, d: VisualData, cross: CrossFilter | null,
   return cartesian(v, d, selected, width);
 }
 
-export function ChartVisual({ v, data, cross, onSelect }: {
-  v: Visual; data: VisualData; cross: CrossFilter | null; onSelect: (category: string | null) => void;
+/** Data point events for drill-through (right click) and report-page tooltips (hover). */
+export interface PointEvents {
+  onContext?: (category: string | null, x: number, y: number) => void;
+  onHover?: (category: string | null | undefined, x: number, y: number) => void;
+}
+
+export function ChartVisual({ v, data, cross, onSelect, events }: {
+  v: Visual; data: VisualData; cross: CrossFilter | null; onSelect: (category: string | null) => void; events?: PointEvents;
 }) {
   const el = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
   const cats = useRef<(string | null)[]>([]);
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const evRef = useRef(events);
+  evRef.current = events;
 
   useEffect(() => {
     const c = echarts.init(el.current!, undefined, { renderer: 'canvas' });
@@ -447,6 +455,17 @@ export function ChartVisual({ v, data, cross, onSelect }: {
       const idx = p.data?.idx ?? p.dataIndex;
       if (idx !== undefined && idx < cats.current.length) onSelectRef.current(cats.current[idx]);
     });
+    const point = (p: any) => { const idx = p.data?.idx ?? p.dataIndex; return idx !== undefined && idx < cats.current.length ? cats.current[idx] : undefined; };
+    c.on('contextmenu', (p: any) => {
+      const cat = point(p);
+      const ev = p.event?.event as MouseEvent | undefined;
+      if (cat === undefined || !ev || !evRef.current?.onContext) return;
+      ev.preventDefault(); ev.stopPropagation();
+      evRef.current.onContext(cat, ev.clientX, ev.clientY);
+    });
+    c.on('mouseover', (p: any) => { const ev = p.event?.event as MouseEvent | undefined; if (ev) evRef.current?.onHover?.(point(p), ev.clientX, ev.clientY); });
+    c.on('mouseout', () => evRef.current?.onHover?.(undefined, 0, 0));
+    c.on('globalout', () => evRef.current?.onHover?.(undefined, 0, 0));
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(el.current!);
     return () => { ro.disconnect(); c.dispose(); };
@@ -457,6 +476,8 @@ export function ChartVisual({ v, data, cross, onSelect }: {
     if (!chart.current || data.error) return;
     const { option, categories } = buildOption(v, data, cross, el.current?.clientWidth ?? 400);
     cats.current = categories;
+    // A report-page tooltip replaces the default one.
+    if (v.format.tooltipPage) (option as any).tooltip = { show: false };
     chart.current.setOption(option, true);
   }, [v, data, cross, theme]);
 

@@ -1,11 +1,15 @@
-import { useState, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
+import { ExtraFilters } from '../visuals/filterContext';
+import { PageBackground } from './ReportView';
+import { isHiddenVisual, pageSize } from '../store';
 import { font, withAlpha } from '../visuals/pbistyle';
 import { Rnd } from 'react-rnd';
-import type { FieldRef, Visual } from '../types';
+import type { FieldRef, Filter, Visual } from '../types';
 import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
-import { ChartVisual } from '../visuals/ChartVisual';
+import { ChartVisual, type PointEvents } from '../visuals/ChartVisual';
 import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
 import { MapVisual } from '../visuals/MapVisual';
 import { ScriptVisual } from '../visuals/Script';
@@ -88,6 +92,10 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   const cross = useStore((s) => s.crossFilter);
   const setCross = useStore((s) => s.setCross);
   const updateVisual = useStore((s) => s.updateVisual);
+  const drillThrough = useStore((s) => s.drillThrough);
+  const pages = useStore((s) => s.report.pages);
+  const [ctx, setCtx] = useState<{ cat: string | null; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ cat: string | null; x: number; y: number } | null>(null);
   const def = visualDef(v.type);
   const catWell = def.category;
 
@@ -106,6 +114,22 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
     if (cross?.visualId === v.id && cross.value === value) setCross(null);
     else setCross({ visualId: v.id, table: field.table, column: field.column, value, ...(field.datePart ? { datePart: field.datePart } : {}) });
   };
+
+  const point = hier.length > 1 ? hier[lvl] : catWell ? v.fields[catWell]?.[0] : undefined;
+  const drillPages = pages.filter((p) => p.drillthrough?.fields.some((f) => point && f.table === point.table && f.column === point.column && f.datePart === point.datePart));
+  const events: PointEvents = {
+    onContext: (cat, x, y) => { if (point && drillPages.length) setCtx({ cat, x, y }); },
+    onHover: v.format.tooltipPage ? (cat, x, y) => setHover(cat === undefined ? null : { cat, x, y }) : undefined,
+  };
+  const overlays = <>
+    {ctx && point && (
+      <Menu x={ctx.x} y={ctx.y} onClose={() => setCtx(null)}>
+        <div className="hdr">Drill-through</div>
+        {drillPages.map((p) => <button key={p.id} onClick={() => { setCtx(null); drillThrough(p.id, [{ table: point.table, column: point.column, datePart: point.datePart, value: ctx.cat }]); }}>{p.name}</button>)}
+      </Menu>
+    )}
+    {hover && point && v.format.tooltipPage && <TooltipPage pageId={v.format.tooltipPage} filter={{ id: 'tt', table: point.table, column: point.column, datePart: point.datePart, values: [hover.cat === null ? NULL_KEY : hover.cat] }} x={hover.x} y={hover.y} />}
+  </>;
 
   if (v.type === 'textbox') return <TextboxVisual v={v} selected={selected} />;
   if (v.type === 'button') return <ButtonVisual v={v} />;
@@ -126,7 +150,28 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'slicer') return <SlicerVisual v={v} data={data} />;
   if (v.type === 'pythonVisual' || v.type === 'rVisual') return <ScriptVisual v={v} data={data} />;
   if (v.type === 'map' || v.type === 'filledMap') return <MapVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
-  return <ChartVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
+  return <><ChartVisual v={v} data={data} cross={cross} onSelect={onSelect} events={events} />{overlays}</>;
+}
+
+/** Report page shown as a tooltip, filtered on the hovered data point. */
+function TooltipPage({ pageId, filter, x, y }: { pageId: string; filter: Filter; x: number; y: number }) {
+  const page = useStore((s) => s.report.pages.find((p) => p.id === pageId));
+  const filters = useMemo(() => [filter], [filter.table, filter.column, filter.values[0], filter.datePart]);
+  if (!page) return null;
+  const { w, h } = pageSize(page);
+  const scale = Math.min(1, 320 / w, 400 / h);
+  const left = Math.min(x + 14, window.innerWidth - w * scale - 8), top = Math.min(y + 14, window.innerHeight - h * scale - 8);
+  return createPortal(
+    <div className="tt-page" style={{ left, top, width: w * scale, height: h * scale }}>
+      <div style={{ width: w, height: h, transform: `scale(${scale})`, transformOrigin: '0 0', position: 'relative', background: THEME.background }}>
+        <PageBackground p={page} />
+        <ExtraFilters.Provider value={filters}>
+          {page.visuals.filter((v) => !isHiddenVisual(page, v)).map((v) => <VisualStatic key={v.id} v={v} />)}
+        </ExtraFilters.Provider>
+      </div>
+    </div>,
+    document.body,
+  );
 }
 
 /** Non-interactive visual at its page position (PDF export). */

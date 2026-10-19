@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
+import { useExtraFilters } from './filterContext';
 import { buildVisualQuery, type QueryItem } from '../query';
 import type { Visual } from '../types';
 
@@ -28,12 +29,13 @@ export function useVisualData(v: Visual): VisualData {
   const pageId = useStore((s) => s.activePageId);
   const cross = useStore((s) => s.crossFilter);
   const dataVersion = useStore((s) => s.dataVersion);
+  const extra = useExtraFilters();
   // The visual's own page (PDF export renders every page at once).
   const page = report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? report.pages.find((p) => p.id === pageId) ?? report.pages[0];
 
   const q = useMemo(
-    () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters], page.visuals, cross, report.measures),
-    [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures],
+    () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters, ...extra], page.visuals, cross, report.measures),
+    [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures, extra],
   );
   const key = q && 'sql' in q ? [q.sql, q.totalsSql, q.colTotalsSql, q.rowTotalsSql].join('|') : JSON.stringify(q);
   const [state, setState] = useState<Omit<VisualData, 'percent'>>({ loading: false, empty: true, items: [], rows: [] });

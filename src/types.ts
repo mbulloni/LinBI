@@ -55,6 +55,8 @@ export interface VisualFormat {
   titleBold?: boolean;
   titleBg?: string;
   bgTransparency?: number; // 0–100
+  /** Tooltip: id of a tooltip page shown on hover instead of the default tooltip. */
+  tooltipPage?: string;
   borderColor?: string;
   borderRadius?: number;
   sortBy?: number; // index into result columns
@@ -132,6 +134,10 @@ export interface Page {
   hidden?: boolean;
   /** Section name in the Power BI file (target of page-navigation buttons). */
   pbiName?: string;
+  /** Drill-through target: fields that receive the filter from the source data point. */
+  drillthrough?: { fields: { table: string; column: string; datePart?: DatePart }[]; keepAll?: boolean };
+  /** Page usable as a report-page tooltip. */
+  tooltip?: boolean;
   /** Visual groups (Selection pane); a hidden group hides its visuals and subgroups. */
   groups?: VisualGroup[];
 }
