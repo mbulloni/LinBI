@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { THEME } from '../themes';
-import { useStore, pageSize } from '../store';
+import { useStore, pageSize, isHiddenVisual } from '../store';
 import type { CSSProperties } from 'react';
 import type { Page } from '../types';
 
@@ -152,7 +152,7 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
               }}
             >
               <PageBackground p={page} />
-              {page.visuals.map((v) => <VisualContainer key={v.id} v={v} scale={scale} />)}
+              {page.visuals.filter((v) => !isHiddenVisual(page, v)).map((v) => <VisualContainer key={v.id} v={v} scale={scale} />)}
             </div>
             {!s.tables.length && !page.visuals.length && <EmptyState />}
           </div>

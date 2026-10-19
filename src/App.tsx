@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useStore, pageSize } from './store';
+import { useStore, pageSize, isHiddenVisual } from './store';
 import { TitleBar } from './components/TitleBar';
 import { Ribbon } from './components/Ribbon';
 import { Backstage } from './components/Backstage';
@@ -19,6 +19,7 @@ import { THEME } from './themes';
 import { Icon } from './components/icons';
 import { FiltersPane, CollapsedPane } from './panes/FiltersPane';
 import { VisualizationsPane } from './panes/VisualizationsPane';
+import { BookmarksPane, SelectionPane } from './panes/SelectionPane';
 import { DataPane } from './panes/DataPane';
 import type { View } from './types';
 
@@ -94,6 +95,8 @@ export function App() {
           {s.view === 'data' && <DataView />}
           {s.view === 'model' && <ModelView />}
           {s.view === 'dax' && <DaxQueryView />}
+          {s.view === 'report' && s.panes.bookmarks && <BookmarksPane />}
+          {s.view === 'report' && s.panes.selection && <SelectionPane />}
           {s.view === 'report' && (s.panes.filters ? <FiltersPane /> : <CollapsedPane title="Filtri" onOpen={() => s.set({ panes: { ...s.panes, filters: true } })} />)}
           {s.view === 'report' && (s.panes.viz ? <VisualizationsPane /> : <CollapsedPane title="Visualizzazioni" onOpen={() => s.set({ panes: { ...s.panes, viz: true } })} />)}
           {(s.panes.data ? <DataPane /> : <CollapsedPane title="Dati" onOpen={() => s.set({ panes: { ...s.panes, data: true } })} />)}
@@ -110,7 +113,7 @@ export function App() {
           {s.report.pages.map((p) => (
             <div key={p.id} className="print-page" style={{ backgroundColor: THEME.background, position: 'relative', width: pageSize(p).w, height: pageSize(p).h }}>
               <PageBackground p={p} />
-              {p.visuals.map((v) => <VisualStatic key={v.id} v={v} />)}
+              {p.visuals.filter((v) => !isHiddenVisual(p, v)).map((v) => <VisualStatic key={v.id} v={v} />)}
             </div>
           ))}
         </div>

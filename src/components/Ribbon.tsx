@@ -162,7 +162,7 @@ export function Ribbon() {
           </Group>
           <Group label="Mostra riquadri">
             <div className="rcol">
-              {([['filters', 'Filtri'], ['viz', 'Visualizzazioni'], ['data', 'Dati']] as const).map(([k, l]) => (
+              {([['filters', 'Filtri'], ['viz', 'Visualizzazioni'], ['data', 'Dati'], ['bookmarks', 'Segnalibri'], ['selection', 'Selezione']] as const).map(([k, l]) => (
                 <label key={k} className="rcheck"><input type="checkbox" checked={s.panes[k]} onChange={(e) => s.set({ panes: { ...s.panes, [k]: e.target.checked } })} />{l}</label>
               ))}
             </div>

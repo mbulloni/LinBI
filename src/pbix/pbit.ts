@@ -127,7 +127,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
 
 /** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
   const j = (o: unknown) => JSON.stringify(o, null, 2);
   const platform = (type: string) => ({
     $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
@@ -149,7 +149,7 @@ export function buildPbipParts(report: Report, tables: TableMeta[]): { path: str
 }
 
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
   const diagram = {
     version: '1.1.0',
     diagrams: [{
@@ -224,7 +224,7 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
 
 /** Report part of a publication: report.json and images, paths relative to the report item. */
 export function buildReportParts(report: Report): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
   return [
     { path: 'report.json', text: layout },
     ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),
@@ -234,7 +234,7 @@ export function buildReportParts(report: Report): { path: string; text?: string;
 /** Thin report (.pbix without data model): layout + live connection to a dataset of the service.
  *  __DATASET_ID__ / __REPORT_ID__ / __WORKSPACE_ID__ are filled in once the dataset exists. */
 export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string })[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
   const contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="json" ContentType="" /><Default Extension="png" ContentType="" /><Default Extension="jpg" ContentType="" /><Default Extension="gif" ContentType="" />' +
     '<Override PartName="/Version" ContentType="" /><Override PartName="/Connections" ContentType="" />' +

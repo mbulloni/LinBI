@@ -79,6 +79,12 @@ export interface Visual {
   format: VisualFormat;
   slicerValues?: string[];
   filters?: Filter[];
+  /** Hidden (Selection pane / bookmarks): not drawn. */
+  hidden?: boolean;
+  /** Group the visual belongs to (Page.groups). */
+  group?: string;
+  /** Container name in the Power BI file (bookmark and button targets). */
+  pbiName?: string;
   /** Formatting imported from Power BI (objects/vcObjects as in the file), see visuals/pbistyle.ts. */
   style?: import('./visuals/pbistyle').PbiStyle;
   /** Decomposition tree: expanded path (dimension index in "Spiega per", expanded value). */
@@ -119,6 +125,32 @@ export interface Page {
   hidden?: boolean;
   /** Section name in the Power BI file (target of page-navigation buttons). */
   pbiName?: string;
+  /** Visual groups (Selection pane); a hidden group hides its visuals and subgroups. */
+  groups?: VisualGroup[];
+}
+
+export interface VisualGroup { id: string; name: string; hidden?: boolean; parent?: string; pbiName?: string; }
+
+/** Power BI bookmark: captured page, visibility, filters and slicer selections. */
+export interface Bookmark {
+  id: string;
+  name: string;
+  pbiName?: string;
+  /** bookmark group (Bookmarks pane) */
+  group?: string;
+  page?: string;
+  applyData: boolean;
+  applyDisplay: boolean;
+  applyPage: boolean;
+  /** "Oggetti visivi selezionati": only these visuals; otherwise every visual of the bookmark's page */
+  targets?: string[];
+  state: {
+    hidden: string[];
+    hiddenGroups: string[];
+    reportFilters?: Filter[];
+    pageFilters?: Filter[];
+    slicers?: Record<string, string[]>;
+  };
 }
 
 export type Cardinality = 'manyToOne' | 'oneToOne' | 'manyToMany';
@@ -153,6 +185,7 @@ export interface Report {
   relationships: Relationship[];
   modelLayout: Record<string, { x: number; y: number }>;
   measures: Measure[];
+  bookmarks?: Bookmark[];
 }
 
 export interface CrossFilter {

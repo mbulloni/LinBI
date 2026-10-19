@@ -224,6 +224,8 @@ Fabric, PDF, `.lbix` con i dati.
   mai le righe); "Trasforma in oggetto visivo"
 - Oggetti visivi Python e R (`dataset` come in Power BI; Python con pandas + matplotlib, R con Rscript), da abilitare
   per sessione perché eseguono codice
+- Segnalibri (dati, visualizzazione, pagina, solo oggetti visivi selezionati; importati ed esportati con i file Power BI),
+  pulsanti con azione segnalibro, riquadro Selezione con livelli, oggetti visivi nascosti e gruppi
 - Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;

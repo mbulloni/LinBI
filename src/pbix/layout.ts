@@ -3,7 +3,7 @@
  * Reference: sections[] → visualContainers[] whose `config` is a JSON string holding
  * singleVisual { visualType, projections, prototypeQuery, objects, vcObjects }.
  */
-import type { Agg, FieldRef, Filter, Page, TableMeta, Theme, Visual, VisualType } from '../types';
+import type { Agg, Bookmark, FieldRef, Filter, Page, TableMeta, Theme, Visual, VisualGroup, VisualType } from '../types';
 import { parseTheme, themeJson } from '../themes';
 import { defaultFormat, PAGE_H, PAGE_W } from '../store';
 import { isChart as isChartType, visualDef } from '../visuals/catalog';
@@ -131,7 +131,7 @@ function parseFilters(raw: unknown, tables: TableMeta[]): Filter[] {
 
 /* -------------------------------- import -------------------------------- */
 
-export interface LayoutImport { pages: Page[]; reportFilters: Filter[]; skipped: Record<string, number>; }
+export interface LayoutImport { pages: Page[]; reportFilters: Filter[]; skipped: Record<string, number>; bookmarks: Bookmark[]; }
 
 export function parseLayout(layoutJson: string, tables: TableMeta[], measureNames: Set<string>, resources: Record<string, string>): LayoutImport {
   const layout = JSON.parse(layoutJson);
@@ -158,14 +158,20 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
     const containers = [...(sec.visualContainers ?? [])];
     const zs = containers.map((c: any) => geom(c).z).sort((a: number, b: number) => a - b);
     const visuals: Visual[] = [];
+    const groups: (VisualGroup & { parentName?: string })[] = [];
+    const groupOf = new Map<Visual, string>();
 
     for (const raw of containers) {
       const vc = { ...raw, ...geom(raw) };
       const cfg = json(vc.config);
       const sv = cfg.singleVisual;
-      if (!sv) continue; // groups
+      if (!sv) {
+        const g = cfg.singleVisualGroup;
+        if (g) groups.push({ id: uid(), name: g.displayName || 'Gruppo', pbiName: cfg.name, ...(g.isHidden ? { hidden: true } : {}), parentName: cfg.parentGroupName });
+        continue;
+      }
       const pbiType: string = sv.visualType;
-      if (SKIP.has(pbiType) || sv.display?.mode === 'hidden') continue;
+      if (SKIP.has(pbiType)) continue;
       let type: VisualType = TYPE_IN[pbiType] ?? 'unsupported';
       if (type === 'unsupported') skipped[pbiType] = (skipped[pbiType] ?? 0) + 1;
 
@@ -249,7 +255,11 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         fields, format,
         filters: parseFilters(vc.filters, tables),
         style: { pbiType, ...(sv.objects ? { objects: sv.objects } : {}), ...(sv.vcObjects ? { vcObjects: sv.vcObjects } : {}) },
+        ...(cfg.name ? { pbiName: cfg.name } : {}),
+        // Hidden visuals stay in the report (Selection pane, bookmarks), just not drawn.
+        ...(sv.display?.mode === 'hidden' ? { hidden: true } : {}),
       };
+      if (cfg.parentGroupName) groupOf.set(v, cfg.parentGroupName);
       if (type === 'unsupported') { v.text = pbiType; v.style!.raw = sv; }
       if (type === 'keyInfluencers') {
         const kd = prop(sv.objects, 'keyDrivers');
@@ -276,7 +286,12 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
     return {
       id: uid(),
       name: sec.displayName || `Pagina ${si + 1}`,
-      visuals,
+      visuals: (() => {
+        const byName = new Map(groups.map((g) => [g.pbiName, g.id]));
+        for (const [v, name] of groupOf) { const id = byName.get(name); if (id) v.group = id; }
+        return visuals;
+      })(),
+      ...(groups.length ? { groups: groups.map(({ parentName, ...g }) => ({ ...g, ...(parentName && groups.some((x) => x.pbiName === parentName) ? { parent: groups.find((x) => x.pbiName === parentName)!.id } : {}) })) } : {}),
       filters: parseFilters(sec.filters, tables),
       background: bgName ? resources[bgName] : undefined,
       ...(sec.width && sec.height && (sec.width !== PAGE_W || sec.height !== PAGE_H) ? { width: sec.width, height: sec.height } : {}),
@@ -288,7 +303,46 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       ...(sec.name ? { pbiName: sec.name } : {}),
     };
   });
-  return { pages: pages.length ? pages : [{ id: uid(), name: 'Pagina 1', visuals: [], filters: [] }], reportFilters: parseFilters(layout.filters, tables), skipped };
+  return {
+    pages: pages.length ? pages : [{ id: uid(), name: 'Pagina 1', visuals: [], filters: [] }],
+    reportFilters: parseFilters(layout.filters, tables), skipped,
+    bookmarks: parseBookmarks(json(layout.config).bookmarks, pages, tables),
+  };
+}
+
+/** Bookmarks of Report/Layout config (with bookmark groups) → LinBI bookmarks. */
+function parseBookmarks(list: unknown, pages: Page[], tables: TableMeta[]): Bookmark[] {
+  if (!Array.isArray(list)) return [];
+  const out: Bookmark[] = [];
+  const add = (b: any, group?: string) => {
+    if (Array.isArray(b?.children)) { for (const c of b.children) add(c, b.displayName); return; }
+    const es = b?.explorationState ?? {};
+    const page = pages.find((p) => p.pbiName === es.activeSection);
+    // Visual names are only unique within a page (copied pages reuse them).
+    const visual = new Map<string, Visual>((page?.visuals ?? []).filter((v) => v.pbiName).map((v) => [v.pbiName!, v]));
+    const o = b?.options ?? {};
+    const sec = es.sections?.[es.activeSection] ?? {};
+    const targets = o.applyOnlyToTargetVisuals && Array.isArray(o.targetVisualNames) ? o.targetVisualNames.map((n: string) => visual.get(n)?.id).filter(Boolean) : undefined;
+    const hidden: string[] = [], slicers: Record<string, string[]> = {};
+    for (const [name, st] of Object.entries<any>(sec.visualContainers ?? {})) {
+      const v = visual.get(name);
+      if (!v || (targets && !targets.includes(v.id))) continue;
+      if (st?.singleVisual?.display?.mode === 'hidden') hidden.push(v.id);
+      const f = st?.singleVisual?.objects?.merge?.general?.[0]?.properties?.filter?.filter;
+      if (v.type === 'slicer' && f) { const c = parseCondition(f, tables); slicers[v.id] = c?.values ?? []; }
+    }
+    const hiddenGroups = Object.entries<any>(sec.visualContainerGroups ?? {}).filter(([, g]) => g?.isHidden)
+      .map(([name]) => page?.groups?.find((g) => g.pbiName === name)?.id).filter((x): x is string => !!x);
+    const byExpr = (x: any) => (Array.isArray(x?.byExpr) ? x.byExpr.map((f: any) => parseCondition(f.filter, tables)).filter((f: Filter | null): f is Filter => !!f) : undefined);
+    out.push({
+      id: uid(), name: b?.displayName || 'Segnalibro', pbiName: b?.name, ...(group ? { group } : {}), ...(page ? { page: page.id } : {}),
+      applyData: !o.suppressData, applyDisplay: !o.suppressDisplay, applyPage: !o.suppressActiveSection,
+      ...(targets ? { targets } : {}),
+      state: { hidden, hiddenGroups, reportFilters: byExpr(es.filters), pageFilters: byExpr(sec.filters), slicers },
+    });
+  };
+  for (const b of list) add(b);
+  return out;
 }
 
 /* -------------------------------- export -------------------------------- */
@@ -328,7 +382,52 @@ export function themeFromLayout(layoutJson: string, resources: Record<string, st
   }
 }
 
-export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme): { layout: string; resources: Record<string, string> } {
+/** Stable Power BI names, so bookmarks and buttons keep pointing at the same pages and visuals. */
+const vname = (v: Visual) => v.pbiName ?? (v.id + '00000000000000000000').slice(0, 20);
+const sname = (p: Page) => p.pbiName ?? 'ReportSection' + p.id;
+const gname = (g: VisualGroup) => g.pbiName ?? ('g' + g.id + '0000000000000000000').slice(0, 20);
+
+/** LinBI bookmarks → Report/Layout config.bookmarks (explorationState). */
+function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
+  const one = (b: Bookmark) => {
+    const page = pages.find((p) => p.id === b.page) ?? pages[0];
+    const visualContainers: Record<string, unknown> = {};
+    for (const v of page.visuals) {
+      if (b.targets && !b.targets.includes(v.id)) continue;
+      const sv: any = {};
+      if (b.state.hidden.includes(v.id)) sv.display = { mode: 'hidden' };
+      if (v.type === 'slicer' && b.state.slicers?.[v.id]?.length && v.fields.category?.[0]) {
+        const f = v.fields.category[0];
+        sv.objects = { merge: { general: [{ properties: { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: b.state.slicers[v.id] }, '').filter } } }] } };
+      }
+      visualContainers[vname(v)] = { singleVisual: sv };
+    }
+    const visualContainerGroups = Object.fromEntries((page.groups ?? []).map((g) => [gname(g), { isHidden: b.state.hiddenGroups.includes(g.id) }]));
+    const byExpr = (fs?: Filter[]) => ({ byExpr: (fs ?? []).filter((f) => f.values.length).map((f) => filterJson(f, hex())) });
+    return {
+      displayName: b.name, name: b.pbiName ?? 'Bookmark' + b.id,
+      explorationState: {
+        version: '1.3', activeSection: sname(page), filters: byExpr(b.state.reportFilters),
+        sections: { [sname(page)]: { visualContainers, visualContainerGroups, filters: byExpr(b.state.pageFilters) } },
+      },
+      options: {
+        ...(b.applyData ? {} : { suppressData: true }), ...(b.applyDisplay ? {} : { suppressDisplay: true }), ...(b.applyPage ? {} : { suppressActiveSection: true }),
+        ...(b.targets ? { targetVisualNames: page.visuals.filter((v) => b.targets!.includes(v.id)).map(vname), applyOnlyToTargetVisuals: true } : {}),
+      },
+    };
+  };
+  // Consecutive bookmarks of the same group become a bookmark group.
+  const out: any[] = [];
+  for (const b of bookmarks) {
+    const last = out[out.length - 1];
+    if (b.group && last?.children && last.displayName === b.group) last.children.push(one(b));
+    else if (b.group) out.push({ displayName: b.group, name: 'Bookmark' + hex(), children: [one(b)] });
+    else out.push(one(b));
+  }
+  return out;
+}
+
+export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = []): { layout: string; resources: Record<string, string> } {
   const resources: Record<string, string> = {};
   const addResource = (dataUrl: string) => {
     const m = /^data:image\/(\w+)/.exec(dataUrl);
@@ -341,7 +440,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
     const containers = p.visuals.filter((v) => v.type !== 'unsupported' || v.style?.raw).map((v, vi) => {
       if (v.type === 'unsupported') {
         // Not rendered by LinBI (custom visuals, Q&A…): written back unchanged at its current position.
-        const config = { name: hex(), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }], singleVisual: v.style!.raw };
+        const config = { name: vname(v), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }], singleVisual: v.hidden ? { ...(v.style!.raw as object), display: { mode: 'hidden' } } : v.style!.raw, ...(v.group ? { parentGroupName: gname(p.groups!.find((g) => g.id === v.group)!) } : {}) };
         return { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, config: JSON.stringify(config), filters: '[]' };
       }
       const def = visualDef(v.type);
@@ -412,10 +511,13 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       const flat = def.wells.flatMap((w) => v.fields[w.key] ?? []);
       const sortField = v.format.sortBy !== undefined ? flat[v.format.sortBy] : undefined;
       const sortSel = sortField ? select.find((s) => (s.Column ?? s.Measure ?? s.Aggregation?.Expression?.Column)?.Property === sortField.column) : undefined;
+      const parent = v.group ? p.groups?.find((g) => g.id === v.group) : undefined;
       const config = {
-        name: hex(),
+        name: vname(v),
         layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }],
+        ...(parent ? { parentGroupName: gname(parent) } : {}),
         singleVisual: {
+          ...(v.hidden ? { display: { mode: 'hidden' } } : {}),
           // Same Power BI type as imported when it maps to this LinBI type (cardVisual, advancedSlicerVisual, shape…).
           visualType: v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
           projections,
@@ -445,10 +547,18 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
     if (p.wallpaper) secConfig.objects.outspace = [{ properties: { color: { solid: { color: Ls(p.wallpaper) } } } }];
     if (p.hidden) secConfig.visibility = 1;
     return {
-      name: p.pbiName ?? hex(), displayName: p.name, ordinal: i, displayOption: 1, width: p.width ?? PAGE_W, height: p.height ?? PAGE_H,
+      name: sname(p), displayName: p.name, ordinal: i, displayOption: 1, width: p.width ?? PAGE_W, height: p.height ?? PAGE_H,
       config: JSON.stringify(secConfig),
       filters: JSON.stringify(p.filters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
-      visualContainers: containers,
+      // Groups are containers too (singleVisualGroup), placed around their members.
+      visualContainers: [...containers, ...(p.groups ?? []).map((g, gi) => {
+        const members = p.visuals.filter((v) => v.group === g.id);
+        const x = members.length ? Math.min(...members.map((v) => v.x)) : 0, y = members.length ? Math.min(...members.map((v) => v.y)) : 0;
+        const w = members.length ? Math.max(...members.map((v) => v.x + v.w)) - x : 1, h = members.length ? Math.max(...members.map((v) => v.y + v.h)) - y : 1;
+        const parent = g.parent ? p.groups!.find((q) => q.id === g.parent) : undefined;
+        const config = { name: gname(g), layouts: [{ id: 0, position: { x, y, z: 0, width: w, height: h, tabOrder: (containers.length + gi) * 1000 } }], singleVisualGroup: { displayName: g.name, groupMode: 0, ...(g.hidden ? { isHidden: true } : {}) }, ...(parent ? { parentGroupName: gname(parent) } : {}) };
+        return { x, y, z: 0, width: w, height: h, config: JSON.stringify(config), filters: '[]' };
+      })],
     };
   });
 
@@ -464,7 +574,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       resourcePackage: { name: 'RegisteredResources', type: 1, items: Object.keys(resources).map((n) => ({ type: n === themeName ? 202 : 100, path: n, name: n })), disabled: false },
     }] : [],
     sections,
-    config: JSON.stringify({ version: '5.43', themeCollection: themeName ? { customTheme: { name: themeName, version: '5.43', type: 2 } } : {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true }, objects: {} }),
+    config: JSON.stringify({ version: '5.43', themeCollection: themeName ? { customTheme: { name: themeName, version: '5.43', type: 2 } } : {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true }, objects: {}, ...(bookmarks.length ? { bookmarks: bookmarksJson(bookmarks, pages) } : {}) }),
     filters: JSON.stringify(reportFilters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
     layoutOptimization: 0,
   };

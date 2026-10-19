@@ -118,7 +118,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
 
   return (
     <Rnd
-      className={'vc' + (selected ? ' selected' : '') + (over ? ' drop-target' : '')}
+      className={'vc' + (selected ? ' selected' : '') + (s.multiSel.includes(v.id) ? ' multisel' : '') + (over ? ' drop-target' : '')}
       size={{ width: v.w, height: v.h }}
       position={{ x: v.x, y: v.y }}
       scale={scale}
@@ -132,7 +132,19 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       enableResizing={selected}
       resizeHandleClasses={selected ? { topLeft: 'rnd-handle', topRight: 'rnd-handle', bottomLeft: 'rnd-handle', bottomRight: 'rnd-handle', top: 'rnd-handle', bottom: 'rnd-handle', left: 'rnd-handle', right: 'rnd-handle' } : undefined}
       resizeHandleStyles={{ top: { left: '50%', marginLeft: -4, top: -5 }, bottom: { left: '50%', marginLeft: -4, bottom: -5 }, left: { top: '50%', marginTop: -4, left: -5 }, right: { top: '50%', marginTop: -4, right: -5 }, topLeft: { left: -5, top: -5 }, topRight: { right: -5, top: -5 }, bottomLeft: { left: -5, bottom: -5 }, bottomRight: { right: -5, bottom: -5 } }}
-      onMouseDown={(e: MouseEvent) => { e.stopPropagation(); if (!selected) s.selectVisual(v.id); }}
+      onMouseDown={(e: MouseEvent) => {
+        e.stopPropagation();
+        // Ctrl+click: multiple selection (on buttons Ctrl+click runs the action instead, like Power BI).
+        if ((e.ctrlKey || e.metaKey) && v.type !== 'button') {
+          const cur = new Set(s.multiSel.length ? s.multiSel : s.selectedVisualId ? [s.selectedVisualId] : []);
+          if (cur.has(v.id)) cur.delete(v.id); else cur.add(v.id);
+          s.set({ multiSel: [...cur] });
+          if (!selected) s.selectVisual(v.id);
+          return;
+        }
+        if (s.multiSel.length) s.set({ multiSel: [] });
+        if (!selected) s.selectVisual(v.id);
+      }}
       onDragStop={(_e, d) => { if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) }); }}
       onResizeStop={(_e, _dir, ref, _delta, pos) => s.updateVisual(v.id, { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) })}
     >

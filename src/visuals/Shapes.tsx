@@ -34,6 +34,10 @@ function runAction(v: Visual) {
   } else if (type === 'WebUrl') {
     const url = sp(v, 'visualLink', 'webUrl');
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) api.openExternal(url);
+  } else if (type === 'Bookmark') {
+    const name = sp(v, 'visualLink', 'bookmark');
+    const b = s.report.bookmarks?.find((x) => x.pbiName === name || x.id === name);
+    if (b) s.applyBookmark(b.id); else s.notify('Segnalibro non trovato.');
   } else {
     s.notify('Azione "' + type + '": disponibile in una prossima versione.');
   }

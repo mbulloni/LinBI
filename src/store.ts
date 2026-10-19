@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
 import { connected, qi, ql } from './query';
@@ -17,6 +17,17 @@ export const PAGE_W = 1280;
 export const PAGE_H = 720;
 /** Page size: Power BI pages keep their own (4:3, tooltip, custom). */
 export const pageSize = (p: Page) => ({ w: p.width ?? PAGE_W, h: p.height ?? PAGE_H });
+
+/** A visual is drawn unless it, or one of its groups, is hidden. */
+export function isHiddenVisual(p: Page, v: Visual): boolean {
+  if (v.hidden) return true;
+  const seen = new Set<string>();
+  for (let g = p.groups?.find((x) => x.id === v.group); g && !seen.has(g.id); g = p.groups?.find((x) => x.id === g!.parent)) {
+    if (g.hidden) return true;
+    seen.add(g.id);
+  }
+  return false;
+}
 
 export const defaultFormat = (type: VisualType): VisualFormat => ({
   titleShow: !['textbox', 'card', 'table', 'matrix', 'button', 'shape', 'image', 'multiRowCard'].includes(type),
@@ -127,7 +138,9 @@ interface State {
   view: View;
   selectedVisualId: string | null;
   crossFilter: CrossFilter | null;
-  panes: { filters: boolean; viz: boolean; data: boolean };
+  panes: { filters: boolean; viz: boolean; data: boolean; selection: boolean; bookmarks: boolean };
+  /** Visuals selected together (Ctrl+click), e.g. to group them. */
+  multiSel: string[];
   vizTab: 'build' | 'format';
   dataVersion: number;
   filePath: string | null;
@@ -197,6 +210,19 @@ interface State {
   duplicatePage: (id: string) => void;
 
   addVisual: (type: VisualType, at?: { x: number; y: number }) => string;
+  // Selection pane and bookmarks
+  setVisualHidden: (id: string, hidden: boolean) => void;
+  setGroupHidden: (groupId: string, hidden: boolean) => void;
+  groupVisuals: (ids: string[]) => void;
+  ungroup: (groupId: string) => void;
+  renameGroup: (groupId: string, name: string) => void;
+  moveLayer: (id: string, dir: 1 | -1) => void;
+  addBookmark: () => void;
+  updateBookmark: (id: string) => void;
+  applyBookmark: (id: string) => void;
+  setBookmark: (id: string, patch: Partial<Bookmark>) => void;
+  removeBookmark: (id: string) => void;
+  moveBookmark: (id: string, dir: 1 | -1) => void;
   updateVisual: (id: string, patch: Partial<Visual>, commit?: boolean) => void;
   updateFormat: (id: string, patch: Partial<VisualFormat>) => void;
   removeVisual: (id: string) => void;
@@ -322,7 +348,8 @@ export const useStore = create<State>((set, get) => {
     view: 'report',
     selectedVisualId: null,
     crossFilter: null,
-    panes: { filters: true, viz: true, data: true },
+    panes: { filters: true, viz: true, data: true, selection: false, bookmarks: false },
+    multiSel: [],
     vizTab: 'build',
     dataVersion: 0,
     filePath: null,
@@ -397,7 +424,7 @@ export const useStore = create<State>((set, get) => {
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}) };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}) };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
@@ -797,6 +824,89 @@ export const useStore = create<State>((set, get) => {
       set({ activePageId: copy.id });
     },
 
+    setVisualHidden: (id, hidden) => get().mut((r) => { const v = findVisual(r, id); if (v) v.hidden = hidden || undefined; }),
+    setGroupHidden: (groupId, hidden) => get().mut((r) => { for (const p of r.pages) { const g = p.groups?.find((x) => x.id === groupId); if (g) g.hidden = hidden || undefined; } }),
+    groupVisuals: (ids) => {
+      if (ids.length < 2) return;
+      get().mut((r) => {
+        const p = r.pages.find((x) => x.visuals.some((v) => v.id === ids[0]));
+        if (!p) return;
+        const g = { id: uid(), name: `Gruppo ${(p.groups?.length ?? 0) + 1}` };
+        (p.groups ??= []).push(g);
+        for (const v of p.visuals) if (ids.includes(v.id)) v.group = g.id;
+      });
+      set({ multiSel: [] });
+    },
+    ungroup: (groupId) => get().mut((r) => {
+      for (const p of r.pages) {
+        const g = p.groups?.find((x) => x.id === groupId);
+        if (!g) continue;
+        for (const v of p.visuals) if (v.group === groupId) v.group = g.parent;
+        for (const x of p.groups!) if (x.parent === groupId) x.parent = g.parent;
+        p.groups = p.groups!.filter((x) => x.id !== groupId);
+      }
+    }),
+    renameGroup: (groupId, name) => get().mut((r) => { for (const p of r.pages) { const g = p.groups?.find((x) => x.id === groupId); if (g) g.name = name; } }),
+    moveLayer: (id, dir) => get().mut((r) => {
+      const p = r.pages.find((x) => x.visuals.some((v) => v.id === id));
+      if (!p) return;
+      const order = [...p.visuals].sort((a, b) => a.z - b.z);
+      const i = order.findIndex((v) => v.id === id), j = i + dir;
+      if (j < 0 || j >= order.length) return;
+      [order[i], order[j]] = [order[j], order[i]];
+      order.forEach((v, k) => (v.z = k + 1));
+    }),
+    addBookmark: () => {
+      const id = uid();
+      get().mut((r) => {
+        const n = (r.bookmarks?.length ?? 0) + 1;
+        (r.bookmarks ??= []).push({ id, name: `Segnalibro ${n}`, applyData: true, applyDisplay: true, applyPage: true, page: get().activePageId, state: { hidden: [], hiddenGroups: [] } });
+      });
+      get().updateBookmark(id);
+    },
+    // Captures the current state of the bookmark's page (the active page) into it.
+    updateBookmark: (id) => get().mut((r) => {
+      const b = r.bookmarks?.find((x) => x.id === id);
+      const p = r.pages.find((x) => x.id === get().activePageId);
+      if (!b || !p) return;
+      b.page = p.id;
+      const scope = p.visuals.filter((v) => !b.targets || b.targets.includes(v.id));
+      b.state = {
+        hidden: scope.filter((v) => v.hidden).map((v) => v.id),
+        hiddenGroups: (p.groups ?? []).filter((g) => g.hidden).map((g) => g.id),
+        reportFilters: clone(r.reportFilters),
+        pageFilters: clone(p.filters),
+        slicers: Object.fromEntries(scope.filter((v) => v.type === 'slicer').map((v) => [v.id, [...(v.slicerValues ?? [])]])),
+      };
+    }),
+    applyBookmark: (id) => {
+      const b = get().report.bookmarks?.find((x) => x.id === id);
+      if (!b) return;
+      const target = b.applyPage && b.page && get().report.pages.some((p) => p.id === b.page) ? b.page : get().activePageId;
+      get().mut((r) => {
+        const p = r.pages.find((x) => x.id === target);
+        if (!p) return;
+        const scope = p.visuals.filter((v) => !b.targets || b.targets.includes(v.id));
+        if (b.applyDisplay) {
+          for (const v of scope) v.hidden = b.state.hidden.includes(v.id) || undefined;
+          if (!b.targets) for (const g of p.groups ?? []) g.hidden = b.state.hiddenGroups.includes(g.id) || undefined;
+        }
+        if (b.applyData) {
+          if (!b.targets && b.state.reportFilters) r.reportFilters = clone(b.state.reportFilters);
+          if (!b.targets && b.state.pageFilters && p.id === b.page) p.filters = clone(b.state.pageFilters);
+          for (const v of scope) if (v.type === 'slicer' && b.state.slicers?.[v.id]) v.slicerValues = [...b.state.slicers[v.id]];
+        }
+      });
+      set({ activePageId: target, selectedVisualId: null, ...(b.applyData ? { crossFilter: null } : {}) });
+    },
+    setBookmark: (id, patch) => get().mut((r) => { const b = r.bookmarks?.find((x) => x.id === id); if (b) Object.assign(b, patch); }),
+    removeBookmark: (id) => get().mut((r) => { r.bookmarks = r.bookmarks?.filter((x) => x.id !== id); }),
+    moveBookmark: (id, dir) => get().mut((r) => {
+      const list = r.bookmarks ?? [];
+      const i = list.findIndex((x) => x.id === id), j = i + dir;
+      if (i < 0 || j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]];
+    }),
     addVisual: (type, at) => {
       const id = uid();
       const page = get().page();
