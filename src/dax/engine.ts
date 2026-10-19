@@ -608,7 +608,12 @@ class Compiler {
       }
       case 'GENERATESERIES': {
         const x = this.A('g');
-        return { sql: `SELECT ${x}.v AS "Value" FROM generate_series(${this.scalar(A[0], env)}, ${this.scalar(A[1], env)}, ${A[2] ? this.scalar(A[2], env) : '1'}) ${x}(v)`, cols: [{ name: 'Value' }] };
+        // Integer counter: DuckDB's generate_series has no DOUBLE version (0, 0.05 … 0.5). Arguments are constants.
+        const [a, b, st] = [this.scalar(A[0], env), this.scalar(A[1], env), A[2] ? this.scalar(A[2], env) : '1'];
+        return {
+          sql: `SELECT CASE WHEN ${a} = floor(${a}) AND ${st} = floor(${st}) THEN CAST(${a} + ${x}.i * ${st} AS BIGINT) ELSE round(${a} + ${x}.i * ${st}, 10) END AS "Value" FROM range(0, CAST(floor((${b} - (${a})) / (${st}) + 1e-9) AS BIGINT) + 1) ${x}(i)`,
+          cols: [{ name: 'Value' }],
+        };
       }
       case 'UNION': case 'EXCEPT': case 'INTERSECT': {
         const tvs = A.map((a) => this.tv(a, env));
@@ -1117,6 +1122,13 @@ class Compiler {
       case 'PI': return 'pi()';
       case 'RAND': return 'random()';
       case 'RANDBETWEEN': return `(${s(0)} + floor(random() * (${s(1)} - ${s(0)} + 1)))`;
+      // NAMEOF('Table'[Column]) / NAMEOF([Measure]): the fully qualified name, as text (field parameters).
+      case 'NAMEOF': {
+        const a = A[0];
+        const name = a?.k !== 'col' ? null : !a.table && this.m.measures.some((m: Measure) => m.name === a.col) ? `[${a.col}]` : `'${a.table ?? env.home}'[${a.col}]`;
+        if (!name) throw new DaxError('NAMEOF: atteso un riferimento a colonna o misura');
+        return `'${name.replace(/'/g, "''")}'`;
+      }
       case 'CONVERT': {
         const t = A[1]?.k === 'tbl' ? A[1].name.toUpperCase() : '';
         const map: Record<string, string> = { INTEGER: 'BIGINT', DOUBLE: 'DOUBLE', CURRENCY: 'DOUBLE', STRING: 'VARCHAR', BOOLEAN: 'BOOLEAN', DATETIME: 'TIMESTAMP' };

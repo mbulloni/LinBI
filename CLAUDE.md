@@ -34,6 +34,8 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - Drill: wells with `hierarchy: true` (catalog); `Visual.drill` {level, path, expand, mode}; `buildVisualQuery` keeps only the current level and turns the path into filters. Date levels: `FieldRef/Filter/CrossFilter.datePart`, SQL via `query.ts#partExpr` (also DAX `FilterIn/GroupIn.expr`), month/quarter sort by number (`sortKeyOf`). Drill-through: `Page.drillthrough`, `store.drillThrough` (filters marked `drillthrough`). Tooltip pages: `Page.tooltip`, `VisualFormat.tooltipPage`; `VisualBody` renders `TooltipPage` with `visuals/filterContext.ts#ExtraFilters` (read by `useVisualData`).
 
+- Parameters: `store.createParameter` (what-if: `SELECTCOLUMNS(GENERATESERIES(...))` + `SELECTEDVALUE` measure + slider slicer; fields: table constructor with `NAMEOF`, `TableMeta.fieldParam`), `buildVisualQuery` replaces a field-parameter column with the fields selected in its slicer (never inside slicers). Navigators: `visuals/Shapes.tsx#NavigatorVisual`.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.

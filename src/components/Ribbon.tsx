@@ -105,6 +105,9 @@ export function Ribbon() {
               <Big icon="relationships" label={<>Gestisci<br />relazioni</>} onClick={() => s.set({ relManage: true })} disabled={!s.tables.length} />
             </Group>
           )}
+          <Group label="Parametri">
+            <Big icon="newTable" label={<>Nuovo<br />parametro</>} dropdown onClick={openMenu('params')} disabled={!s.tables.length} />
+          </Group>
           <Group label="Calcoli">
             <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
@@ -123,6 +126,7 @@ export function Ribbon() {
             <Big icon="textBox" label={<>Casella di<br />testo</>} onClick={() => s.addVisual('textbox')} disabled={!report} />
             <Big icon="newVisual" label="Scheda" onClick={() => s.addVisual('card')} disabled={!report} />
             <Big icon="newTable" label="Tabella" onClick={() => s.addVisual('table')} disabled={!report} />
+            <Big icon="newVisual" label="Pulsanti" dropdown onClick={openMenu('buttons')} disabled={!report} />
           </Group>
         </>}
 
@@ -217,6 +221,31 @@ export function Ribbon() {
         <Menu x={menu.x} y={menu.y} onClose={close}>
           <button onClick={() => { close(); s.addPage(); }}>Pagina vuota</button>
           <button onClick={() => { close(); s.duplicatePage(s.activePageId); }}>Duplica pagina</button>
+        </Menu>
+      )}
+      {menu?.kind === 'buttons' && (
+        <Menu x={menu.x} y={menu.y} onClose={close}>
+          {([['Indietro', 'Back', 'back'], ['Segnalibro', 'Bookmark', 'bookmark'], ['Vuoto', '', 'blank']] as const).map(([label, action, icon]) => (
+            <button key={label} onClick={() => {
+              close();
+              const id = s.addVisual('button');
+              const L = (x: string) => ({ expr: { Literal: { Value: x } } });
+              s.updateVisual(id, { w: 120, h: 40, style: {
+                pbiType: 'actionButton',
+                objects: { icon: [{ properties: { shapeType: L(`'${icon}'`) } }], text: [{ properties: { show: L(icon === 'blank' ? 'true' : 'false'), text: L(`'${label}'`) } }], outline: [{ properties: { show: L('true') } }] },
+                vcObjects: action ? { visualLink: [{ properties: { show: L('true'), type: L(`'${action}'`), ...(action === 'Bookmark' && s.report.bookmarks?.[0] ? { bookmark: L(`'${s.report.bookmarks[0].pbiName ?? s.report.bookmarks[0].id}'`) } : {}) } }] } : {},
+              } });
+            }}>{label}</button>
+          ))}
+          <hr />
+          <button onClick={() => { close(); const id = s.addVisual('pageNavigator'); s.updateVisual(id, { w: 500, h: 44 }); }}>Navigatore pagine</button>
+          <button onClick={() => { close(); const id = s.addVisual('bookmarkNavigator'); s.updateVisual(id, { w: 500, h: 44 }); }}>Navigatore segnalibri</button>
+        </Menu>
+      )}
+      {menu?.kind === 'params' && (
+        <Menu x={menu.x} y={menu.y} onClose={close}>
+          <button onClick={() => { close(); s.set({ paramDialog: 'numeric' }); }}>Intervallo numerico</button>
+          <button onClick={() => { close(); s.set({ paramDialog: 'fields' }); }}>Campi</button>
         </Menu>
       )}
       {menu?.kind === 'pageview' && (

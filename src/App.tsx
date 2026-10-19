@@ -13,6 +13,7 @@ import { DaxBar } from './components/DaxBar';
 import { DatabaseDialog } from './components/DatabaseDialog';
 import { PublishDialog } from './components/PublishDialog';
 import { ScriptEditor } from './visuals/Script';
+import { ParameterDialog } from './components/ParameterDialog';
 import { DaxQueryView } from './components/DaxQueryView';
 import { VisualStatic } from './components/VisualContainer';
 import { THEME } from './themes';
@@ -108,6 +109,7 @@ export function App() {
       <DatabaseDialog />
       <PublishDialog />
       <ScriptEditor />
+      <ParameterDialog />
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (

@@ -16,7 +16,11 @@ export interface TableMeta {
   calcColumns?: { name: string; expression: string }[];
   /** Power BI "sort by column": display column → column whose values define its order. */
   sortBy?: Record<string, string>;
+  /** Field parameter: the label column, and the field each label stands for (in order). */
+  fieldParam?: { column: string; fields: ParamField[] };
 }
+
+export interface ParamField { label: string; table: string; column: string; measure?: boolean; }
 
 /** Database table source (Ottieni dati › Database). The password is stored outside the report. */
 export interface DbSource { kind: 'mysql' | 'postgres' | 'sqlite'; host?: string; port?: string; database?: string; user?: string; file?: string; schema: string; table: string; }
@@ -32,7 +36,7 @@ export type VisualType =
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge' | 'map' | 'filledMap'
   | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative'
-  | 'pythonVisual' | 'rVisual' | 'qna' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'pythonVisual' | 'rVisual' | 'qna' | 'pageNavigator' | 'bookmarkNavigator' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;
@@ -47,7 +51,7 @@ export interface VisualFormat {
   color: string;
   background: string;
   border: boolean;
-  slicerStyle: 'list' | 'dropdown';
+  slicerStyle: 'list' | 'dropdown' | 'slider';
   /** Title and container look (imported from Power BI or set in the Format pane). */
   titleColor?: string;
   titleAlign?: 'left' | 'center' | 'right';

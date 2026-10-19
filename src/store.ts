@@ -30,7 +30,7 @@ export function isHiddenVisual(p: Page, v: Visual): boolean {
 }
 
 export const defaultFormat = (type: VisualType): VisualFormat => ({
-  titleShow: !['textbox', 'card', 'table', 'matrix', 'button', 'shape', 'image', 'multiRowCard'].includes(type),
+  titleShow: !['textbox', 'card', 'table', 'matrix', 'button', 'shape', 'image', 'multiRowCard', 'pageNavigator', 'bookmarkNavigator'].includes(type),
   titleText: '',
   titleSize: 14,
   legendShow: true,
@@ -40,7 +40,7 @@ export const defaultFormat = (type: VisualType): VisualFormat => ({
   yAxisShow: true,
   gridlines: true,
   color: '#118DFF',
-  background: ['button', 'shape', 'image'].includes(type) ? 'transparent' : '#FFFFFF',
+  background: ['button', 'shape', 'image', 'pageNavigator', 'bookmarkNavigator'].includes(type) ? 'transparent' : '#FFFFFF',
   border: false,
   slicerStyle: 'list',
 });
@@ -159,6 +159,8 @@ interface State {
   scriptsEnabled: boolean;
   /** Visual whose script is open in the script editor. */
   scriptEditor: string | null;
+  /** Nuovo parametro dialog. */
+  paramDialog: 'numeric' | 'fields' | null;
   clipboard: Visual | null;
   focusId: string | null;
   relManage: boolean;
@@ -217,6 +219,8 @@ interface State {
   ungroup: (groupId: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   moveLayer: (id: string, dir: 1 | -1) => void;
+  /** Modellazione › Nuovo parametro: numeric range (what-if) or fields. */
+  createParameter: (p: { kind: 'numeric'; name: string; min: number; max: number; step: number; def: number; slicer: boolean } | { kind: 'fields'; name: string; fields: import('./types').ParamField[]; slicer: boolean }) => Promise<void>;
   /** Drill-through: go to `pageId` filtered on the source data point (values per field). */
   drillThrough: (pageId: string, values: { table: string; column: string; datePart?: import('./types').DatePart; value: string | null }[]) => void;
   addBookmark: () => void;
@@ -373,6 +377,7 @@ export const useStore = create<State>((set, get) => {
     busy: null,
     scriptsEnabled: false,
     scriptEditor: null,
+    paramDialog: null,
     clipboard: null,
     focusId: null,
     sourceName: null,
@@ -863,6 +868,38 @@ export const useStore = create<State>((set, get) => {
       [order[i], order[j]] = [order[j], order[i]];
       order.forEach((v, k) => (v.z = k + 1));
     }),
+    createParameter: async (p) => {
+      const name = p.name.trim();
+      if (!name) throw new Error('Indicare un nome.');
+      if (get().tables.some((t) => t.name.toLowerCase() === name.toLowerCase())) throw new Error(`Esiste già una tabella denominata "${name}".`);
+      const q = (s: string) => s.replace(/"/g, '""');
+      let expr: string;
+      if (p.kind === 'numeric') {
+        if (!(p.step > 0) || p.max < p.min) throw new Error('Intervallo non valido: minimo ≤ massimo e incremento > 0.');
+        if ((p.max - p.min) / p.step > 100000) throw new Error('Troppi valori: aumentare l\'incremento.');
+        expr = `SELECTCOLUMNS(GENERATESERIES(${p.min}, ${p.max}, ${p.step}), "${q(name)}", [Value])`;
+      } else {
+        if (!p.fields.length) throw new Error('Aggiungere almeno un campo.');
+        const ref = (f: import('./types').ParamField) => (f.measure ? `[${f.column}]` : `'${f.table.replace(/'/g, "''")}'[${f.column}]`);
+        expr = `SELECTCOLUMNS({ ${p.fields.map((f, i) => `("${q(f.label)}", NAMEOF(${ref(f)}), ${i})`).join(', ')} }, "${q(name)}", [Value1], "${q(name)} Campi", [Value2], "${q(name)} Ordine", [Value3])`;
+      }
+      const meta = await api.materialize(name, calcTableSql(get().model(), expr));
+      const t: TableMeta = { ...meta, source: { path: '', dax: expr }, ...(p.kind === 'fields' ? { fieldParam: { column: name, fields: p.fields }, sortBy: { [name]: `${name} Ordine` } } : {}) };
+      set((s) => ({ tables: [...s.tables, t], dirty: true }));
+      get().mut((r) => {
+        if (p.kind === 'numeric') r.measures.push({ table: name, name: `${name} Valore`, expression: `SELECTEDVALUE('${name.replace(/'/g, "''")}'[${name}], ${p.def})` });
+        if (!p.slicer) return;
+        const page = r.pages.find((x) => x.id === get().activePageId)!;
+        const z = Math.max(0, ...page.visuals.map((v) => v.z)) + 1;
+        page.visuals.push({
+          id: uid(), type: 'slicer', x: 20, y: 20, w: 240, h: p.kind === 'numeric' ? 90 : 200, z,
+          fields: { category: [{ table: name, column: name, agg: 'none' }] },
+          format: { ...defaultFormat('slicer'), slicerStyle: p.kind === 'numeric' ? 'slider' : 'list' },
+          ...(p.kind === 'numeric' ? { slicerValues: [String(p.def)] } : {}),
+        });
+      });
+      set((s) => ({ dataVersion: s.dataVersion + 1 }));
+    },
     drillThrough: (pageId, values) => {
       const source = get().page();
       get().mut((r) => {
@@ -1080,7 +1117,7 @@ export const useStore = create<State>((set, get) => {
       // Version 2: data embedded as Parquet (like a .pbix), sources and steps kept for refresh.
       const content = JSON.stringify({
         format: 'lbix', version: 2,
-        tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, calcColumns: t.calcColumns, data: `data/${i}.parquet` })),
+        tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, calcColumns: t.calcColumns, ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}), data: `data/${i}.parquet` })),
         report,
       }, null, 2);
       set({ busy: 'Salvataggio…' });
@@ -1103,7 +1140,7 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];
-        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns']; sourceColumns?: TableMeta['sourceColumns']; data?: string })[];
+        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns']; sourceColumns?: TableMeta['sourceColumns']; fieldParam?: TableMeta['fieldParam']; data?: string })[];
         for (const t of defs) {
           if (f.dataDir && t.data) {
             // Embedded data: no access to the original sources needed (Aggiorna reloads from them).
@@ -1114,7 +1151,7 @@ export const useStore = create<State>((set, get) => {
               continue;
             } catch { /* fall back to the sources */ }
           }
-          if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns }] })); continue; }
+          if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns, ...(t.sortBy ? { sortBy: t.sortBy } : {}), ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}) }] })); continue; }
           try { await loadTable(t, defs); } catch { failed.push(t.name); }
         }
         doc.report.relationships ??= [];

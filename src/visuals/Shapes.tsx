@@ -76,6 +76,35 @@ export function ButtonVisual({ v }: { v: Visual }) {
   );
 }
 
+/** Page navigator (visible pages) or bookmark navigator (a bookmark group, or all): one button each. */
+export function NavigatorVisual({ v }: { v: Visual }) {
+  const s = useStore();
+  const [hover, setHover] = useState<string | null>(null);
+  const pages = s.report.pages.filter((p) => !p.hidden);
+  const group = sp(v, 'bookmarks', 'bookmarkGroup');
+  const bms = (s.report.bookmarks ?? []).filter((b) => !group || b.group === group || b.pbiName === group);
+  const items = v.type === 'pageNavigator'
+    ? pages.map((p) => ({ id: p.id, label: p.name, active: p.id === s.activePageId, go: () => s.set({ activePageId: p.id, selectedVisualId: null }) }))
+    : bms.map((b) => ({ id: b.id, label: b.name, active: false, go: () => s.applyBookmark(b.id) }));
+  const vertical = sp(v, 'layout', 'orientation') === 1 || v.h > v.w * 1.5;
+  const g = (obj: string, prop: string, state?: string) => sp(v, obj, prop, state);
+  return (
+    <div className="nav-v" style={{ flexDirection: vertical ? 'column' : 'row' }}>
+      {items.map((it) => {
+        const st = it.active ? 'selected' : hover === it.id ? 'hover' : undefined;
+        const fill = g('fill', 'fillColor', st) ?? (it.active ? '#252423' : '#E6E6E6');
+        return (
+          <div key={it.id} className="nav-btn" title={`${it.label} (Ctrl+clic)`}
+            style={{ background: withAlpha(fill, g('fill', 'transparency', st)), color: g('text', 'fontColor', st) ?? (it.active ? '#FFFFFF' : '#252423'), fontSize: pt(g('text', 'fontSize', st), 13), fontFamily: font(g('text', 'fontFamily', st)), borderRadius: Number(g('shape', 'roundEdge', st) ?? 0) }}
+            onMouseEnter={() => setHover(it.id)} onMouseLeave={() => setHover(null)}
+            onClick={(e) => { if (e.ctrlKey || e.metaKey) it.go(); }}>{it.label}</div>
+        );
+      })}
+      {!items.length && <span className="side-empty">{v.type === 'pageNavigator' ? 'Nessuna pagina visibile.' : 'Nessun segnalibro.'}</span>}
+    </div>
+  );
+}
+
 export function ShapeVisual({ v }: { v: Visual }) {
   const kind = String(sp(v, 'general', 'shapeType') ?? sp(v, 'shape', 'tileShape') ?? 'rectangle').toLowerCase();
   const fillOn = (sp(v, 'fill', 'show') ?? true) !== false;

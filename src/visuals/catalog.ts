@@ -87,9 +87,9 @@ export const VISUALS: VisualDef[] = [
   },
 ];
 
-const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo', image: 'Immagine', button: 'Pulsante', shape: 'Forma', unsupported: 'Oggetto visivo non supportato' };
+const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo', image: 'Immagine', button: 'Pulsante', shape: 'Forma', pageNavigator: 'Navigatore pagine', bookmarkNavigator: 'Navigatore segnalibri', unsupported: 'Oggetto visivo non supportato' };
 
 export const visualDef = (t: VisualType): VisualDef =>
   VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
 
-export const isChart = (t: VisualType) => !['map', 'filledMap', 'keyInfluencers', 'decompositionTree', 'smartNarrative', 'qna', 'pythonVisual', 'rVisual', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);
+export const isChart = (t: VisualType) => !['pageNavigator', 'bookmarkNavigator', 'map', 'filledMap', 'keyInfluencers', 'decompositionTree', 'smartNarrative', 'qna', 'pythonVisual', 'rVisual', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);

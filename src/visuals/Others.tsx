@@ -239,6 +239,20 @@ export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
     else set(sel.size === 1 && sel.has(k) ? [] : [k]);
   };
   if (!it) return null;
+  if (v.format.slicerStyle === 'slider') {
+    // Single value on a numeric range (what-if parameters).
+    const nums = values.filter((x): x is string => x !== null).map((x) => ({ x, n: Number(x) })).filter((x) => Number.isFinite(x.n)).sort((a, b) => a.n - b.n);
+    const cur = sel.size === 1 ? nums.findIndex((x) => x.x === [...sel][0]) : -1;
+    if (!nums.length) return null;
+    return (
+      <div className="slicer-v slider-v">
+        <div className="slider-val">{cur >= 0 ? nums[cur].n.toLocaleString('it-IT') : '(Tutti)'}</div>
+        <input type="range" min={0} max={nums.length - 1} step={1} value={cur >= 0 ? cur : 0}
+          onMouseDown={(e) => e.stopPropagation()} onChange={(e) => set([nums[+e.target.value].x])} />
+        <div className="slider-ends"><span>{nums[0].n.toLocaleString('it-IT')}</span><span>{nums[nums.length - 1].n.toLocaleString('it-IT')}</span></div>
+      </div>
+    );
+  }
   if (v.format.slicerStyle === 'dropdown') {
     return (
       <div className="slicer-v">

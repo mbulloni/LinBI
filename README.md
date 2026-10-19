@@ -228,6 +228,9 @@ Fabric, PDF, `.lbix` con i dati.
   pulsanti con azione segnalibro, riquadro Selezione con livelli, oggetti visivi nascosti e gruppi
 - Drill-down/drill-up con gerarchie (anche gerarchia automatica delle date Anno › Trimestre › Mese › Giorno), espandi tutto,
   drill-through (clic destro su un dato, campi di drill-through della pagina, pulsante Indietro), pagine come descrizione comando
+- Parametri (Modellazione › Nuovo parametro): intervallo numerico di simulazione (tabella, misura `… Valore`, filtro dei dati
+  a cursore) e parametri di campo (il filtro dei dati sceglie quali campi mostrano gli oggetti visivi); navigatore pagine e
+  navigatore segnalibri, pulsanti Indietro/Segnalibro (Inserisci › Pulsanti)
 - Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;

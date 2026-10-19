@@ -39,6 +39,8 @@ const VIS: Record<VisualType, ReactNode> = {
   matrix: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} /><rect x="2" y="3" width="16" height="3.5" fill={B} /><rect x="2" y="3" width="5" height="14" fill={B} opacity=".45" /><path d="M2 10 H18 M2 13.5 H18 M7 3 V17 M12.5 6.5 V17" stroke={G} strokeWidth=".8" /></>,
   slicer: <><path d="M3 4 H17 L12 10 V16 L8 18 V10 Z" fill="none" stroke={G} strokeWidth="1.3" /><rect x="3" y="4" width="14" height="1.5" fill={B} /></>,
   button: <><rect x="2" y="6" width="16" height="8" rx="2" fill="none" stroke={G} /><path d="M6 10 H14 M11 7.5 L14 10 L11 12.5" stroke={B} strokeWidth="1.4" fill="none" /></>,
+  pageNavigator: <><rect x="2" y="7" width="5" height="6" fill="#252423" /><rect x="7.5" y="7" width="5" height="6" fill="none" stroke={G} /><rect x="13" y="7" width="5" height="6" fill="none" stroke={G} /></>,
+  bookmarkNavigator: <><path d="M3 4 H8 V15 L5.5 12.5 L3 15 Z" fill={B} /><path d="M12 4 H17 V15 L14.5 12.5 L12 15 Z" fill="none" stroke={G} /></>,
   shape: <><rect x="2" y="4" width="10" height="10" fill={B} opacity=".6" /><circle cx="13" cy="12" r="5" fill={D} opacity=".7" /></>,
   textbox: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} /><text x="10" y="14" fontSize="9" textAnchor="middle" fill={K} fontWeight="700">A</text></>,
   image: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} /><circle cx="7" cy="8" r="1.8" fill={O} /><path d="M3 16 L8 11 L11 14 L14 10 L18 15 V16 Z" fill={B} /></>,

@@ -26,9 +26,10 @@ const TYPE_IN: Record<string, VisualType> = {
   map: 'map', azureMap: 'map', filledMap: 'filledMap', shapeMap: 'filledMap',
   decompositionTreeVisual: 'decompositionTree', keyDriversVisual: 'keyInfluencers', smartNarrativeVisual: 'smartNarrative',
   pythonVisual: 'pythonVisual', scriptVisual: 'rVisual', qnaVisual: 'qna',
+  pageNavigator: 'pageNavigator', bookmarkNavigator: 'bookmarkNavigator',
 };
 /** Decorative/navigation objects that carry no data: not imported. */
-const SKIP = new Set(['bookmarkNavigator', 'pageNavigator', 'lineShape']);
+const SKIP = new Set(['lineShape']);
 
 const TYPE_OUT: Partial<Record<VisualType, string>> = {
   stackedBar: 'barChart', stackedColumn: 'columnChart', clusteredBar: 'clusteredBarChart', clusteredColumn: 'clusteredColumnChart',
@@ -40,6 +41,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape', map: 'map', filledMap: 'filledMap',
   decompositionTree: 'decompositionTreeVisual', keyInfluencers: 'keyDriversVisual', smartNarrative: 'smartNarrativeVisual',
   pythonVisual: 'pythonVisual', rVisual: 'scriptVisual', qna: 'qnaVisual',
+  pageNavigator: 'pageNavigator', bookmarkNavigator: 'bookmarkNavigator',
 };
 
 /** Power BI projection role → LinBI well, per LinBI visual type. */

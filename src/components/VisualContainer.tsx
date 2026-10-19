@@ -10,7 +10,7 @@ import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual, type PointEvents } from '../visuals/ChartVisual';
-import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
+import { ButtonVisual, NavigatorVisual, ShapeVisual } from '../visuals/Shapes';
 import { MapVisual } from '../visuals/MapVisual';
 import { ScriptVisual } from '../visuals/Script';
 import { QnaVisual } from '../qna/QnaVisual';
@@ -134,6 +134,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'textbox') return <TextboxVisual v={v} selected={selected} />;
   if (v.type === 'button') return <ButtonVisual v={v} />;
   if (v.type === 'shape') return <ShapeVisual v={v} />;
+  if (v.type === 'pageNavigator' || v.type === 'bookmarkNavigator') return <NavigatorVisual v={v} />;
   if (v.type === 'image') return <img src={v.image} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />;
   if (v.type === 'unsupported') return <div className="vc-error"><b>Oggetto visivo non supportato</b><span>{v.text}</span></div>;
   if (v.type === 'decompositionTree') return <DecompositionTreeVisual v={v} />;

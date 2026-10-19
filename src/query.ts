@@ -272,6 +272,29 @@ export function buildVisualQuery(
 ): VisualQuery | { error: string } | null {
   // These visuals run their own queries (visuals/AiVisuals.tsx).
   if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative' || v.type === 'qna') return null;
+  // Field parameters: a field-parameter column stands for the fields selected in its slicer (all when none).
+  // (Not for slicers: the parameter's own slicer lists its labels.)
+  if (v.type !== 'slicer' && tables.some((t) => t.fieldParam)) {
+    const all = [...filters, ...(v.filters ?? [])];
+    const selectedFor = (t: TableMeta) => {
+      const sl = visuals.find((s) => s.type === 'slicer' && s.slicerValues?.length && s.fields.category?.[0]?.table === t.name && s.fields.category[0].column === t.fieldParam!.column);
+      const fl = all.find((f) => f.table === t.name && f.column === t.fieldParam!.column && f.values.length);
+      const labels = sl?.slicerValues ?? fl?.values;
+      return t.fieldParam!.fields.filter((f) => !labels || labels.includes(f.label));
+    };
+    let changed = false;
+    const fields: Record<string, FieldRef[]> = {};
+    for (const [well, list] of Object.entries(v.fields)) {
+      fields[well] = list.flatMap((f) => {
+        const t = tables.find((x) => x.name === f.table && x.fieldParam?.column === f.column);
+        if (!t) return [f];
+        changed = true;
+        const measureWell = visualDef(v.type).wells.find((w) => w.key === well)?.measure;
+        return selectedFor(t).map((p): FieldRef => (p.measure ? { table: p.table, column: p.column, agg: 'measure' } : { table: p.table, column: p.column, agg: measureWell ? 'sum' : 'none' }));
+      });
+    }
+    if (changed) v = { ...v, fields };
+  }
   const def = visualDef(v.type);
   const items: QueryItem[] = [];
   // Hierarchy axis: only the current drill level (or, with "expand all", every level down to it);
