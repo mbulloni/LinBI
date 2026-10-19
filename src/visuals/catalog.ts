@@ -20,6 +20,11 @@ const axisY = (measure: boolean): Well => ({ key: measure ? 'values' : 'category
 const legend: Well = { key: 'legend', label: 'Legenda', measure: false, max: 1 };
 
 const columnLike = (type: VisualType, name: string): VisualDef => ({ type, name, wells: [axisX(false), axisY(true), legend], category: 'category' });
+const combo = (type: VisualType, name: string): VisualDef => ({
+  type, name, category: 'category',
+  wells: [{ key: 'category', label: 'Asse X', measure: false, max: 1 }, { key: 'values', label: 'Asse Y colonne', measure: true },
+    { key: 'lineValues', label: 'Asse Y linee', measure: true }, { key: 'legend', label: 'Legenda colonne', measure: false, max: 1 }],
+});
 const barLike = (type: VisualType, name: string): VisualDef => ({ type, name, wells: [axisY(false), axisX(true), legend], category: 'category' });
 
 export const VISUALS: VisualDef[] = [
@@ -32,6 +37,10 @@ export const VISUALS: VisualDef[] = [
   columnLike('line', 'Grafico a linee'),
   columnLike('area', 'Grafico ad area'),
   columnLike('stackedArea', 'Grafico ad area in pila'),
+  combo('lineStackedColumn', 'Grafico a linee e istogramma in pila'),
+  combo('lineClusteredColumn', 'Grafico a linee e istogramma raggruppato'),
+  columnLike('ribbon', 'Grafico a nastro'),
+  { type: 'waterfall', name: 'Grafico a cascata', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Asse Y', measure: true, max: 1 }] },
   {
     type: 'scatter', name: 'Grafico a dispersione', category: 'details',
     wells: [{ key: 'details', label: 'Valori', measure: false, max: 1 }, { key: 'x', label: 'Asse X', measure: true, max: 1 },
@@ -43,6 +52,12 @@ export const VISUALS: VisualDef[] = [
   { type: 'funnel', name: 'Imbuto', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
   { type: 'gauge', name: 'Misuratore', wells: [{ key: 'values', label: 'Valore', measure: true, max: 1 }, { key: 'target', label: 'Valore di destinazione', measure: true, max: 1 }] },
   { type: 'card', name: 'Scheda', wells: [{ key: 'values', label: 'Campi', measure: true, max: 1 }] },
+  { type: 'multiRowCard', name: 'Scheda con più righe', wells: [{ key: 'values', label: 'Campi', measure: false }] },
+  {
+    type: 'kpi', name: 'KPI',
+    wells: [{ key: 'values', label: 'Valore', measure: true, max: 1 }, { key: 'trend', label: 'Asse delle tendenze', measure: false, max: 1 },
+      { key: 'target', label: 'Obiettivi', measure: true, max: 1 }],
+  },
   { type: 'slicer', name: 'Filtro dei dati', category: 'category', wells: [{ key: 'category', label: 'Campo', measure: false, max: 1 }] },
   { type: 'table', name: 'Tabella', wells: [{ key: 'columns', label: 'Colonne', measure: false }] },
   {
@@ -56,4 +71,4 @@ const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo'
 export const visualDef = (t: VisualType): VisualDef =>
   VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
 
-export const isChart = (t: VisualType) => !['card', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);
+export const isChart = (t: VisualType) => !['card', 'multiRowCard', 'kpi', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);

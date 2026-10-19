@@ -16,10 +16,10 @@ const TYPE_IN: Record<string, VisualType> = {
   clusteredColumnChart: 'clusteredColumn', columnChart: 'stackedColumn', hundredPercentStackedColumnChart: 'stackedColumn100',
   clusteredBarChart: 'clusteredBar', barChart: 'stackedBar', hundredPercentStackedBarChart: 'stackedBar100',
   lineChart: 'line', areaChart: 'area', stackedAreaChart: 'stackedArea',
-  lineClusteredColumnComboChart: 'clusteredColumn', lineStackedColumnComboChart: 'stackedColumn',
-  ribbonChart: 'stackedColumn', waterfallChart: 'clusteredColumn',
+  lineClusteredColumnComboChart: 'lineClusteredColumn', lineStackedColumnComboChart: 'lineStackedColumn',
+  ribbonChart: 'ribbon', waterfallChart: 'waterfall',
   pieChart: 'pie', donutChart: 'donut', treemap: 'treemap', funnel: 'funnel', scatterChart: 'scatter', gauge: 'gauge',
-  card: 'card', cardVisual: 'card', multiRowCard: 'card', kpi: 'card',
+  card: 'card', cardVisual: 'card', multiRowCard: 'multiRowCard', kpi: 'kpi',
   tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer',
   textbox: 'textbox', image: 'image',
 };
@@ -31,6 +31,8 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   stackedBar100: 'hundredPercentStackedBarChart', stackedColumn100: 'hundredPercentStackedColumnChart',
   line: 'lineChart', area: 'areaChart', stackedArea: 'stackedAreaChart', pie: 'pieChart', donut: 'donutChart',
   treemap: 'treemap', funnel: 'funnel', scatter: 'scatterChart', gauge: 'gauge', card: 'card', table: 'tableEx',
+  lineClusteredColumn: 'lineClusteredColumnComboChart', lineStackedColumn: 'lineStackedColumnComboChart', ribbon: 'ribbonChart',
+  waterfall: 'waterfallChart', multiRowCard: 'multiRowCard', kpi: 'kpi',
   matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image',
 };
 
@@ -42,6 +44,10 @@ function roleMap(t: VisualType): Record<string, string> {
     case 'scatter': return { Category: 'details', Details: 'details', X: 'x', Y: 'y', Series: 'legend' };
     case 'gauge': return { Y: 'values', TargetValue: 'target' };
     case 'card': return { Values: 'values', Indicator: 'values', Data: 'values' };
+    case 'multiRowCard': return { Values: 'values' };
+    case 'kpi': return { Indicator: 'values', TrendLine: 'trend', Goal: 'target' };
+    case 'waterfall': return { Category: 'category', Y: 'values' };
+    case 'lineClusteredColumn': case 'lineStackedColumn': return { Category: 'category', Y: 'values', Y2: 'lineValues', Series: 'legend' };
     case 'table': return { Values: 'columns' };
     case 'matrix': return { Rows: 'rows', Columns: 'columns', Values: 'values' };
     case 'slicer': return { Values: 'category' };
@@ -151,8 +157,6 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         const f = exprToField(sel, from);
         if (f) byRef[sel.Name] = f;
       }
-      if (pbiType === 'multiRowCard' && (sv.projections?.Values?.length ?? 0) > 1) type = 'table';
-      if (pbiType === 'multiRowCard' && type === 'table') sv.projections = { Values: sv.projections.Values };
 
       const def = visualDef(type);
       const roles = roleMap(type);

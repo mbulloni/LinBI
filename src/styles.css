@@ -148,6 +148,18 @@ input[type=checkbox] { accent-color: #252423; margin: 0; width: 14px; height: 14
 .card-v { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .card-v .val { font-size: 40px; font-weight: 400; line-height: 1.1; color: #252423; font-family: 'Segoe UI Light', var(--font); }
 .card-v .cap { font-size: 12px; color: var(--text2); margin-top: 6px; }
+.mrc { position: absolute; inset: 0 4px 4px; overflow: auto; display: flex; flex-direction: column; gap: 6px; padding: 2px; }
+.mrc-row { border-left: 3px solid #118DFF; padding: 4px 10px; cursor: pointer; }
+.mrc-row.dim { opacity: .4; }
+.mrc-head { font-size: 13px; font-weight: 600; color: #252423; margin-bottom: 2px; }
+.mrc-vals { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.mrc-vals .val { font-size: 20px; color: #252423; font-family: 'Segoe UI Light', var(--font); }
+.mrc-vals .cap { font-size: 11px; color: var(--text2); }
+.kpi-v { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+.kpi-v .kpi-trend { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; height: 55%; }
+.kpi-v .val { position: relative; font-size: 36px; line-height: 1.1; color: #252423; font-family: 'Segoe UI Light', var(--font); }
+.kpi-v .kpi-mark { font-size: 20px; font-weight: 700; }
+.kpi-v .cap { position: relative; font-size: 12px; color: var(--text2); margin-top: 6px; }
 
 .tbl { position: absolute; inset: 0 4px 4px; overflow: auto; }
 .tbl table { border-collapse: collapse; width: 100%; font-size: 11px; }

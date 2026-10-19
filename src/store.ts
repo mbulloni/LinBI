@@ -268,7 +268,7 @@ export const useStore = create<State>((set, get) => {
         ?? def.wells[0];
     }
     if (!well) return;
-    const agg: FieldRef['agg'] = measure ? 'measure' : v.type === 'table' ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
+    const agg: FieldRef['agg'] = measure ? 'measure' : v.type === 'table' || v.type === 'multiRowCard' ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
     const list = (v.fields[well.key] ??= []);
     if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg)) return;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
@@ -281,7 +281,7 @@ export const useStore = create<State>((set, get) => {
   };
 
   const defaultSize = (type: VisualType) =>
-    type === 'card' ? { w: 220, h: 120 } : type === 'slicer' ? { w: 220, h: 260 } : type === 'textbox' ? { w: 300, h: 80 } : { w: 440, h: 300 };
+    type === 'card' ? { w: 220, h: 120 } : type === 'kpi' ? { w: 280, h: 180 } : type === 'multiRowCard' ? { w: 300, h: 260 } : type === 'slicer' ? { w: 220, h: 260 } : type === 'textbox' ? { w: 300, h: 80 } : { w: 440, h: 300 };
 
   /** Runs a query (source + applied steps) and stores the result as model table `def.name`.
    *  `context` resolves references to other queries (defaults to the loaded tables). */

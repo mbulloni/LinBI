@@ -200,8 +200,8 @@ Fabric, PDF, `.lbix` con i dati.
 - Barra del titolo personalizzata, ribbon Home/Inserisci/Modellazione/Visualizza/Ottimizza/Guida, menu File
 - Import Testo/CSV, Excel (estensione DuckDB `excel`, richiede rete al primo uso), JSON, Parquet, dati di esempio *Financials*
 - Strumento di navigazione con anteprima
-- 20 tipi di visual: barre/istogrammi (raggruppati, in pila, 100%), linee, aree, dispersione,
-  torta, anello, mappa ad albero, imbuto, misuratore, scheda, tabella, matrice, filtro dei dati, casella di testo
+- 26 tipi di visual: barre/istogrammi (raggruppati, in pila, 100%), linee, aree, linee + istogramma, nastro, cascata, dispersione,
+  torta, anello, mappa ad albero, imbuto, misuratore, scheda, scheda con più righe, KPI, tabella, matrice, filtro dei dati, casella di testo
 - Contenitori campi con aggregazioni (Somma, Media, Min, Max, Conteggio, Conteggio distinto, Non riepilogare)
 - Riquadro Formato (assi, legenda, etichette dati, colori, titolo, sfondo, bordo, posizione)
 - Filtri di base per visual / pagina / tutte le pagine, filtro incrociato, modalità messa a fuoco, ordinamento

@@ -27,8 +27,9 @@ export interface FieldRef { table: string; column: string; agg: Agg; }
 export type VisualType =
   | 'stackedBar' | 'stackedColumn' | 'clusteredBar' | 'clusteredColumn'
   | 'stackedBar100' | 'stackedColumn100' | 'line' | 'area' | 'stackedArea'
+  | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge'
-  | 'card' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'card' | 'multiRowCard' | 'kpi' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;

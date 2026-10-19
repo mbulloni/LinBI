@@ -25,7 +25,7 @@ function uniq(vals: (string | null)[]) {
 function cartesian(v: Visual, d: VisualData, selected: string | null | undefined, width: number): Built {
   const f = v.format;
   const horizontal = ['stackedBar', 'clusteredBar', 'stackedBar100'].includes(v.type);
-  const stacked = ['stackedBar', 'stackedColumn', 'stackedBar100', 'stackedColumn100', 'stackedArea'].includes(v.type);
+  const stacked = ['stackedBar', 'stackedColumn', 'stackedBar100', 'stackedColumn100', 'stackedArea', 'lineStackedColumn'].includes(v.type);
   const pct = v.type.endsWith('100');
   const kind = v.type === 'line' || v.type.includes('Area') || v.type === 'area' ? 'line' : 'bar';
   const area = v.type === 'area' || v.type === 'stackedArea';
@@ -46,6 +46,13 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   } else {
     series = vals.map((m) => ({ name: fieldLabel(m.field), data: categories.map(() => null as number | null) }));
     for (const r of d.rows) vals.forEach((m, k) => (series[k].data[cat ? catIndex.get(r[cat.alias])! : 0] = r[m.alias]));
+  }
+  // Combo charts: line measures on a secondary axis, one value per category.
+  const lineItems = d.items.filter((i) => i.well === 'lineValues');
+  const lines: S[] = lineItems.map((m) => ({ name: fieldLabel(m.field), data: categories.map(() => null as number | null) }));
+  for (const r of (leg && d.rowTotals) || d.rows) {
+    const i = cat ? catIndex.get(r[cat.alias]) : 0;
+    if (i !== undefined) lineItems.forEach((m, k) => (lines[k].data[i] = r[m.alias]));
   }
   if (pct) {
     const tot = categories.map((_, i) => series.reduce((a, s) => a + Math.abs(s.data[i] ?? 0), 0));
@@ -82,21 +89,23 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     axisLine,
     splitLine: { show: f.gridlines, lineStyle: { color: '#E1DFDD', type: 'dotted' as const } },
     axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: (x: number) => (pct ? x + '%' : asPct ? fmtPct(x) : fmtAuto(x, 0)) },
-    name: horizontal || leg || vals.length > 1 ? '' : vals[0] ? fieldLabel(vals[0].field) : '',
+    name: horizontal || leg || vals.length > 1 || d.items.some((i) => i.well === 'lineValues') ? '' : vals[0] ? fieldLabel(vals[0].field) : '',
     nameLocation: 'middle' as const,
     nameGap: 44,
     nameTextStyle: { color: '#252423', fontSize: 11 },
   };
 
-  const showLegend = f.legendShow && (series.length > 1 || !!leg);
+  const lineAxis = { ...valAxis, name: '', position: 'right' as const, splitLine: { show: false },
+    axisLabel: { ...valAxis.axisLabel, formatter: (x: number) => fmtAuto(x, 0) } };
+  const showLegend = f.legendShow && (series.length + lines.length > 1 || !!leg);
   const legendCfg = showLegend ? {
     show: true, type: 'scroll' as const, icon: 'circle', itemWidth: 8, itemHeight: 8,
     textStyle: { color: AXIS_TEXT, fontSize: 11 },
     ...(f.legendPos === 'top' ? { top: 0, left: 0 } : f.legendPos === 'bottom' ? { bottom: 0, left: 0 } : f.legendPos === 'left' ? { left: 0, top: 'middle', orient: 'vertical' as const } : { right: 0, top: 'middle', orient: 'vertical' as const }),
-    ...(leg ? { formatter: undefined, data: series.map((s) => s.name) } : {}),
+    ...(leg ? { formatter: undefined, data: [...series, ...lines].map((s) => s.name) } : {}),
   } : { show: false };
 
-  const singleColor = series.length === 1 && !leg;
+  const singleColor = series.length === 1 && !leg && !lines.length;
   const option: echarts.EChartsCoreOption = {
     color: singleColor ? [main(f.color)] : PALETTE,
     textStyle: { fontFamily: FONT },
@@ -111,8 +120,8 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
       valueFormatter: (x: number) => (pct ? fmtFull(x) + '%' : asPct ? fmtPct(x) : fmtFull(x)),
     },
     xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? catAxis : valAxis,
-    series: series.map((s, k) => ({
+    yAxis: horizontal ? catAxis : lines.length ? [valAxis, lineAxis] : valAxis,
+    series: [...series.map((s, k) => ({
       name: s.name,
       type: kind,
       stack: stacked ? 'total' : undefined,
@@ -129,7 +138,12 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
         itemStyle: selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : undefined,
       })),
       z: k,
-    })),
+    })), ...lines.map((s, k) => ({
+      name: s.name, type: 'line', yAxisIndex: 1, symbol: 'circle', symbolSize: 6, lineStyle: { width: 2.5 },
+      color: PALETTE[(series.length + k) % PALETTE.length], z: 50 + k,
+      label: { show: f.dataLabels, position: 'top', fontSize: 10, color: '#252423', formatter: (p: any) => (p.value === null ? '' : fmtAuto(p.value)) },
+      data: s.data,
+    }))],
   };
   return { option, categories };
 }
@@ -256,11 +270,108 @@ function gauge(v: Visual, d: VisualData): Built {
   };
 }
 
+const UP = '#1AAB40', DOWN = '#D64554', TOTAL = '#118DFF';
+
+/** Waterfall: each category moves the running total up (green) or down (red); last bar = total. */
+function waterfall(v: Visual, d: VisualData, selected: string | null | undefined): Built {
+  const f = v.format;
+  const cat = d.items.find((i) => i.well === 'category');
+  const val = d.items.find((i) => i.well === 'values');
+  const categories = cat ? d.rows.map((r) => r[cat.alias] as string | null) : [];
+  type Step = { value: [number, number, number]; idx: number; v: number };
+  const steps: Record<'up' | 'down' | 'total', Step[]> = { up: [], down: [], total: [] };
+  let run = 0;
+  d.rows.forEach((r, i) => {
+    const x = val ? Number(r[val.alias] ?? 0) : 0;
+    steps[x >= 0 ? 'up' : 'down'].push({ value: [i, run, run + x], idx: i, v: x });
+    run += x;
+  });
+  steps.total.push({ value: [categories.length, 0, run], idx: categories.length, v: run });
+  const bar = (color: string) => (params: any, api: any) => {
+    const i = api.value(0);
+    const a = api.coord([i, api.value(1)]), b = api.coord([i, api.value(2)]);
+    const w = Math.min(60, api.size([1, 0])[0] * 0.6);
+    const faded = selected !== undefined && i < categories.length && categories[i] !== selected;
+    return { type: 'rect', shape: { x: a[0] - w / 2, y: Math.min(a[1], b[1]), width: w, height: Math.max(1, Math.abs(a[1] - b[1])) }, style: { fill: color, opacity: faded ? 0.35 : 1 } };
+  };
+  const series = ([['up', 'Aumento', UP], ['down', 'Riduzione', DOWN], ['total', 'Totale', TOTAL]] as const).map(([k, name, color]) => ({
+    name, type: 'custom', color, renderItem: bar(color), encode: { x: 0, y: [1, 2] }, data: steps[k],
+    label: { show: f.dataLabels, position: 'top', fontSize: 10, color: '#252423', formatter: (p: any) => fmtAuto(p.data.v) },
+  }));
+  return {
+    categories,
+    option: {
+      textStyle: { fontFamily: FONT }, animationDuration: 300,
+      legend: { show: f.legendShow, top: 0, left: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { color: AXIS_TEXT, fontSize: 11 } },
+      grid: { left: 28, right: 16, bottom: 30, top: f.legendShow ? 28 : 12, containLabel: true },
+      tooltip: { trigger: 'item', confine: true, formatter: (p: any) => `${p.data.idx < categories.length ? catLabel(categories[p.data.idx]) : 'Totale'}<br/>${val ? fieldLabel(val.field) : ''}: <b>${fmtFull(p.data.v)}</b>` },
+      xAxis: { type: 'category', show: f.xAxisShow, data: [...categories.map(catLabel), 'Totale'], axisTick: { show: false }, axisLine: { lineStyle: { color: '#C8C6C4' } }, axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true } },
+      yAxis: { type: 'value', show: f.yAxisShow, scale: false, splitLine: { show: f.gridlines, lineStyle: { color: '#E1DFDD', type: 'dotted' } }, axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: (x: number) => fmtAuto(x, 0) } },
+      series,
+    },
+  };
+}
+
+/** Ribbon chart: stacked columns re-ranked per category (largest on top), joined by ribbons. */
+function ribbon(v: Visual, d: VisualData, selected: string | null | undefined, width: number): Built {
+  const leg = d.items.find((i) => i.well === 'legend');
+  if (!leg) return cartesian({ ...v, type: 'stackedColumn' }, d, selected, width);
+  const f = v.format;
+  const cat = d.items.find((i) => i.well === 'category');
+  const val = d.items.find((i) => i.well === 'values');
+  const categories = cat ? uniq(d.rows.map((r) => r[cat.alias])) : [null];
+  const legends = uniq(d.rows.map((r) => r[leg.alias]));
+  const ci = new Map(categories.map((c, i) => [c, i]));
+  const li = new Map(legends.map((l, i) => [l, i]));
+  const value: number[][] = legends.map(() => categories.map(() => 0));
+  for (const r of d.rows) value[li.get(r[leg.alias])!][cat ? ci.get(r[cat.alias])! : 0] = Math.max(0, Number(r[val?.alias ?? ''] ?? 0));
+  // [y0, y1] of every (series, category): smallest at the bottom.
+  const span: [number, number][][] = legends.map(() => []);
+  categories.forEach((_, c) => {
+    let y = 0;
+    legends.map((_, s) => s).sort((a, b) => value[a][c] - value[b][c]).forEach((s) => { span[s][c] = [y, y + value[s][c]]; y += value[s][c]; });
+  });
+  const max = Math.max(1, ...categories.map((_, c) => legends.reduce((a, _, s) => a + value[s][c], 0)));
+  return {
+    categories,
+    option: {
+      color: PALETTE, textStyle: { fontFamily: FONT }, animationDuration: 300,
+      legend: { show: f.legendShow, type: 'scroll', top: 0, left: 0, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { color: AXIS_TEXT, fontSize: 11 } },
+      grid: { left: 28, right: 16, bottom: 30, top: f.legendShow ? 28 : 12, containLabel: true },
+      tooltip: { trigger: 'item', confine: true, formatter: (p: any) => `${catLabel(categories[p.data.idx])}<br/>${p.seriesName}: <b>${fmtFull(p.data.v)}</b>` },
+      xAxis: { type: 'category', show: f.xAxisShow, data: categories.map(catLabel), axisTick: { show: false }, axisLine: { lineStyle: { color: '#C8C6C4' } }, axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true } },
+      yAxis: { type: 'value', show: f.yAxisShow, max, splitLine: { show: f.gridlines, lineStyle: { color: '#E1DFDD', type: 'dotted' } }, axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: (x: number) => fmtAuto(x, 0) } },
+      series: legends.map((l, s) => ({
+        name: catLabel(l), type: 'custom', encode: { x: 0, y: [1, 2] },
+        data: categories.map((_, c) => ({ value: [c, ...span[s][c]], idx: c, v: value[s][c] })),
+        renderItem: (params: any, api: any) => {
+          const c = api.value(0);
+          const band = api.size([1, 0])[0];
+          const w = Math.min(60, band * 0.55);
+          const p0 = api.coord([c, api.value(1)]), p1 = api.coord([c, api.value(2)]);
+          const color = api.visual('color');
+          const faded = selected !== undefined && categories[c] !== selected;
+          const children: any[] = [{ type: 'rect', shape: { x: p0[0] - w / 2, y: p1[1], width: w, height: p0[1] - p1[1] }, style: { fill: color, opacity: faded ? 0.35 : 1 } }];
+          const next = span[s][c + 1];
+          if (next) {
+            const q0 = api.coord([c + 1, next[0]]), q1 = api.coord([c + 1, next[1]]);
+            children.push({ type: 'polygon', silent: true, shape: { points: [[p0[0] + w / 2, p1[1]], [q0[0] - w / 2, q1[1]], [q0[0] - w / 2, q0[1]], [p0[0] + w / 2, p0[1]]] }, style: { fill: color, opacity: 0.35 } });
+          }
+          return { type: 'group', children };
+        },
+        label: { show: f.dataLabels, position: 'inside', fontSize: 10, color: '#fff', formatter: (p: any) => (p.data.v ? fmtAuto(p.data.v) : '') },
+      })),
+    },
+  };
+}
+
 export function buildOption(v: Visual, d: VisualData, cross: CrossFilter | null, width = 400): Built {
   const selected = cross && cross.visualId === v.id ? (cross.value === NULL_KEY ? null : cross.value) : undefined;
   if (['pie', 'donut', 'treemap', 'funnel'].includes(v.type)) return pieLike(v, d, selected);
   if (v.type === 'scatter') return scatter(v, d, selected);
   if (v.type === 'gauge') return gauge(v, d);
+  if (v.type === 'waterfall') return waterfall(v, d, selected);
+  if (v.type === 'ribbon') return ribbon(v, d, selected, width);
   return cartesian(v, d, selected, width);
 }
 
@@ -278,7 +389,7 @@ export function ChartVisual({ v, data, cross, onSelect }: {
     chart.current = c;
     c.on('click', (p: any) => {
       const idx = p.data?.idx ?? p.dataIndex;
-      if (idx !== undefined && cats.current.length) onSelectRef.current(cats.current[idx]);
+      if (idx !== undefined && idx < cats.current.length) onSelectRef.current(cats.current[idx]);
     });
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(el.current!);

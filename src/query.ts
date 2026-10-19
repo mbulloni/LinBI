@@ -313,7 +313,7 @@ export function buildVisualQuery(
   if (fmt.sortBy !== undefined && items[fmt.sortBy]) {
     const it = items[fmt.sortBy];
     order = `${it.measure ? it.alias : key(it)} ${fmt.sortDir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST`;
-  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer'].includes(v.type) || !measures.length) {
+  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard'].includes(v.type) || !measures.length) {
     order = dims.map(dimKey).join(', ');
   } else if (v.fields.legend?.length && dims.length > 1) {
     // Stacked/clustered with legend: rank categories by their total, like Power BI.
@@ -325,6 +325,14 @@ export function buildVisualQuery(
   }
   const limit = v.type === 'table' || v.type === 'matrix' ? 5000 : 1000;
   const out: VisualQuery = { sql: finalize(main, dims, measures, order, limit), items };
+
+  // Combo chart with a column legend: the lines are per category only (rowTotalsSql, keyed by category).
+  const lineVals = measures.filter((m) => m.well === 'lineValues');
+  const comboCat = dims.find((d) => d.well === 'category');
+  if (lineVals.length && comboCat && dims.some((d) => d.well === 'legend')) {
+    const lt = build([comboCat], lineVals);
+    if ('sql' in lt) out.rowTotalsSql = finalize(lt, [comboCat], lineVals);
+  }
 
   if ((v.type === 'table' || v.type === 'matrix') && measures.length) {
     const grand = build([], measures);

@@ -5,7 +5,7 @@ import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
-import { CardVisual, MatrixVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
+import { CardVisual, KpiVisual, MatrixVisual, MultiRowCardVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
 import { isChart, visualDef } from '../visuals/catalog';
 import { fieldLabel } from '../format';
 import { NULL_KEY } from '../query';
@@ -23,7 +23,8 @@ export function autoTitle(v: Visual): string {
     return parts.length ? `${parts.join(' e ')}${f.details?.length ? ' per ' + f.details[0].column : ''}` : '';
   }
   if (v.type === 'gauge') return lbl('values')[0] ?? '';
-  const values = [...lbl('values')];
+  if (v.type === 'kpi') return [...lbl('values'), ...lbl('target')].join(' e ');
+  const values = [...lbl('values'), ...lbl('lineValues')];
   const dims = [...(f.category ?? []), ...(f.rows ?? []), ...(f.legend ?? []), ...(f.columns ?? [])].map((x) => x.column);
   if (!values.length) return dims.join(', ');
   return dims.length ? `${values.join(' e ')} per ${dims.join(' e ')}` : values.join(' e ');
@@ -50,6 +51,8 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (data.empty) return <div className="vc-placeholder"><VisualIcon type={v.type} size={Math.min(120, v.h * 0.45)} /></div>;
   if (data.error) return <div className="vc-error"><b>Impossibile visualizzare l'oggetto visivo.</b><span>{data.error}</span></div>;
   if (v.type === 'card') return <CardVisual data={data} />;
+  if (v.type === 'kpi') return <KpiVisual data={data} />;
+  if (v.type === 'multiRowCard') return <MultiRowCardVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'table') return <TableVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'matrix') return <MatrixVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'slicer') return <SlicerVisual v={v} data={data} />;
@@ -127,7 +130,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       </div>
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          {allFields.length > 0 && v.type !== 'textbox' && v.type !== 'card' && v.type !== 'slicer' && v.type !== 'gauge' && <>
+          {allFields.length > 0 && v.type !== 'textbox' && v.type !== 'card' && v.type !== 'kpi' && v.type !== 'slicer' && v.type !== 'gauge' && <>
             <div className="hdr">Ordina asse</div>
             {allFields.map(({ f }, i) => (
               <button key={i} onClick={() => { setMenu(null); s.updateFormat(v.id, { sortBy: i, sortDir: v.format.sortBy === i && v.format.sortDir === 'desc' ? 'asc' : 'desc' }); }}>
