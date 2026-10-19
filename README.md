@@ -215,6 +215,10 @@ Fabric, PDF, `.lbix` con i dati.
 - Editor di Power Query con passaggi applicati, codice M e SQL equivalente (vedi sopra)
 - DAX: misure, colonne e tabelle calcolate, vista query DAX (vedi sopra)
 - `.lbix` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
+- Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
+- Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
+  stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;
+  la formattazione importata viene riscritta all'esportazione (anche gli oggetti visivi non supportati restano nel file)
 
 ## Roadmap
 

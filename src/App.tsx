@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useStore } from './store';
+import { useStore, pageSize } from './store';
 import { TitleBar } from './components/TitleBar';
 import { Ribbon } from './components/Ribbon';
 import { Backstage } from './components/Backstage';
-import { ReportView, StatusBar } from './components/ReportView';
+import { PageBackground, ReportView, StatusBar } from './components/ReportView';
 import { DataView } from './components/DataView';
 import { ModelView } from './components/ModelView';
 import { ManageRelationships, RelationshipEditor } from './components/Relationships';
@@ -106,7 +106,8 @@ export function App() {
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (
-            <div key={p.id} className="print-page" style={{ backgroundColor: THEME.background, ...(p.background ? { backgroundImage: `url(${p.background})`, backgroundSize: '100% 100%' } : {}) }}>
+            <div key={p.id} className="print-page" style={{ backgroundColor: THEME.background, position: 'relative', width: pageSize(p).w, height: pageSize(p).h }}>
+              <PageBackground p={p} />
               {p.visuals.map((v) => <VisualStatic key={v.id} v={v} />)}
             </div>
           ))}

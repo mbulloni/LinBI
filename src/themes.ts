@@ -1,6 +1,7 @@
 /** Report themes: Power BI theme JSON subset (name, dataColors, background, foreground, tableAccent). */
 import type { Theme } from './types';
 import { PALETTE } from './format';
+import { STYLE_THEME } from './visuals/pbistyle';
 
 const DEFAULT_COLORS = [...PALETTE];
 
@@ -23,6 +24,7 @@ export function applyTheme(t?: Theme) {
   const colors = t?.dataColors?.length ? t.dataColors : DEFAULT_COLORS;
   PALETTE.splice(0, PALETTE.length, ...Array.from({ length: Math.max(16, colors.length) }, (_, i) => colors[i % colors.length]));
   THEME.background = t?.background ?? '#FFFFFF';
+  STYLE_THEME.theme = t;
 }
 
 /** Validates an imported Power BI theme file. */
@@ -37,8 +39,10 @@ export function parseTheme(json: string, fallbackName: string): Theme {
     ...(hex(j.background) ? { background: j.background } : {}),
     ...(hex(j.foreground) ? { foreground: j.foreground } : {}),
     ...(hex(j.tableAccent) ? { tableAccent: j.tableAccent } : {}),
+    ...(j.visualStyles && typeof j.visualStyles === 'object' ? { visualStyles: j.visualStyles } : {}),
+    ...(j.textClasses && typeof j.textClasses === 'object' ? { textClasses: j.textClasses } : {}),
   };
 }
 
 /** Power BI theme JSON for export / .pbit custom theme. */
-export const themeJson = (t: Theme) => JSON.stringify({ name: t.name, dataColors: t.dataColors, ...(t.background ? { background: t.background } : {}), ...(t.foreground ? { foreground: t.foreground } : {}), ...(t.tableAccent ? { tableAccent: t.tableAccent } : {}) }, null, 2);
+export const themeJson = (t: Theme) => JSON.stringify({ name: t.name, dataColors: t.dataColors, ...(t.background ? { background: t.background } : {}), ...(t.foreground ? { foreground: t.foreground } : {}), ...(t.tableAccent ? { tableAccent: t.tableAccent } : {}), ...(t.visualStyles ? { visualStyles: t.visualStyles } : {}), ...(t.textClasses ? { textClasses: t.textClasses } : {}) }, null, 2);

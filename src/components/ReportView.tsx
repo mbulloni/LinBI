@@ -1,6 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { THEME } from '../themes';
-import { useStore, PAGE_W, PAGE_H } from '../store';
+import { useStore, pageSize } from '../store';
+import type { CSSProperties } from 'react';
+import type { Page } from '../types';
+
+/** Canvas background (color + image, with Power BI transparency) as a layer under the visuals. */
+export function PageBackground({ p }: { p: Page }) {
+  const t = p.backgroundTransparency ?? 0;
+  if (!p.background && !p.backgroundColor) return null;
+  const style: CSSProperties = {
+    position: 'absolute', inset: 0, pointerEvents: 'none', opacity: (100 - t) / 100,
+    backgroundColor: p.backgroundColor,
+    ...(p.background ? {
+      backgroundImage: `url(${p.background})`, backgroundRepeat: 'no-repeat',
+      backgroundSize: p.backgroundFit === 'Fill' ? 'cover' : p.backgroundFit === 'Normal' ? 'auto' : '100% 100%',
+      backgroundPosition: p.backgroundFit === 'Normal' ? 'left top' : 'center',
+    } : {}),
+  };
+  return <div style={style} />;
+}
 import { VisualContainer, VisualBody, FIELD_MIME, autoTitle } from './VisualContainer';
 import { Icon } from './icons';
 import { Menu } from './Menu';
@@ -31,7 +49,8 @@ function PageTabs() {
       {s.report.pages.map((p) => (
         <div
           key={p.id}
-          className={'pagetab' + (p.id === s.activePageId ? ' active' : '')}
+          className={'pagetab' + (p.id === s.activePageId ? ' active' : '') + (p.hidden ? ' hidden-page' : '')}
+          title={p.hidden ? 'Pagina nascosta' : undefined}
           onClick={() => s.setActivePage(p.id)}
           onDoubleClick={() => setEditing(p.id)}
           onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY - 150 }); }}
@@ -83,27 +102,28 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
   const page = s.page();
   const wrap = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(1);
+  const size = pageSize(page);
 
   useLayoutEffect(() => {
     const el = wrap.current!;
     const ro = new ResizeObserver(() => {
-      const f = Math.min((el.clientWidth - 48) / PAGE_W, (el.clientHeight - 48) / PAGE_H);
+      const f = Math.min((el.clientWidth - 48) / size.w, (el.clientHeight - 48) / size.h);
       setFit(Math.max(0.1, f));
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [size.w, size.h]);
   useEffect(() => onFit(fit), [fit, onFit]);
 
   const scale = s.zoom === 'fit' ? fit : s.zoom;
-  const w = PAGE_W * scale, h = PAGE_H * scale;
+  const w = size.w * scale, h = size.h * scale;
   const cw = Math.max(w + 48, (wrap.current?.clientWidth ?? 0));
   const ch = Math.max(h + 48, (wrap.current?.clientHeight ?? 0));
   const focus = s.focusId ? page.visuals.find((v) => v.id === s.focusId) : undefined;
 
   return (
     <div className="center">
-      <div className="canvas-wrap" ref={wrap}>
+      <div className="canvas-wrap" ref={wrap} style={page.wallpaper ? { background: page.wallpaper } : undefined}>
         {focus ? (
           <div style={{ position: 'absolute', inset: 16, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1.6px 3.6px rgba(0,0,0,.13)' }}>
             <div style={{ height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
@@ -117,8 +137,7 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
             <div
               className={'page' + (s.gridlines ? ' grid' : '')}
               style={{
-                width: PAGE_W, height: PAGE_H, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2, backgroundColor: THEME.background,
-                ...(page.background ? { backgroundImage: `url(${page.background})`, backgroundSize: '100% 100%' } : {}),
+                width: size.w, height: size.h, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2, backgroundColor: THEME.background,
               }}
               onMouseDown={() => { s.selectVisual(null); if (s.crossFilter) s.setCross(null); }}
               onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) e.preventDefault(); }}
@@ -127,11 +146,12 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
                 if (!raw) return;
                 e.preventDefault();
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                const x = Math.max(0, Math.min(PAGE_W - 440, (e.clientX - r.left) / scale - 40));
-                const y = Math.max(0, Math.min(PAGE_H - 300, (e.clientY - r.top) / scale - 20));
+                const x = Math.max(0, Math.min(size.w - 440, (e.clientX - r.left) / scale - 40));
+                const y = Math.max(0, Math.min(size.h - 300, (e.clientY - r.top) / scale - 20));
                 s.addField(null, JSON.parse(raw), undefined, { x: Math.round(x), y: Math.round(y) });
               }}
             >
+              <PageBackground p={page} />
               {page.visuals.map((v) => <VisualContainer key={v.id} v={v} scale={scale} />)}
             </div>
             {!s.tables.length && !page.visuals.length && <EmptyState />}

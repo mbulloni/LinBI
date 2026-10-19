@@ -66,7 +66,7 @@ export function pbirToLayout(files: Files): string {
       });
     return {
       name: id, displayName: page.displayName ?? id, ordinal, width: page.width ?? 1280, height: page.height ?? 720,
-      config: JSON.stringify({ objects: page.objects ?? {} }),
+      config: JSON.stringify({ objects: page.objects ?? {}, ...(page.visibility === 'HiddenInViewMode' ? { visibility: 1 } : {}) }),
       filters: JSON.stringify(page.filterConfig?.filters ?? []),
       visualContainers,
     };

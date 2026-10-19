@@ -6,9 +6,10 @@
 import type { Agg, FieldRef, Filter, Page, TableMeta, Theme, Visual, VisualType } from '../types';
 import { parseTheme, themeJson } from '../themes';
 import { defaultFormat, PAGE_H, PAGE_W } from '../store';
-import { visualDef } from '../visuals/catalog';
+import { isChart as isChartType, visualDef } from '../visuals/catalog';
 import { NULL_KEY } from '../query';
 import { uid } from '../format';
+import { decode, pt } from '../visuals/pbistyle';
 
 /* ------------------------------- mappings ------------------------------- */
 
@@ -21,10 +22,10 @@ const TYPE_IN: Record<string, VisualType> = {
   pieChart: 'pie', donutChart: 'donut', treemap: 'treemap', funnel: 'funnel', scatterChart: 'scatter', gauge: 'gauge',
   card: 'card', cardVisual: 'card', multiRowCard: 'multiRowCard', kpi: 'kpi',
   tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer',
-  textbox: 'textbox', image: 'image',
+  textbox: 'textbox', image: 'image', actionButton: 'button', basicShape: 'shape', shape: 'shape',
 };
 /** Decorative/navigation objects that carry no data: not imported. */
-const SKIP = new Set(['actionButton', 'basicShape', 'shape', 'bookmarkNavigator', 'pageNavigator', 'lineShape']);
+const SKIP = new Set(['bookmarkNavigator', 'pageNavigator', 'lineShape']);
 
 const TYPE_OUT: Partial<Record<VisualType, string>> = {
   stackedBar: 'barChart', stackedColumn: 'columnChart', clusteredBar: 'clusteredBarChart', clusteredColumn: 'clusteredColumnChart',
@@ -33,7 +34,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   treemap: 'treemap', funnel: 'funnel', scatter: 'scatterChart', gauge: 'gauge', card: 'card', table: 'tableEx',
   lineClusteredColumn: 'lineClusteredColumnComboChart', lineStackedColumn: 'lineStackedColumnComboChart', ribbon: 'ribbonChart',
   waterfall: 'waterfallChart', multiRowCard: 'multiRowCard', kpi: 'kpi',
-  matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image',
+  matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape',
 };
 
 /** Power BI projection role → LinBI well, per LinBI visual type. */
@@ -129,9 +130,16 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
 
   const sections = [...(layout.sections ?? [])].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
   const pages: Page[] = sections.map((sec: any, si: number) => {
-    const scale = Math.min(PAGE_W / (sec.width || PAGE_W), PAGE_H / (sec.height || PAGE_H));
+    // Pages keep their Power BI size (16:9, 4:3, tooltip, custom): no rescaling.
+    const scale = 1;
     const secCfg = json(sec.config);
-    const bgName = prop(secCfg.objects, 'background')?.image?.image?.url?.expr?.ResourcePackageItem?.ItemName;
+    const bgProps = prop(secCfg.objects, 'background');
+    const bgName = bgProps?.image?.image?.url?.expr?.ResourcePackageItem?.ItemName;
+    const bgFit = decode(bgProps?.image?.image?.scaling);
+    const bgColor = decode(bgProps.color);
+    const bgTransp = decode(bgProps.transparency);
+    const outspace = prop(secCfg.objects, 'outspace');
+    const wallColor = decode(outspace.color);
     // Older files keep geometry only in config.layouts[0].position.
     const geom = (c: any) => {
       const p = json(c.config).layouts?.[0]?.position ?? {};
@@ -192,7 +200,26 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       const color = litText(prop(sv.objects, 'dataPoint').fill?.solid?.color);
       if (color && /^#[0-9a-f]{6}$/i.test(color)) format.color = color.toUpperCase();
       const bg = prop(sv.vcObjects, 'background');
-      if (litBool(bg.show) === false) format.background = 'transparent';
+      const bgc = decode(bg.color), bgt = decode(bg.transparency);
+      if (typeof bgc === 'string' && /^#[0-9a-f]{6}$/i.test(bgc)) format.background = bgc.toUpperCase();
+      if (typeof bgt === 'number') format.bgTransparency = bgt;
+      if (litBool(bg.show) === false || bgt === 100) format.background = 'transparent';
+      const tp = prop(sv.vcObjects, 'title');
+      const tc = decode(tp.fontColor), tb = decode(tp.background), ta = decode(tp.alignment), tf = decode(tp.fontFamily), ts = decode(tp.fontSize), tbold = decode(tp.bold);
+      if (typeof tc === 'string') format.titleColor = tc;
+      if (typeof tb === 'string') format.titleBg = tb;
+      if (ta === 'left' || ta === 'center' || ta === 'right') format.titleAlign = ta;
+      if (typeof tf === 'string') format.titleFont = tf;
+      if (typeof ts === 'number') format.titleSize = pt(ts)!;
+      if (typeof tbold === 'boolean') format.titleBold = tbold;
+      const bd = prop(sv.vcObjects, 'border');
+      if (decode(bd.show) === true) {
+        format.border = true;
+        const c = decode(bd.color);
+        if (typeof c === 'string') format.borderColor = c;
+        const r = decode(bd.radius);
+        if (typeof r === 'number') format.borderRadius = r;
+      }
       if (type === 'slicer' && litText(prop(sv.objects, 'data').mode) === 'Dropdown') format.slicerStyle = 'dropdown';
 
       // Explicit sort (OrderBy) → index into LinBI's item order (wells in catalog order).
@@ -211,8 +238,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         z: zs.indexOf(vc.z ?? 0) + 1,
         fields, format,
         filters: parseFilters(vc.filters, tables),
+        style: { pbiType, ...(sv.objects ? { objects: sv.objects } : {}), ...(sv.vcObjects ? { vcObjects: sv.vcObjects } : {}) },
       };
-      if (type === 'unsupported') v.text = pbiType;
+      if (type === 'unsupported') { v.text = pbiType; v.style!.raw = sv; }
       if (type === 'textbox') {
         const paras = prop(sv.objects, 'general').paragraphs ?? [];
         v.text = (Array.isArray(paras) ? paras : []).map((p: any) => (p.textRuns ?? []).map((r: any) => r.value ?? '').join('')).join('\n');
@@ -234,6 +262,13 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       visuals,
       filters: parseFilters(sec.filters, tables),
       background: bgName ? resources[bgName] : undefined,
+      ...(sec.width && sec.height && (sec.width !== PAGE_W || sec.height !== PAGE_H) ? { width: sec.width, height: sec.height } : {}),
+      ...(typeof bgColor === 'string' ? { backgroundColor: bgColor } : {}),
+      ...(typeof bgTransp === 'number' ? { backgroundTransparency: bgTransp } : {}),
+      ...(bgFit === 'Fit' || bgFit === 'Fill' || bgFit === 'Normal' ? { backgroundFit: bgFit } : {}),
+      ...(typeof wallColor === 'string' ? { wallpaper: wallColor } : {}),
+      ...(secCfg.visibility === 1 ? { hidden: true } : {}),
+      ...(sec.name ? { pbiName: sec.name } : {}),
     };
   });
   return { pages: pages.length ? pages : [{ id: uid(), name: 'Pagina 1', visuals: [], filters: [] }], reportFilters: parseFilters(layout.filters, tables), skipped };
@@ -286,7 +321,12 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
   };
 
   const sections = pages.map((p, i) => {
-    const containers = p.visuals.filter((v) => v.type !== 'unsupported').map((v, vi) => {
+    const containers = p.visuals.filter((v) => v.type !== 'unsupported' || v.style?.raw).map((v, vi) => {
+      if (v.type === 'unsupported') {
+        // Not rendered by LinBI (custom visuals, Q&A…): written back unchanged at its current position.
+        const config = { name: hex(), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }], singleVisual: v.style!.raw };
+        return { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, config: JSON.stringify(config), filters: '[]' };
+      }
       const def = visualDef(v.type);
       const roles = Object.entries(roleMap(v.type));
       const entities = [...new Set(Object.values(v.fields).flat().map((f) => f.table))];
@@ -311,24 +351,44 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           (projections[role] ??= []).push({ queryRef: name, ...(role === 'Category' || role === 'Rows' ? { active: true } : {}) });
         }
       }
-      const objects: any = {};
-      const vcObjects: any = {
-        title: [{ properties: { show: L(String(v.format.titleShow)), ...(v.format.titleText ? { text: Ls(v.format.titleText) } : {}) } }],
+      // Imported formatting is kept; LinBI's own settings overwrite their properties.
+      const objects: any = structuredClone(v.style?.objects ?? {});
+      const vcObjects: any = structuredClone(v.style?.vcObjects ?? {});
+      const put = (objs: any, obj: string, props: Record<string, unknown>) => {
+        const list: any[] = (objs[obj] ??= []);
+        let e = list.find((x) => !x.selector);
+        if (!e) { e = { properties: {} }; list.unshift(e); }
+        e.properties = { ...(e.properties ?? {}), ...props };
       };
-      if (v.format.background === 'transparent') vcObjects.background = [{ properties: { show: L('false') } }];
-      objects.legend = [{ properties: { show: L(String(v.format.legendShow)) } }];
-      objects.labels = [{ properties: { show: L(String(v.format.dataLabels)) } }];
-      if (v.format.color && v.format.color !== '#118DFF') objects.dataPoint = [{ properties: { fill: { solid: { color: Ls(v.format.color) } } } }];
+      const color = (c: string) => ({ solid: { color: Ls(c) } });
+      const fm = v.format;
+      put(vcObjects, 'title', {
+        show: L(String(fm.titleShow)), ...(fm.titleText ? { text: Ls(fm.titleText) } : {}),
+        ...(fm.titleColor ? { fontColor: color(fm.titleColor) } : {}), ...(fm.titleAlign ? { alignment: Ls(fm.titleAlign) } : {}),
+        ...(fm.titleFont ? { fontFamily: Ls(fm.titleFont) } : {}), ...(fm.titleBg ? { background: color(fm.titleBg) } : {}),
+        ...(fm.titleBold !== undefined ? { bold: L(String(fm.titleBold)) } : {}), fontSize: L(`${Math.round(fm.titleSize * 0.75 * 10) / 10}D`),
+      });
+      if (fm.background === 'transparent') put(vcObjects, 'background', { show: L('false') });
+      else put(vcObjects, 'background', { show: L('true'), color: color(fm.background), transparency: L(`${fm.bgTransparency ?? 0}D`) });
+      if (fm.border) put(vcObjects, 'border', { show: L('true'), ...(fm.borderColor ? { color: color(fm.borderColor) } : {}), ...(fm.borderRadius !== undefined ? { radius: L(`${fm.borderRadius}D`) } : {}) });
+      else if (vcObjects.border) put(vcObjects, 'border', { show: L('false') });
+      if (isChartType(v.type)) {
+        put(objects, 'legend', { show: L(String(fm.legendShow)) });
+        put(objects, 'labels', { show: L(String(fm.dataLabels)) });
+        if (fm.color && fm.color !== '#118DFF') put(objects, 'dataPoint', { fill: color(fm.color) });
+      }
       if (v.type === 'textbox') {
-        objects.general = [{ properties: { paragraphs: (v.text ?? '').split('\n').map((t) => ({ textRuns: [{ value: t }] })) } }];
+        const same = (objects.general?.[0]?.properties?.paragraphs ?? []).map((p: any) => (p.textRuns ?? []).map((r: any) => r.value ?? '').join('')).join('\n') === (v.text ?? '');
+        if (!same) put(objects, 'general', { paragraphs: (v.text ?? '').split('\n').map((t) => ({ textRuns: [{ value: t }] })) });
       }
       if (v.type === 'image' && v.image) {
-        objects.general = [{ properties: { imageUrl: { expr: { ResourcePackageItem: { PackageName: 'RegisteredResources', PackageType: 1, ItemName: addResource(v.image) } } } } }];
+        put(objects, 'general', { imageUrl: { expr: { ResourcePackageItem: { PackageName: 'RegisteredResources', PackageType: 1, ItemName: addResource(v.image) } } } });
       }
       if (v.type === 'slicer') {
-        if (v.format.slicerStyle === 'dropdown') objects.data = [{ properties: { mode: Ls('Dropdown') } }];
+        put(objects, 'data', { mode: Ls(v.format.slicerStyle === 'dropdown' ? 'Dropdown' : 'Basic') });
         const f = v.fields.category?.[0];
-        if (f && v.slicerValues?.length) objects.general = [{ properties: { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: v.slicerValues }, '').filter } } }];
+        if (f && v.slicerValues?.length) put(objects, 'general', { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: v.slicerValues }, '').filter } });
+        else if (objects.general) for (const e of objects.general) delete e.properties?.filter;
       }
       const flat = def.wells.flatMap((w) => v.fields[w.key] ?? []);
       const sortField = v.format.sortBy !== undefined ? flat[v.format.sortBy] : undefined;
@@ -337,7 +397,8 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         name: hex(),
         layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }],
         singleVisual: {
-          visualType: TYPE_OUT[v.type],
+          // Same Power BI type as imported when it maps to this LinBI type (cardVisual, advancedSlicerVisual, shape…).
+          visualType: v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
           projections,
           prototypeQuery: {
             Version: 2,
@@ -356,10 +417,16 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         filters: JSON.stringify((v.filters ?? []).filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
       };
     });
-    const secConfig: any = {};
-    if (p.background) secConfig.objects = { background: [{ properties: { image: { image: { name: L("'background'"), url: { expr: { ResourcePackageItem: { PackageName: 'RegisteredResources', PackageType: 1, ItemName: addResource(p.background) } } }, scaling: L("'Fit'") } } } }] };
+    const secConfig: any = { objects: {} };
+    const bgProps: any = {};
+    if (p.background) bgProps.image = { image: { name: L("'background'"), url: { expr: { ResourcePackageItem: { PackageName: 'RegisteredResources', PackageType: 1, ItemName: addResource(p.background) } } }, scaling: Ls(p.backgroundFit ?? 'Fit') } };
+    if (p.backgroundColor) bgProps.color = { solid: { color: Ls(p.backgroundColor) } };
+    if (p.backgroundTransparency !== undefined) bgProps.transparency = L(`${p.backgroundTransparency}D`);
+    if (Object.keys(bgProps).length) secConfig.objects.background = [{ properties: bgProps }];
+    if (p.wallpaper) secConfig.objects.outspace = [{ properties: { color: { solid: { color: Ls(p.wallpaper) } } } }];
+    if (p.hidden) secConfig.visibility = 1;
     return {
-      name: hex(), displayName: p.name, ordinal: i, displayOption: 1, width: PAGE_W, height: PAGE_H,
+      name: p.pbiName ?? hex(), displayName: p.name, ordinal: i, displayOption: 1, width: p.width ?? PAGE_W, height: p.height ?? PAGE_H,
       config: JSON.stringify(secConfig),
       filters: JSON.stringify(p.filters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
       visualContainers: containers,

@@ -29,7 +29,7 @@ export type VisualType =
   | 'stackedBar100' | 'stackedColumn100' | 'line' | 'area' | 'stackedArea'
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge'
-  | 'card' | 'multiRowCard' | 'kpi' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;
@@ -45,6 +45,15 @@ export interface VisualFormat {
   background: string;
   border: boolean;
   slicerStyle: 'list' | 'dropdown';
+  /** Title and container look (imported from Power BI or set in the Format pane). */
+  titleColor?: string;
+  titleAlign?: 'left' | 'center' | 'right';
+  titleFont?: string;
+  titleBold?: boolean;
+  titleBg?: string;
+  bgTransparency?: number; // 0–100
+  borderColor?: string;
+  borderRadius?: number;
   sortBy?: number; // index into result columns
   sortDir?: 'asc' | 'desc';
   /** Conditional formatting of table/matrix value fields, keyed by condfmt.fieldKey(). */
@@ -69,6 +78,8 @@ export interface Visual {
   format: VisualFormat;
   slicerValues?: string[];
   filters?: Filter[];
+  /** Formatting imported from Power BI (objects/vcObjects as in the file), see visuals/pbistyle.ts. */
+  style?: import('./visuals/pbistyle').PbiStyle;
   text?: string;       // textbox content, or original visualType for 'unsupported'
   image?: string;      // data URL for 'image'
 }
@@ -86,6 +97,16 @@ export interface Page {
   visuals: Visual[];
   filters: Filter[];
   background?: string; // data URL (page wallpaper imported from .pbix)
+  /** Page size (default 1280×720), page color and wallpaper fit, hidden pages (tooltips) like Power BI. */
+  width?: number;
+  height?: number;
+  backgroundColor?: string;
+  backgroundTransparency?: number;
+  backgroundFit?: 'Fit' | 'Fill' | 'Normal';
+  wallpaper?: string;
+  hidden?: boolean;
+  /** Section name in the Power BI file (target of page-navigation buttons). */
+  pbiName?: string;
 }
 
 export type Cardinality = 'manyToOne' | 'oneToOne' | 'manyToMany';
@@ -111,7 +132,7 @@ export interface Measure {
 }
 
 /** Report theme (subset of the Power BI theme JSON). */
-export interface Theme { name: string; dataColors: string[]; background?: string; foreground?: string; tableAccent?: string; }
+export interface Theme { name: string; dataColors: string[]; background?: string; foreground?: string; tableAccent?: string; visualStyles?: unknown; textClasses?: unknown; }
 
 export interface Report {
   theme?: Theme;

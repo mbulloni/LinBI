@@ -15,9 +15,11 @@ import { dependencies, renameQueryRef, type QueryDef } from './pq/steps';
 
 export const PAGE_W = 1280;
 export const PAGE_H = 720;
+/** Page size: Power BI pages keep their own (4:3, tooltip, custom). */
+export const pageSize = (p: Page) => ({ w: p.width ?? PAGE_W, h: p.height ?? PAGE_H });
 
 export const defaultFormat = (type: VisualType): VisualFormat => ({
-  titleShow: !['textbox', 'card', 'table', 'matrix'].includes(type),
+  titleShow: !['textbox', 'card', 'table', 'matrix', 'button', 'shape', 'image', 'multiRowCard'].includes(type),
   titleText: '',
   titleSize: 14,
   legendShow: true,
@@ -27,7 +29,7 @@ export const defaultFormat = (type: VisualType): VisualFormat => ({
   yAxisShow: true,
   gridlines: true,
   color: '#118DFF',
-  background: '#FFFFFF',
+  background: ['button', 'shape', 'image'].includes(type) ? 'transparent' : '#FFFFFF',
   border: false,
   slicerStyle: 'list',
 });

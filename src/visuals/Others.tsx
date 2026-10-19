@@ -1,13 +1,36 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { api } from '../api';
 import type { CrossFilter, Visual } from '../types';
 import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { cellFormat, fieldKey, rangeOf, type Range } from './condfmt';
+import { font, pt, sp, units } from './pbistyle';
 
 const cell = (v: unknown, measure: boolean) => (measure ? fmtFull(v) : v === null || v === undefined ? '' : String(v));
 const toKey = (v: string | null) => (v === null ? NULL_KEY : v);
+
+/** Table/matrix look from the Power BI objects (column/row headers, values with banding, totals, grid). */
+function tableVars(v: Visual): CSSProperties {
+  const g = (o: string, p: string) => sp(v, o, p);
+  const vars: Record<string, string | undefined> = {
+    '--t-size': pt(g('values', 'fontSize') ?? g('grid', 'textSize'))?.toString(),
+    '--t-font': font(g('values', 'fontFamily')),
+    '--th-bg': g('columnHeaders', 'backColor'), '--th-fg': g('columnHeaders', 'fontColor'),
+    '--th-size': pt(g('columnHeaders', 'fontSize'))?.toString(), '--th-font': font(g('columnHeaders', 'fontFamily')),
+    '--td-bg1': g('values', 'backColorPrimary') ?? g('values', 'backColor'), '--td-fg1': g('values', 'fontColorPrimary') ?? g('values', 'fontColor'),
+    '--td-bg2': g('values', 'backColorSecondary') ?? g('values', 'backColorPrimary') ?? g('values', 'backColor'),
+    '--td-fg2': g('values', 'fontColorSecondary') ?? g('values', 'fontColorPrimary') ?? g('values', 'fontColor'),
+    '--rh-bg': g('rowHeaders', 'backColor'), '--rh-fg': g('rowHeaders', 'fontColor'),
+    '--tot-bg': g('total', 'backColor') ?? g('subTotals', 'backColor'), '--tot-fg': g('total', 'fontColor') ?? g('subTotals', 'fontColor'),
+    '--td-pad': typeof g('grid', 'rowPadding') === 'number' ? g('grid', 'rowPadding') + 'px' : undefined,
+    '--grid-h': g('grid', 'gridHorizontal') ? `${g('grid', 'gridHorizontalWeight') ?? 1}px solid ${g('grid', 'gridHorizontalColor') ?? '#E1DFDD'}` : undefined,
+    '--grid-v': g('grid', 'gridVertical') ? `${g('grid', 'gridVerticalWeight') ?? 1}px solid ${g('grid', 'gridVerticalColor') ?? '#E1DFDD'}` : undefined,
+  };
+  for (const k of ['--t-size', '--th-size']) if (vars[k]) vars[k] += 'px';
+  return Object.fromEntries(Object.entries(vars).filter(([, x]) => x !== undefined)) as CSSProperties;
+}
 
 /** Value cell with the visual's conditional formatting for that field. */
 function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, raw: unknown, text: string, key: string, bold = false) {
@@ -21,13 +44,23 @@ function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, 
 const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[]) =>
   new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => [i.alias, rangeOf(rows.map((r) => r[i.alias]))]));
 
-export function CardVisual({ data }: { data: VisualData }) {
+/** Number with the visual's display units/precision (Power BI labels), else LinBI's automatic format. */
+export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unknown, precision: unknown): string {
+  if (typeof x !== 'number') return x === null || x === undefined ? '(Vuoto)' : String(x);
+  if (data.percent.has(alias)) return fmtPct(x);
+  return units(x, unit, precision) ?? (typeof precision === 'number' ? x.toLocaleString('it-IT', { minimumFractionDigits: precision, maximumFractionDigits: precision }) : fmtAuto(x));
+}
+
+export function CardVisual({ v, data }: { v: Visual; data: VisualData }) {
   const m = data.items[0];
   const val = m ? data.rows[0]?.[m.alias] : undefined;
+  const showCat = sp(v, 'categoryLabels', 'show') !== false;
   return (
     <div className="card-v">
-      <div className="val">{m ? (typeof val === 'number' ? (data.percent.has(m.alias) ? fmtPct(val) : fmtAuto(val)) : val ?? '(Vuoto)') : ''}</div>
-      {m && <div className="cap">{fieldLabel(m.field)}</div>}
+      <div className="val" style={{ color: sp(v, 'labels', 'color'), fontSize: pt(sp(v, 'labels', 'fontSize')), fontFamily: font(sp(v, 'labels', 'fontFamily')) }}>
+        {m ? fmtStyled(data, m.alias, val, sp(v, 'labels', 'labelDisplayUnits'), sp(v, 'labels', 'labelPrecision')) : ''}
+      </div>
+      {m && showCat && <div className="cap" style={{ color: sp(v, 'categoryLabels', 'color'), fontSize: pt(sp(v, 'categoryLabels', 'fontSize')), fontFamily: font(sp(v, 'categoryLabels', 'fontFamily')) }}>{fieldLabel(m.field)}</div>}
     </div>
   );
 }
@@ -41,13 +74,19 @@ export function MultiRowCardVisual({ v, data, cross, onSelect }: { v: Visual; da
   const vals = data.items.filter((i) => i.measure);
   const first = dims[0];
   const selected = cross?.visualId === v.id ? cross.value : undefined;
+  const bar = sp(v, 'card', 'barShow') !== false;
+  const barColor = sp(v, 'card', 'barColor');
+  const valStyle = { color: sp(v, 'dataLabels', 'color'), fontSize: pt(sp(v, 'dataLabels', 'fontSize')), fontFamily: font(sp(v, 'dataLabels', 'fontFamily')) };
+  const capStyle = { color: sp(v, 'categoryLabels', 'color'), fontSize: pt(sp(v, 'categoryLabels', 'fontSize')), fontFamily: font(sp(v, 'categoryLabels', 'fontFamily')) };
+  const headStyle = { color: sp(v, 'cardTitle', 'color'), fontSize: pt(sp(v, 'cardTitle', 'fontSize')), fontFamily: font(sp(v, 'cardTitle', 'fontFamily')) };
+  const showCap = sp(v, 'categoryLabels', 'show') !== false;
   return (
     <div className="mrc">
       {data.rows.map((r, k) => (
-        <div key={k} className={'mrc-row' + (selected !== undefined && first && selected !== toKey(r[first.alias]) ? ' dim' : '')} onClick={() => first && onSelect(r[first.alias])}>
-          {dims.length > 0 && <div className="mrc-head">{dims.map((d) => fmtItem(data, d, r[d.alias])).join(' · ')}</div>}
+        <div key={k} className={'mrc-row' + (selected !== undefined && first && selected !== toKey(r[first.alias]) ? ' dim' : '')} style={{ borderLeftColor: bar ? barColor : 'transparent' }} onClick={() => first && onSelect(r[first.alias])}>
+          {dims.length > 0 && <div className="mrc-head" style={headStyle}>{dims.map((d) => fmtItem(data, d, r[d.alias])).join(' · ')}</div>}
           <div className="mrc-vals">{vals.map((m) => (
-            <div key={m.alias}><div className="val">{fmtItem(data, m, r[m.alias])}</div><div className="cap">{fieldLabel(m.field)}</div></div>
+            <div key={m.alias}><div className="val" style={valStyle}>{fmtStyled(data, m.alias, r[m.alias], sp(v, 'dataLabels', 'labelDisplayUnits'), sp(v, 'dataLabels', 'labelPrecision'))}</div>{showCap && <div className="cap" style={capStyle}>{fieldLabel(m.field)}</div>}</div>
           ))}</div>
         </div>
       ))}
@@ -94,7 +133,7 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
   const tot = data.totals?.[0];
   const ranges = rangesFor(v, data.items.filter((i) => i.measure), data.rows);
   return (
-    <div className="tbl">
+    <div className="tbl" style={tableVars(v)}>
       <table>
         <thead><tr>{data.items.map((it, i) => (
           <th key={it.alias} className={it.measure ? 'num' : ''} onClick={() => sortClick(i)}>
@@ -158,7 +197,7 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
     });
 
   return (
-    <div className="tbl">
+    <div className="tbl" style={tableVars(v)}>
       <table>
         <thead>
           <tr>
@@ -225,12 +264,39 @@ export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
   );
 }
 
+type Run = { value?: string; url?: string; textStyle?: Record<string, string> };
+type Para = { textRuns?: Run[]; horizontalTextAlignment?: string };
+const paraText = (ps: Para[]) => ps.map((p) => (p.textRuns ?? []).map((r) => r.value ?? '').join('')).join('\n');
+
+/** Text box as formatted in Power BI (runs with size/color/weight/font, paragraph alignment). */
+function RichText({ paras }: { paras: Para[] }) {
+  return <>{paras.map((p, i) => (
+    <div key={i} style={{ textAlign: (p.horizontalTextAlignment as CSSProperties['textAlign']) ?? undefined, minHeight: '1.2em', whiteSpace: 'pre-wrap' }}>
+      {(p.textRuns ?? []).map((r, k) => {
+        const t = r.textStyle ?? {};
+        const size = /^([\d.]+)pt$/.exec(t.fontSize ?? '');
+        const style: CSSProperties = {
+          fontSize: size ? `${(+size[1] * 4) / 3}px` : t.fontSize, color: t.color, fontWeight: t.fontWeight as CSSProperties['fontWeight'],
+          fontStyle: t.fontStyle as CSSProperties['fontStyle'], textDecoration: t.textDecoration, fontFamily: font(t.fontFamily),
+        };
+        return r.url ? <a key={k} href={r.url} style={style} onClick={(e) => { e.preventDefault(); api.openExternal(r.url!); }}>{r.value}</a> : <span key={k} style={style}>{r.value}</span>;
+      })}
+    </div>
+  ))}</>;
+}
+
 export function TextboxVisual({ v, selected }: { v: Visual; selected: boolean }) {
   const updateVisual = useStore((s) => s.updateVisual);
   const ref = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
-  useEffect(() => { if (ref.current && !editing) ref.current.innerText = v.text ?? ''; }, [v.text, editing]);
+  // Imported formatting is shown until the text is edited in LinBI (then it becomes plain text).
+  const paras = v.style?.objects?.general?.find((e) => !e.selector)?.properties?.paragraphs as Para[] | undefined;
+  const rich = Array.isArray(paras) && paraText(paras) === (v.text ?? '') ? paras : undefined;
+  useEffect(() => { if (ref.current && !editing) ref.current.innerText = v.text ?? ''; }, [v.text, editing, rich]);
   useEffect(() => { if (!selected) setEditing(false); }, [selected]);
+  if (rich && !editing) {
+    return <div className="textbox-v" style={{ inset: 6 }} onDoubleClick={() => { setEditing(true); setTimeout(() => { if (ref.current) { ref.current.innerText = v.text ?? ''; ref.current.focus(); } }); }}><RichText paras={rich} /></div>;
+  }
   return (
     <div
       ref={ref}

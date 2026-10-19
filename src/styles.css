@@ -162,15 +162,16 @@ input[type=checkbox] { accent-color: #252423; margin: 0; width: 14px; height: 14
 .kpi-v .cap { position: relative; font-size: 12px; color: var(--text2); margin-top: 6px; }
 
 .tbl { position: absolute; inset: 0 4px 4px; overflow: auto; }
-.tbl table { border-collapse: collapse; width: 100%; font-size: 11px; }
-.tbl th { position: sticky; top: 0; background: #fff; text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid #C8C6C4; white-space: nowrap; cursor: pointer; z-index: 1; }
+.tbl table { border-collapse: collapse; width: 100%; font-size: var(--t-size, 11px); font-family: var(--t-font, inherit); }
+.tbl th { position: sticky; top: 0; background: var(--th-bg, #fff); color: var(--th-fg, inherit); font-size: var(--th-size, inherit); font-family: var(--th-font, inherit); text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--th-line, #C8C6C4); white-space: nowrap; cursor: pointer; z-index: 1; }
 .tbl th.num, .tbl td.num { text-align: right; }
-.tbl td { padding: 3px 8px; white-space: nowrap; }
-.tbl tbody tr:nth-child(even) td { background: #F7F7F7; }
+.tbl td { padding: var(--td-pad, 3px) 8px; white-space: nowrap; border-bottom: var(--grid-h, none); border-right: var(--grid-v, none); }
+.tbl tbody tr:nth-child(odd) td { background: var(--td-bg1, transparent); color: var(--td-fg1, inherit); }
+.tbl tbody tr:nth-child(even) td { background: var(--td-bg2, #F7F7F7); color: var(--td-fg2, inherit); }
 .tbl tbody tr.sel td { background: #DEECF9; }
 .tbl tbody tr:hover td { background: #EFF6FC; }
-.tbl tfoot td { position: sticky; bottom: 0; background: #fff; font-weight: 600; border-top: 1px solid #252423; padding: 4px 8px; }
-.tbl .rowhdr { font-weight: 400; }
+.tbl tfoot td { position: sticky; bottom: 0; background: var(--tot-bg, #fff); color: var(--tot-fg, inherit); font-weight: 600; border-top: 1px solid var(--tot-line, #252423); padding: 4px 8px; }
+.tbl tbody tr td.rowhdr { font-weight: 400; color: var(--rh-fg, inherit); background: var(--rh-bg, inherit); }
 .tbl .subtot td { font-weight: 600; }
 
 .slicer-v { position: absolute; inset: 0 8px 8px; overflow: auto; display: flex; flex-direction: column; gap: 1px; }
@@ -495,3 +496,4 @@ thead .pq-rn { z-index: 2; }
 .pbi-other summary { cursor: pointer; font-weight: 600; font-size: 12px; padding: 4px 0; }
 .pbi-other[open] { display: flex; }
 .pbi-other .publish-opt { margin-top: 6px; width: 100%; }
+.pagetab.hidden-page { font-style: italic; opacity: .65; }

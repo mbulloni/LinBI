@@ -6,6 +6,42 @@ import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { rangeOf, scaleColor } from './condfmt';
+import { font, pointColors, pt, queryRef, sp, units } from './pbistyle';
+
+/** ECharts axis label/title/grid settings from the visual's categoryAxis/valueAxis objects. */
+function axisLook(v: Visual, obj: 'categoryAxis' | 'valueAxis') {
+  const col = sp(v, obj, 'labelColor'), size = pt(sp(v, obj, 'fontSize')), fam = font(sp(v, obj, 'fontFamily'));
+  return {
+    show: sp(v, obj, 'show') !== false,
+    label: { ...(col ? { color: col } : {}), ...(size ? { fontSize: size } : {}), ...(fam ? { fontFamily: fam } : {}) },
+    title: sp(v, obj, 'showAxisTitle') !== false,
+    titleStyle: { ...(sp(v, obj, 'titleColor') ? { color: sp(v, obj, 'titleColor') } : {}), ...(pt(sp(v, obj, 'titleFontSize')) ? { fontSize: pt(sp(v, obj, 'titleFontSize')) } : {}) },
+    grid: sp(v, obj, 'gridlineShow'),
+    gridColor: sp(v, obj, 'gridlineColor') as string | undefined,
+    units: sp(v, obj, 'labelDisplayUnits'),
+    precision: sp(v, obj, 'labelPrecision'),
+  };
+}
+
+/** Legend placement and text from the legend object (Top, TopCenter, Bottom, Left, Right, …). */
+function legendLook(v: Visual, fallback: string) {
+  const pos = String(sp(v, 'legend', 'position') ?? fallback).toLowerCase();
+  const side = pos.startsWith('bottom') ? 'bottom' : pos.startsWith('left') ? 'left' : pos.startsWith('right') ? 'right' : 'top';
+  const center = pos.endsWith('center');
+  const col = sp(v, 'legend', 'labelColor'), size = pt(sp(v, 'legend', 'fontSize'));
+  return {
+    side,
+    cfg: {
+      ...(side === 'top' ? { top: 0, left: center ? 'center' : 0 } : side === 'bottom' ? { bottom: 0, left: center ? 'center' : 0 } : side === 'left' ? { left: 0, top: 'middle', orient: 'vertical' as const } : { right: 0, top: 'middle', orient: 'vertical' as const }),
+      textStyle: { color: col ?? AXIS_TEXT, fontSize: size ?? 11 },
+    },
+  };
+}
+
+/** Data labels: color/size/units from the labels object. */
+function labelLook(v: Visual) {
+  return { color: sp(v, 'labels', 'color') as string | undefined, size: pt(sp(v, 'labels', 'fontSize')), units: sp(v, 'labels', 'labelDisplayUnits'), precision: sp(v, 'labels', 'labelPrecision') };
+}
 
 /** The default single-series color follows the theme's first color. */
 const main = (c: string) => (c.toUpperCase() === '#118DFF' ? PALETTE[0] : c);
@@ -61,48 +97,53 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   }
 
   const axisLine = { show: false };
+  const ca = axisLook(v, 'categoryAxis'), va = axisLook(v, 'valueAxis'), lb = labelLook(v);
+  const pc = pointColors(v);
+  const fmtVal = (x: number, digits?: number) => units(x, va.units, va.precision) ?? fmtAuto(x, digits);
+  const fmtLbl = (x: number) => units(x, lb.units, lb.precision) ?? fmtAuto(x);
   // Like Power BI: rotate category labels when they no longer fit side by side.
   const slot = (width - 60) / Math.max(1, categories.length);
   const rotated = !horizontal && Math.max(1, ...categories.map((c) => catLabel(c).length)) * 6.2 > slot;
   const catAxis = {
     type: 'category' as const,
     data: categories.map(catLabel),
-    show: horizontal ? f.yAxisShow : f.xAxisShow,
+    show: (horizontal ? f.yAxisShow : f.xAxisShow) && ca.show,
     inverse: horizontal,
     axisTick: { show: false },
     axisLine: { show: !horizontal, lineStyle: { color: '#C8C6C4' } },
     axisLabel: {
       color: AXIS_TEXT, fontSize: 11, hideOverlap: true, overflow: 'truncate' as const,
       ...(horizontal ? { width: 90 } : rotated ? { rotate: 45, interval: 0, width: 90 } : { width: Math.max(30, slot) }),
+      ...ca.label,
     },
-    name: cat ? cat.field.column : '',
+    name: cat && ca.title ? cat.field.column : '',
     nameLocation: 'middle' as const,
     nameGap: horizontal ? 0 : rotated ? 62 : 28,
-    nameTextStyle: { color: '#252423', fontSize: 11 },
+    nameTextStyle: { color: '#252423', fontSize: 11, ...ca.titleStyle },
     boundaryGap: kind === 'bar',
   };
   if (horizontal) Object.assign(catAxis, { name: '' });
   const asPct = vals.length > 0 && d.percent.has(vals[0].alias) && !pct;
   const valAxis = {
     type: 'value' as const,
-    show: horizontal ? f.xAxisShow : f.yAxisShow,
+    show: (horizontal ? f.xAxisShow : f.yAxisShow) && va.show,
     max: pct ? 100 : undefined,
     axisLine,
-    splitLine: { show: f.gridlines, lineStyle: { color: '#E1DFDD', type: 'dotted' as const } },
-    axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: (x: number) => (pct ? x + '%' : asPct ? fmtPct(x) : fmtAuto(x, 0)) },
-    name: horizontal || leg || vals.length > 1 || d.items.some((i) => i.well === 'lineValues') ? '' : vals[0] ? fieldLabel(vals[0].field) : '',
+    splitLine: { show: va.grid ?? f.gridlines, lineStyle: { color: va.gridColor ?? '#E1DFDD', type: 'dotted' as const } },
+    axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: (x: number) => (pct ? x + '%' : asPct ? fmtPct(x) : fmtVal(x, 0)), ...va.label },
+    name: !va.title || horizontal || leg || vals.length > 1 || d.items.some((i) => i.well === 'lineValues') ? '' : vals[0] ? fieldLabel(vals[0].field) : '',
     nameLocation: 'middle' as const,
     nameGap: 44,
-    nameTextStyle: { color: '#252423', fontSize: 11 },
+    nameTextStyle: { color: '#252423', fontSize: 11, ...va.titleStyle },
   };
 
   const lineAxis = { ...valAxis, name: '', position: 'right' as const, splitLine: { show: false },
     axisLabel: { ...valAxis.axisLabel, formatter: (x: number) => fmtAuto(x, 0) } };
   const showLegend = f.legendShow && (series.length + lines.length > 1 || !!leg);
+  const lg = legendLook(v, f.legendPos);
   const legendCfg = showLegend ? {
     show: true, type: 'scroll' as const, icon: 'circle', itemWidth: 8, itemHeight: 8,
-    textStyle: { color: AXIS_TEXT, fontSize: 11 },
-    ...(f.legendPos === 'top' ? { top: 0, left: 0 } : f.legendPos === 'bottom' ? { bottom: 0, left: 0 } : f.legendPos === 'left' ? { left: 0, top: 'middle', orient: 'vertical' as const } : { right: 0, top: 'middle', orient: 'vertical' as const }),
+    ...lg.cfg,
     ...(leg ? { formatter: undefined, data: [...series, ...lines].map((s) => s.name) } : {}),
   } : { show: false };
 
@@ -111,18 +152,19 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   const grad = singleColor && f.colorScale ? f.colorScale : undefined;
   const gradRange = grad ? rangeOf(series[0].data) : null;
   const option: echarts.EChartsCoreOption = {
-    color: singleColor ? [main(f.color)] : PALETTE,
     textStyle: { fontFamily: FONT },
     animationDuration: 300,
     legend: legendCfg,
     grid: {
       left: horizontal ? 8 : 28, right: 16, bottom: horizontal ? 8 : 30,
-      top: showLegend && f.legendPos === 'top' ? 28 : 12, containLabel: true,
+      top: showLegend && lg.side === 'top' ? 28 : 12, containLabel: true,
+      ...(showLegend && lg.side === 'bottom' ? { bottom: horizontal ? 30 : 54 } : {}),
     },
     tooltip: {
       trigger: 'axis', axisPointer: { type: kind === 'bar' ? 'shadow' : 'line' }, confine: true,
       valueFormatter: (x: number) => (pct ? fmtFull(x) + '%' : asPct ? fmtPct(x) : fmtFull(x)),
     },
+    color: singleColor ? [main(f.color)] : series.map((s, k) => pc.byValue.get(leg ? s.name : '') ?? pc.byRef.get(vals[k] ? queryRef(vals[k].field) : '') ?? PALETTE[k % PALETTE.length]).concat(PALETTE),
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : lines.length ? [valAxis, lineAxis] : valAxis,
     series: [...series.map((s, k) => ({
@@ -136,10 +178,11 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
       lineStyle: kind === 'line' ? { width: 2.5 } : undefined,
       areaStyle: area ? { opacity: stacked ? 0.85 : 0.4 } : undefined,
       emphasis: { focus: 'none' },
-      label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: 10, color: stacked ? '#fff' : '#252423', formatter: (p: any) => (p.value === null ? '' : pct ? fmtAuto(p.value, 1) + '%' : asPct ? fmtPct(p.value) : fmtAuto(p.value)) },
+      label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: lb.size ?? 10, color: lb.color ?? (stacked ? '#fff' : '#252423'), formatter: (p: any) => (p.value === null ? '' : pct ? fmtAuto(p.value, 1) + '%' : asPct ? fmtPct(p.value) : fmtLbl(p.value)) },
       data: s.data.map((x, i) => ({
         value: x,
         itemStyle: {
+          ...(singleColor && pc.byValue.has(categories[i] ?? '') ? { color: pc.byValue.get(categories[i] ?? '') } : {}),
           ...(grad && gradRange && x !== null ? { color: scaleColor(grad, gradRange, x) } : {}),
           ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}),
         },
@@ -160,16 +203,19 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
   const cat = d.items.find((i) => i.well === 'category');
   const val = d.items.find((i) => i.well === 'values');
   const categories = cat ? d.rows.map((r) => r[cat.alias]) : [null];
-  const data = d.rows.map((r, i) => ({
-    name: catLabel(cat ? r[cat.alias] : null),
-    value: val ? r[val.alias] : 0,
-    idx: i,
-    itemStyle: selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : undefined,
-  }));
-  const legend = f.legendShow ? {
-    show: true, type: 'scroll' as const, icon: 'circle', itemWidth: 8, itemHeight: 8, textStyle: { color: AXIS_TEXT, fontSize: 11 },
-    ...(f.legendPos === 'top' ? { top: 0 } : f.legendPos === 'bottom' ? { bottom: 0 } : f.legendPos === 'left' ? { left: 0, orient: 'vertical' as const, top: 'middle' } : { right: 0, orient: 'vertical' as const, top: 'middle' }),
-  } : { show: false };
+  const pc = pointColors(v);
+  const lb = labelLook(v);
+  const data = d.rows.map((r, i) => {
+    const own = pc.byValue.get(categories[i] ?? '');
+    return {
+      name: catLabel(cat ? r[cat.alias] : null),
+      value: val ? r[val.alias] : 0,
+      idx: i,
+      itemStyle: { ...(own ? { color: own } : {}), ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}) },
+    };
+  });
+  const lg = legendLook(v, f.legendPos);
+  const legend = f.legendShow ? { show: true, type: 'scroll' as const, icon: 'circle', itemWidth: 8, itemHeight: 8, ...lg.cfg } : { show: false };
   const base = { color: PALETTE, textStyle: { fontFamily: FONT }, legend, animationDuration: 300, tooltip: { trigger: 'item', confine: true, valueFormatter: fmtFull } };
 
   if (v.type === 'treemap') {
@@ -180,7 +226,7 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
         series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: false }, width: '100%', height: '100%', top: 0, left: 0,
           itemStyle: { borderColor: '#fff', borderWidth: 1, gapWidth: 1 },
           label: { show: f.dataLabels, fontSize: 11, formatter: '{b}' },
-          data: data.map((x, i) => ({ ...x, itemStyle: { color: PALETTE[i % PALETTE.length], ...(x.itemStyle ?? {}) } })) }],
+          data: data.map((x, i) => ({ ...x, itemStyle: { color: PALETTE[i % PALETTE.length], ...x.itemStyle } })) }],
       },
     };
   }
@@ -203,9 +249,9 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
       ...base,
       series: [{
         type: 'pie', radius: v.type === 'donut' ? ['45%', '72%'] : [0, '72%'],
-        center: ['50%', f.legendShow && f.legendPos === 'top' ? '55%' : '50%'],
+        center: [f.legendShow && lg.side === 'right' ? '42%' : f.legendShow && lg.side === 'left' ? '58%' : '50%', f.legendShow && lg.side === 'top' ? '55%' : f.legendShow && lg.side === 'bottom' ? '45%' : '50%'],
         avoidLabelOverlap: true, itemStyle: { borderColor: '#fff', borderWidth: 1 },
-        label: { show: f.dataLabels, color: AXIS_TEXT, fontSize: 11, formatter: (p: any) => `${fmtAuto(p.value)} (${p.percent.toLocaleString('it-IT', { maximumFractionDigits: 2 })}%)` },
+        label: { show: f.dataLabels, color: lb.color ?? AXIS_TEXT, fontSize: lb.size ?? 11, formatter: (p: any) => `${units(p.value, lb.units, lb.precision) ?? fmtAuto(p.value)} (${p.percent.toLocaleString('it-IT', { maximumFractionDigits: 2 })}%)` },
         data,
       }],
     },

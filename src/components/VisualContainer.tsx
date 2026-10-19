@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { font, withAlpha } from '../visuals/pbistyle';
 import { Rnd } from 'react-rnd';
 import type { Visual } from '../types';
 import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
+import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
 import { CardVisual, KpiVisual, MatrixVisual, MultiRowCardVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
 import { isChart, visualDef } from '../visuals/catalog';
 import { fieldLabel } from '../format';
@@ -13,6 +15,29 @@ import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
 
 export const FIELD_MIME = 'application/x-linbi-field';
+
+/** Container look: background (with transparency), border. */
+export function boxStyle(v: Visual): CSSProperties {
+  const f = v.format;
+  const bg = f.background === 'transparent' ? 'transparent' : withAlpha(f.background.toUpperCase() === '#FFFFFF' ? THEME.background : f.background, f.bgTransparency);
+  return {
+    background: bg,
+    border: f.border ? `1px solid ${f.borderColor ?? '#C8C6C4'}` : undefined,
+    borderRadius: f.border || f.borderRadius ? f.borderRadius ?? 4 : 0,
+    overflow: f.borderRadius ? 'hidden' : undefined,
+  };
+}
+
+export function VisualTitle({ v, title }: { v: Visual; title: string }) {
+  const f = v.format;
+  if (!f.titleShow || !title) return null;
+  return (
+    <div className="vc-title" style={{
+      fontSize: f.titleSize, color: f.titleColor, textAlign: f.titleAlign, fontFamily: font(f.titleFont),
+      fontWeight: f.titleBold ? 700 : undefined, background: f.titleBg,
+    }}>{title}</div>
+  );
+}
 
 export function autoTitle(v: Visual): string {
   const f = v.fields;
@@ -46,11 +71,13 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   };
 
   if (v.type === 'textbox') return <TextboxVisual v={v} selected={selected} />;
+  if (v.type === 'button') return <ButtonVisual v={v} />;
+  if (v.type === 'shape') return <ShapeVisual v={v} />;
   if (v.type === 'image') return <img src={v.image} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />;
   if (v.type === 'unsupported') return <div className="vc-error"><b>Oggetto visivo non supportato</b><span>{v.text}</span></div>;
   if (data.empty) return <div className="vc-placeholder"><VisualIcon type={v.type} size={Math.min(120, v.h * 0.45)} /></div>;
   if (data.error) return <div className="vc-error"><b>Impossibile visualizzare l'oggetto visivo.</b><span>{data.error}</span></div>;
-  if (v.type === 'card') return <CardVisual data={data} />;
+  if (v.type === 'card') return <CardVisual v={v} data={data} />;
   if (v.type === 'kpi') return <KpiVisual data={data} />;
   if (v.type === 'multiRowCard') return <MultiRowCardVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'table') return <TableVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
@@ -63,12 +90,8 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
 export function VisualStatic({ v }: { v: Visual }) {
   const title = v.format.titleText || autoTitle(v);
   return (
-    <div className="vc-inner print-vc" style={{
-      left: v.x, top: v.y, width: v.w, height: v.h, zIndex: v.z,
-      background: v.format.background.toUpperCase() === '#FFFFFF' ? THEME.background : v.format.background,
-      border: v.format.border ? '1px solid #C8C6C4' : undefined, borderRadius: v.format.border ? 4 : 0,
-    }}>
-      {v.format.titleShow && title && <div className="vc-title" style={{ fontSize: v.format.titleSize }}>{title}</div>}
+    <div className="vc-inner print-vc" style={{ left: v.x, top: v.y, width: v.w, height: v.h, zIndex: v.z, ...boxStyle(v) }}>
+      <VisualTitle v={v} title={title} />
       <div className="vc-body"><VisualBody v={v} selected={false} /></div>
     </div>
   );
@@ -105,7 +128,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
     >
       <div
         className="vc-inner"
-        style={{ background: v.format.background.toUpperCase() === '#FFFFFF' ? THEME.background : v.format.background, border: v.format.border ? '1px solid #C8C6C4' : undefined, borderRadius: v.format.border ? 4 : 0 }}
+        style={boxStyle(v)}
         onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) { e.preventDefault(); e.stopPropagation(); setOver(true); } }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => {
@@ -118,7 +141,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
         }}
         onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); }}
       >
-        {v.format.titleShow && title && <div className="vc-title" style={{ fontSize: v.format.titleSize }}>{title}</div>}
+        <VisualTitle v={v} title={title} />
         <div className="vc-body"><VisualBody v={v} selected={selected} /></div>
       </div>
       <div className="vc-frame" />
