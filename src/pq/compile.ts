@@ -138,6 +138,7 @@ function stepSql(s: Step, P: string, subs: Map<string, string>): string {
       const whens = s.rules.map((r, i) => `WHEN ${filterCond({ id: '', kind: 'filterRows', column: r.column, op: r.op, value: r.value, vtype: r.vtype })} THEN ${out(outs[i])}`);
       return `SELECT *, CASE ${whens.join(' ')} ELSE ${out(outs[outs.length - 1])} END AS ${qi(s.name)} FROM ${P}`;
     }
+    case 'selectRows': return `SELECT * FROM ${P} WHERE coalesce((${mToSql(s.formula)}), false)`;
     case 'promoteHeaders': return `SELECT * ${s.renames.length ? `RENAME (${s.renames.map(([a, b]) => `${qi(a)} AS ${qi(b)}`).join(', ')}) ` : ''}FROM ${P} QUALIFY row_number() OVER (ORDER BY ${R}) > 1`;
     case 'indexColumn': return `SELECT *, row_number() OVER (ORDER BY ${R}) - 1 + ${Math.floor(s.start)} AS ${qi(s.name)} FROM ${P}`;
     case 'duplicateColumn': return `SELECT *, ${qi(s.column)} AS ${qi(s.name)} FROM ${P}`;

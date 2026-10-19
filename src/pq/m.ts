@@ -109,6 +109,7 @@ export function stepM(s: Step, prev: string, names: string[]): string[] {
       const ifs = s.rules.map((r) => `if ${filterM({ id: '', kind: 'filterRows', column: r.column, op: r.op, value: r.value, vtype: r.vtype })} then ${out(r.output, r.outputIsColumn)}`).join(' else ');
       return [`Table.AddColumn(${p}, ${mStr(s.name)}, each ${ifs} else ${out(s.otherwise, s.otherwiseIsColumn)})`];
     }
+    case 'selectRows': return [`Table.SelectRows(${p}, each ${s.formula})`];
     case 'promoteHeaders': return [`Table.PromoteHeaders(${p}, [PromoteAllScalars=true])`];
   }
 }

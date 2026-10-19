@@ -4,6 +4,7 @@ import { useStore, type PQState } from '../store';
 import type { ColumnMeta, FilterOp, NewStep, PQType, Step, TransformFn } from '../types';
 import { compileQuery, qi } from '../pq/compile';
 import { dependencies, pqTypeOf, renameQueryRef, stepNames, TYPE_LABEL } from '../pq/steps';
+import { exprToStep, mToSteps } from '../pq/mparse';
 import { stepM } from '../pq/m';
 import { queryM } from '../pbix/pbit';
 import { Icon } from './icons';
@@ -297,10 +298,59 @@ function Editor() {
     return stepM(q.steps[i], prev, names[i]).join('\n');
   }, [q, upto, names]);
 
-  const fullM = () => {
+  const srcColsOf = () => {
     const t = s.tables.find((x) => x.name === q?.orig);
-    const srcCols = t ? (t.steps?.length ? t.sourceColumns ?? [] : t.columns) : [];
-    return queryM({ source: q!.source, steps: q!.steps }, q?.source.m ? [] : srcCols);
+    return q?.source.m ? [] : t ? (t.steps?.length ? t.sourceColumns ?? [] : t.columns) : [];
+  };
+  const fullM = () => queryM({ source: q!.source, steps: q!.steps }, srcColsOf());
+
+  /** Header names of "Usa la prima riga come intestazione" steps written in M: read from the data. */
+  const resolveHeaders = async (steps: NewStep[]): Promise<NewStep[]> => {
+    const out = [...steps];
+    for (let k = 0; k < out.length; k++) {
+      if (out[k].kind !== 'promoteHeaders') continue;
+      const sql = await compileQuery({ ...q!, steps: out.map((x, i) => ({ ...x, id: 'r' + i }) as Step) }, pq.queries, { upto: k, srcExpr });
+      const d = await api.query(`DESCRIBE SELECT * FROM (${sql})`);
+      const r = await api.query(`SELECT * FROM (${sql}) LIMIT 1`);
+      const used = new Set<string>();
+      const renames: [string, string][] = d.rows.map((c: any, i: number) => {
+        const v = String(r.rows[0]?.[c.column_name] ?? '').trim() || `Column${i + 1}`;
+        let n = v; for (let j = 2; used.has(n); j++) n = `${v}_${j}`;
+        used.add(n);
+        return [c.column_name, n];
+      });
+      out[k] = { kind: 'promoteHeaders', renames: renames.filter(([a, b]) => a !== b) };
+    }
+    return out;
+  };
+  /** Advanced editor / formula bar → steps (ids kept where the step kind is unchanged). */
+  const replaceSteps = (steps: NewStep[]) => s.pqSet((x) => {
+    const qq = x.queries.find((y) => y.name === x.selected)!;
+    qq.steps = steps.map((st, i) => ({ ...st, id: qq.steps[i]?.kind === st.kind ? qq.steps[i].id : Math.random().toString(36).slice(2, 10) }) as Step);
+    x.step = null;
+  });
+  const saveM = async (text: string): Promise<string | null> => {
+    try {
+      const base = queryM({ source: q!.source, steps: [] }, srcColsOf());
+      replaceSteps(await resolveHeaders(mToSteps(text, base)));
+      return null;
+    } catch (e: any) { return e.message; }
+  };
+  const [fxText, setFxText] = useState<string | null>(null);
+  const [fxErr, setFxErr] = useState<string | null>(null);
+  useEffect(() => { setFxText(null); setFxErr(null); }, [upto, q?.name]);
+  const saveFormula = async () => {
+    if (fxText === null || !q || upto === 0) { setFxText(null); return; }
+    try {
+      const r = exprToStep(fxText.trim().replace(/^=\s*/, ''));
+      if ('nested' in r) throw new Error('Per le query unite modificare il passaggio con l\'ingranaggio o dall\'Editor avanzato.');
+      const steps: NewStep[] = q.steps.map((x) => x as NewStep);
+      steps[upto - 1] = r;
+      const resolved = await resolveHeaders(steps);
+      replaceSteps(resolved);
+      s.pqSet((x) => { x.step = upto >= resolved.length ? null : upto; });
+      setFxText(null); setFxErr(null);
+    } catch (e: any) { setFxErr(e.message); }
   };
 
   const dirty = useMemo(() => {
@@ -474,7 +524,12 @@ function Editor() {
           {opts.formula && (
             <div className="formulabar pq-fx">
               <Icon name="close" size={12} /><span style={{ color: 'var(--text3)' }}>✓</span><span className="fx">fx</span>
-              <code title={formula}>= {formula}</code>
+              {upto > 0 && q?.steps[upto - 1]?.kind !== 'merge'
+                ? <input className="pq-fx-input" spellCheck={false} value={fxText ?? formula} title="Modificare la formula e premere Invio"
+                    onChange={(e) => { setFxText(e.target.value); setFxErr(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveFormula(); if (e.key === 'Escape') { setFxText(null); setFxErr(null); } }} />
+                : <code title={formula}>= {formula}</code>}
+              {fxErr && <span className="pq-fx-err" title={fxErr}>⚠ {fxErr}</span>}
             </div>
           )}
           {opts.sql && preview && <pre className="pq-sql">{preview.sql}</pre>}
@@ -680,7 +735,7 @@ function Editor() {
         </Menu>
       )}
 
-      {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} />}
+      {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} saveM={saveM} />}
 
       {confirm && (
         <div className="modal-bg pq-modal">

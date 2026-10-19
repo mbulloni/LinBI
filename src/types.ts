@@ -249,6 +249,8 @@ export type Step = { id: string } & (
   | { kind: 'append'; tables: string[] }
   | { kind: 'conditionalColumn'; name: string; rules: CondRule[]; otherwise: string; otherwiseIsColumn?: boolean }
   | { kind: 'promoteHeaders'; renames: [string, string][] }
+  /** Table.SelectRows with any `each` condition (written in the M editor), translated like custom columns. */
+  | { kind: 'selectRows'; formula: string }
 );
 /** "Colonna condizionale": if [column] <op> value then output (a value, or another column). */
 export interface CondRule { column: string; op: FilterOp; value: string; vtype: ValueType; output: string; outputIsColumn?: boolean; }

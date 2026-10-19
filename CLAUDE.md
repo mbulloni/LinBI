@@ -36,6 +36,8 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - Parameters: `store.createParameter` (what-if: `SELECTCOLUMNS(GENERATESERIES(...))` + `SELECTEDVALUE` measure + slider slicer; fields: table constructor with `NAMEOF`, `TableMeta.fieldParam`), `buildVisualQuery` replaces a field-parameter column with the fields selected in its slicer (never inside slicers). Navigators: `visuals/Shapes.tsx#NavigatorVisual`.
 
+- M editing: `pq/mparse.ts` (`parseLet`, `parseValue`, `exprToStep`, `mToSteps(text, baseM)`): the source lines must match `queryM({source, steps: []})`; Table.* calls map back to steps, other `each` filters become `selectRows` (SQL via `mexpr`). Promote-headers names are read from data (`resolveHeaders` in `PowerQuery.tsx`). Step editing: gear → `editing` state, preview at the step input, `add` replaces the step.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.

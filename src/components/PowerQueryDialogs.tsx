@@ -77,6 +77,8 @@ interface Props {
   notify: (m: string) => void;
   /** Step being edited (gear icon in Applied steps): the dialog starts from its settings. */
   init?: Step;
+  /** Advanced editor: parse and apply M (returns an error message, or null). */
+  saveM?: (m: string) => Promise<string | null>;
 }
 type Init<K extends Step['kind']> = Extract<Step, { kind: K }> | undefined;
 const initOf = <K extends Step['kind']>(p: Props, ...kinds: K[]): Init<K> => (p.init && (kinds as string[]).includes(p.init.kind) ? (p.init as Init<K>) : undefined);
@@ -439,11 +441,22 @@ function ConditionalColumn(p: Props) {
   );
 }
 
-function Advanced({ close, m, name, notify }: Props & { m: string; name: string }) {
+function Advanced({ close, m, name, saveM }: Props & { m: string; name: string }) {
+  const [text, setText] = useState(m);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const done = async () => {
+    if (text === m) { close(); return; }
+    setBusy(true);
+    const e = saveM ? await saveM(text) : null;
+    setBusy(false);
+    if (e) setErr(e); else close();
+  };
   return (
-    <Shell title={name} sub="Codice M generato dai passaggi applicati (sola lettura: modificare i passaggi dall'editor)." width={900} onClose={close}
-      onOk={() => { navigator.clipboard.writeText(m); notify('Codice M copiato negli appunti.'); }} okLabel="Copia">
-      <pre className="pq-code">{m}</pre>
+    <Shell title={name} sub="Modificare il codice M dei passaggi; l'origine si modifica dal passaggio Origine." width={900} onClose={close} onOk={done} okLabel={busy ? '…' : 'Fine'} okDisabled={busy}>
+      <textarea className="pq-code pq-code-edit" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value); setErr(null); }}
+        onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); const t = e.currentTarget, a = t.selectionStart; setText(text.slice(0, a) + '    ' + text.slice(t.selectionEnd)); setTimeout(() => t.setSelectionRange(a + 4, a + 4)); } }} />
+      <div className={err ? 'pq-err' : 'pq-ok'}>{err ? '⚠ ' + err : '✓ Nessun errore di sintassi rilevato.'}</div>
     </Shell>
   );
 }

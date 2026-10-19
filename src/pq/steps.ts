@@ -40,6 +40,7 @@ export function stepLabel(s: Step): string {
     case 'merge': return 'Query unite';
     case 'append': return 'Query accodate';
     case 'conditionalColumn': return 'Aggiunta colonna condizionale';
+    case 'selectRows': return 'Filtrate righe';
     case 'promoteHeaders': return 'Intestazioni alzate di livello';
   }
 }

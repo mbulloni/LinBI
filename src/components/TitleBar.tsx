@@ -2,10 +2,25 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { Icon } from './icons';
+import { Menu } from './Menu';
+import type { PbiStatus } from '../api';
 
 export function TitleBar() {
   const { filePath, dirty, past, future, undo, redo, save, sourceName } = useStore();
   const [max, setMax] = useState(false);
+  // "Accedi": the Power BI account used by Pubblica (device-code sign-in, one per tenant profile).
+  const publishOpen = useStore((s) => s.publishDialog);
+  const set = useStore((s) => s.set);
+  const notify = useStore((s) => s.notify);
+  const [pbi, setPbi] = useState<PbiStatus | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => { if (!publishOpen) api.pbi.status().then(setPbi).catch(() => setPbi(null)); }, [publishOpen]);
+  const account = pbi?.account;
+  const userClick = (e: React.MouseEvent) => {
+    if (!account) { set({ publishDialog: true }); return; }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({ x: r.right - 260, y: r.bottom + 2 });
+  };
   useEffect(() => api.win.onState(setMax), []);
   const name = filePath ? filePath.split('/').pop()!.replace(/\.lbix$/, '') : sourceName ?? 'Senza titolo';
   const title = `${name}${dirty ? ' *' : ''} - LinBI`;
@@ -28,7 +43,17 @@ export function TitleBar() {
       </div>
       <div className="title">{title}</div>
       <div className="search"><Icon name="search" size={14} /><input placeholder="Cerca" /></div>
-      <div className="user"><Icon name="user" size={16} />Accedi</div>
+      <button className="user" title={account ? `Power BI: ${account}${pbi?.profileName ? ` (${pbi.profileName})` : ''}` : 'Accedi a Power BI'} onClick={userClick}>
+        <Icon name="user" size={16} />{account ? account.split('@')[0] : 'Accedi'}
+      </button>
+      {menu && account && (
+        <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <div className="hdr">{account}</div>
+          {pbi?.profileName && <div className="hdr" style={{ fontWeight: 400 }}>Profilo: {pbi.profileName}</div>}
+          <button onClick={() => { setMenu(null); set({ publishDialog: true }); }}>Pubblica / cambia profilo…</button>
+          <button onClick={async () => { setMenu(null); await api.pbi.signOut(); setPbi(await api.pbi.status()); notify('Disconnesso da Power BI.'); }}>Esci</button>
+        </Menu>
+      )}
       <div className="winbtns">
         <button onClick={() => api.win.minimize()} title="Riduci a icona"><Icon name="winMin" /></button>
         <button onClick={() => api.win.maximize()} title={max ? 'Ripristina' : 'Ingrandisci'}><Icon name={max ? 'winRestore' : 'winMax'} /></button>
