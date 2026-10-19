@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useStore } from '../store';
 import { Icon } from './icons';
 import { Menu } from './Menu';
+import { CommandSearch } from './CommandSearch';
 import type { PbiStatus } from '../api';
 
 export function TitleBar() {
@@ -42,7 +43,7 @@ export function TitleBar() {
         <button title="Ripeti (Ctrl+Y)" disabled={!future.length} onClick={redo}><Icon name="redo" /></button>
       </div>
       <div className="title">{title}</div>
-      <div className="search"><Icon name="search" size={14} /><input placeholder="Cerca" /></div>
+      <CommandSearch />
       <button className="user" title={account ? `Power BI: ${account}${pbi?.profileName ? ` (${pbi.profileName})` : ''}` : 'Accedi a Power BI'} onClick={userClick}>
         <Icon name="user" size={16} />{account ? account.split('@')[0] : 'Accedi'}
       </button>

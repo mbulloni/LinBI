@@ -619,3 +619,11 @@ thead .pq-rn { z-index: 2; }
 .pq-fx-input:focus { background: #fff; box-shadow: inset 0 -1px #0F6CBD; }
 .pq-fx-err { color: #A4262C; font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pq-code-edit { width: 100%; height: 55vh; resize: vertical; white-space: pre; }
+.titlebar .search { position: relative; }
+.search-pop { position: absolute; top: 30px; left: 0; right: 0; background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6.4px 14.4px rgba(0,0,0,.13); z-index: 4000; max-height: 420px; overflow: auto; padding: 4px 0; color: #252423; }
+.search-grp { font-size: 11px; font-weight: 600; color: var(--text2); padding: 6px 12px 2px; }
+.search-item { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 5px 12px; cursor: pointer; font: inherit; font-size: 12px; }
+.search-item.hi { background: var(--hover); }
+.search-item .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-item .hint { color: var(--text2); font-size: 11px; }
+.search-empty { padding: 8px 12px; color: var(--text2); font-size: 12px; }
