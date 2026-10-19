@@ -12,10 +12,10 @@ Dalla pagina [Releases](https://github.com/mbulloni/LinBI/releases) (Linux x64):
 
 ```bash
 # AppImage (qualsiasi distribuzione)
-chmod +x LinBI-1.0.0.AppImage && ./LinBI-1.0.0.AppImage
+chmod +x LinBI-1.1.0.AppImage && ./LinBI-1.1.0.AppImage
 
 # oppure pacchetto Debian/Ubuntu (voce di menu e associazioni file incluse)
-sudo apt install ./linbi_1.0.0_amd64.deb
+sudo apt install ./linbi_1.1.0_amd64.deb
 ```
 
 Per aprire i file `.pbix` di Power BI serve Python 3 con la libreria `pbixray` (una volta sola):
@@ -43,7 +43,7 @@ npm run dist     # AppImage in release/ (npm run dist:deb per il .deb)
 ### Installazione (utente, senza root)
 
 ```bash
-install -m 755 release/LinBI-1.0.0.AppImage ~/Applications/LinBI.AppImage
+install -m 755 release/LinBI-1.1.0.AppImage ~/Applications/LinBI.AppImage
 ln -sf ~/Applications/LinBI.AppImage ~/.local/bin/linbi
 # icone in ~/.local/share/icons/hicolor/*/apps/linbi.png (da build/icons), voce di menu
 # ~/.local/share/applications/linbi.desktop (Exec=…/LinBI.AppImage %f) e tipi MIME .lbix/.pbix/.pbit/.pbip
