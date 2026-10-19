@@ -39,6 +39,8 @@ export function stepLabel(s: Step): string {
     case 'unpivot': return s.other ? 'Trasformazione Unpivot di altre colonne eseguita' : 'Trasformazione Unpivot di colonne eseguita';
     case 'merge': return 'Query unite';
     case 'append': return 'Query accodate';
+    case 'conditionalColumn': return 'Aggiunta colonna condizionale';
+    case 'promoteHeaders': return 'Intestazioni alzate di livello';
   }
 }
 

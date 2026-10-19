@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import type { ColumnMeta, FilterOp, GroupOp, JoinKind, NewStep, ValueType } from '../types';
+import type { ColumnMeta, CondRule, FilterOp, GroupOp, JoinKind, NewStep, Step, ValueType } from '../types';
 import type { PQState } from '../store';
 import { compileQuery, parseNumber, qi } from '../pq/compile';
 import { mToSql, referencedColumns, SUPPORTED_FUNCTIONS } from '../pq/mexpr';
@@ -18,9 +18,10 @@ export type DialogState =
   | { kind: 'merge' }
   | { kind: 'append' }
   | { kind: 'round'; cols: string[] }
-  | { kind: 'advanced'; m: string; name: string };
+  | { kind: 'advanced'; m: string; name: string }
+  | { kind: 'conditional' };
 
-export interface Preview { columns: ColumnMeta[]; rows: Record<string, any>[]; sql: string; at: Date; }
+export interface Preview { columns: ColumnMeta[]; rows: Record<string, any>[]; sql: string; at: Date; upto?: number; query?: string; }
 
 
 export const vtypeOf = (c?: ColumnMeta): ValueType => {
@@ -74,7 +75,11 @@ interface Props {
   preview: Preview | null;
   pq: PQState;
   notify: (m: string) => void;
+  /** Step being edited (gear icon in Applied steps): the dialog starts from its settings. */
+  init?: Step;
 }
+type Init<K extends Step['kind']> = Extract<Step, { kind: K }> | undefined;
+const initOf = <K extends Step['kind']>(p: Props, ...kinds: K[]): Init<K> => (p.init && (kinds as string[]).includes(p.init.kind) ? (p.init as Init<K>) : undefined);
 
 export function PQDialog(p: Props) {
   switch (p.dialog.kind) {
@@ -89,12 +94,14 @@ export function PQDialog(p: Props) {
     case 'append': return <Append {...p} />;
     case 'round': return <Round {...p} cols={p.dialog.cols} />;
     case 'advanced': return <Advanced {...p} m={p.dialog.m} name={p.dialog.name} />;
+    case 'conditional': return <ConditionalColumn {...p} />;
   }
 }
 
-function ChooseColumns({ close, add, preview }: Props) {
+function ChooseColumns(p: Props) {
+  const { close, add, preview } = p;
   const cols = preview?.columns.map((c) => c.name) ?? [];
-  const [keep, setKeep] = useState<Set<string>>(new Set(cols));
+  const [keep, setKeep] = useState<Set<string>>(new Set(initOf(p, 'selectColumns')?.columns ?? cols));
   const [q, setQ] = useState('');
   const all = keep.size === cols.length;
   return (
@@ -118,8 +125,9 @@ const ROWS_TEXT = {
   removeBottom: ['Rimuovi ultime righe', 'Specificare quante righe rimuovere a partire dalla fine.'],
 } as const;
 
-function RowsCount({ close, add, step }: Props & { step: keyof typeof ROWS_TEXT }) {
-  const [n, setN] = useState('');
+function RowsCount(p: Props & { step: keyof typeof ROWS_TEXT }) {
+  const { close, add, step } = p;
+  const [n, setN] = useState(String(initOf(p, 'keepTop', 'keepBottom', 'removeTop', 'removeBottom')?.n ?? ''));
   const v = Number(n);
   const ok = Number.isInteger(v) && v > 0;
   return (
@@ -129,12 +137,14 @@ function RowsCount({ close, add, step }: Props & { step: keyof typeof ROWS_TEXT 
   );
 }
 
-function FilterRows({ close, add, preview, col, op: op0 }: Props & { col: string; op?: FilterOp }) {
+function FilterRows(p: Props & { col: string; op?: FilterOp }) {
+  const { close, add, preview, col, op: op0 } = p;
   const meta = preview?.columns.find((c) => c.name === col);
   const vt = vtypeOf(meta);
   const ops = vt === 'text' ? FILTER_OPS.text : FILTER_OPS.number;
-  const [op, setOp] = useState<FilterOp>(op0 ?? 'eq');
-  const [value, setValue] = useState('');
+  const init = initOf(p, 'filterRows');
+  const [op, setOp] = useState<FilterOp>(init?.op ?? op0 ?? 'eq');
+  const [value, setValue] = useState(init?.value ?? '');
   const bad = vt === 'number' && parseNumber(value) === null;
   return (
     <Shell title="Filtra righe" sub={<>Applicare una o più condizioni di filtro alle righe della tabella.<br />Mantieni le righe in cui <b>{col}</b></>}
@@ -149,12 +159,14 @@ function FilterRows({ close, add, preview, col, op: op0 }: Props & { col: string
   );
 }
 
-function ReplaceValues({ close, add, preview, cols }: Props & { cols: string[] }) {
+function ReplaceValues(p: Props & { cols: string[] }) {
+  const { close, add, preview, cols } = p;
   const metas = cols.map((c) => preview?.columns.find((x) => x.name === c));
   const vt = vtypeOf(metas[0]);
-  const [find, setFind] = useState('');
-  const [repl, setRepl] = useState('');
-  const [whole, setWhole] = useState(false);
+  const init = initOf(p, 'replaceValues');
+  const [find, setFind] = useState(init?.find ?? '');
+  const [repl, setRepl] = useState(init?.replace ?? '');
+  const [whole, setWhole] = useState(init?.whole ?? false);
   const bad = vt === 'number' && (parseNumber(find) === null || parseNumber(repl) === null);
   return (
     <Shell title="Sostituisci valori" sub="Sostituire un valore con un altro nelle colonne selezionate." onClose={close} okDisabled={bad || (vt === 'text' && !whole && !find)}
@@ -169,9 +181,12 @@ function ReplaceValues({ close, add, preview, cols }: Props & { cols: string[] }
 
 const DELIMS: [string, string][] = [[',', 'Virgola'], [';', 'Punto e virgola'], [':', 'Due punti'], [' ', 'Spazio'], ['\t', 'Tabulazione'], ['-', 'Trattino'], ['', '--Personalizzato--']];
 
-function SplitColumn({ close, add, preview, col, notify }: Props & { col: string }) {
-  const [d, setD] = useState(',');
-  const [custom, setCustom] = useState('');
+function SplitColumn(p: Props & { col: string }) {
+  const { close, add, preview, col, notify } = p;
+  const init = initOf(p, 'splitColumn');
+  const known = !init || DELIMS.some(([k]) => k && k === init.delimiter);
+  const [d, setD] = useState(init ? (known ? init.delimiter : '') : ',');
+  const [custom, setCustom] = useState(init && !known ? init.delimiter : '');
   const delim = d === '' ? custom : d;
   const ok = async () => {
     try {
@@ -193,10 +208,12 @@ function SplitColumn({ close, add, preview, col, notify }: Props & { col: string
 
 const GROUP_OPS: [GroupOp, string][] = [['count', 'Conteggio righe'], ['countd', 'Conteggio valori distinti'], ['sum', 'Somma'], ['avg', 'Media'], ['median', 'Mediana'], ['min', 'Min'], ['max', 'Max']];
 
-function GroupBy({ close, add, preview, cols }: Props & { cols: string[] }) {
+function GroupBy(p: Props & { cols: string[] }) {
+  const { close, add, preview, cols } = p;
   const all = preview?.columns ?? [];
-  const [keys, setKeys] = useState<string[]>(cols.length ? cols : all[0] ? [all[0].name] : []);
-  const [aggs, setAggs] = useState<{ name: string; op: GroupOp; column?: string }[]>([{ name: 'Conteggio', op: 'count' }]);
+  const init = initOf(p, 'groupBy');
+  const [keys, setKeys] = useState<string[]>(init?.keys ?? (cols.length ? cols : all[0] ? [all[0].name] : []));
+  const [aggs, setAggs] = useState<{ name: string; op: GroupOp; column?: string }[]>(init?.aggs ?? [{ name: 'Conteggio', op: 'count' }]);
   const numeric = all.find((c) => vtypeOf(c) === 'number')?.name ?? all[0]?.name;
   const valid = aggs.every((a) => a.name.trim() && (a.op === 'count' || a.column)) && new Set([...keys, ...aggs.map((a) => a.name)]).size === keys.length + aggs.length;
   const setAgg = (i: number, patch: Partial<(typeof aggs)[number]>) => setAggs(aggs.map((a, j) => (j === i ? { ...a, ...patch } : a)));
@@ -229,10 +246,12 @@ function GroupBy({ close, add, preview, cols }: Props & { cols: string[] }) {
   );
 }
 
-function CustomColumn({ close, add, preview }: Props) {
+function CustomColumn(p: Props) {
+  const { close, add, preview } = p;
   const cols = preview?.columns.map((c) => c.name) ?? [];
-  const [name, setName] = useState('Personalizzato');
-  const [formula, setFormula] = useState('');
+  const init = initOf(p, 'customColumn');
+  const [name, setName] = useState(init?.name ?? 'Personalizzato');
+  const [formula, setFormula] = useState(init?.formula ?? '');
   const [pick, setPick] = useState(cols[0] ?? '');
   const check = useMemo(() => {
     if (!formula.trim()) return { ok: false, msg: '' };
@@ -290,16 +309,19 @@ function useQueryPreview(pq: PQState, name: string) {
 
 const JOINS: [JoinKind, string][] = [['left', 'Esterno sinistro (tutte dalla prima, corrispondenti dalla seconda)'], ['right', 'Esterno destro (tutte dalla seconda, corrispondenti dalla prima)'], ['full', 'Esterno completo (tutte le righe da entrambe)'], ['inner', 'Interno (solo righe corrispondenti)'], ['leftAnti', 'Anti sinistro (solo righe nella prima)']];
 
-function Merge({ close, add, preview, pq }: Props) {
+function Merge(p: Props) {
+  const { close, add, preview, pq } = p;
   const others = pq.queries.filter((q) => q.name !== pq.selected).map((q) => q.name);
-  const [other, setOther] = useState(others[0] ?? '');
-  const [lk, setLk] = useState<string | undefined>();
-  const [rk, setRk] = useState<string | undefined>();
-  const [join, setJoin] = useState<JoinKind>('left');
-  const [expand, setExpand] = useState<Set<string> | null>(null);
+  const init = initOf(p, 'merge');
+  const [other, setOther] = useState(init?.table ?? others[0] ?? '');
+  const [lk, setLk] = useState<string | undefined>(init?.left[0]);
+  const [rk, setRk] = useState<string | undefined>(init?.right[0]);
+  const [join, setJoin] = useState<JoinKind>(init?.join ?? 'left');
+  const [expand, setExpand] = useState<Set<string> | null>(init ? new Set(init.expand) : null);
   const [stats, setStats] = useState<string>('');
   const { res, err } = useQueryPreview(pq, other);
-  useEffect(() => { setRk(undefined); setExpand(null); }, [other]);
+  const [firstOther] = useState(other);
+  useEffect(() => { if (other !== firstOther || !init) { setRk(undefined); setExpand(null); } }, [other]);
   useEffect(() => {
     if (res && lk && !rk) setRk(res.columns.find((c) => c.toLowerCase() === lk.toLowerCase()));
   }, [res, lk]);
@@ -336,9 +358,10 @@ function Merge({ close, add, preview, pq }: Props) {
   );
 }
 
-function Append({ close, add, pq }: Props) {
+function Append(p: Props) {
+  const { close, add, pq } = p;
   const others = pq.queries.filter((q) => q.name !== pq.selected).map((q) => q.name);
-  const [sel, setSel] = useState<string[]>(others.slice(0, 1));
+  const [sel, setSel] = useState<string[]>(initOf(p, 'append')?.tables ?? others.slice(0, 1));
   return (
     <Shell title="Accoda" sub="Concatenare le righe di più tabelle. Le colonne con lo stesso nome vengono allineate; le altre restano vuote (null)." onClose={close} okDisabled={!sel.length}
       onOk={() => { add({ kind: 'append', tables: sel }); close(); }}>
@@ -350,13 +373,68 @@ function Append({ close, add, pq }: Props) {
   );
 }
 
-function Round({ close, add, cols }: Props & { cols: string[] }) {
-  const [d, setD] = useState('2');
+function Round(p: Props & { cols: string[] }) {
+  const { close, add, cols } = p;
+  const [d, setD] = useState(String(initOf(p, 'transform')?.digits ?? 2));
   const v = Number(d);
   return (
     <Shell title="Arrotonda" sub="Specificare il numero di cifre decimali." onClose={close} okDisabled={!Number.isInteger(v) || v < 0}
       onOk={() => { add({ kind: 'transform', columns: cols, fn: 'round', digits: v }); close(); }}>
       <label className="pq-field">Posizioni decimali<input type="number" min={0} autoFocus value={d} onChange={(e) => setD(e.target.value)} /></label>
+    </Shell>
+  );
+}
+
+const COND_OPS: Record<'text' | 'number', [FilterOp, string][]> = {
+  text: [...FILTER_OPS.text, ['blank', 'è vuoto'], ['notBlank', 'non è vuoto']],
+  number: FILTER_OPS.number,
+};
+
+/** Aggiungi colonna › Colonna condizionale: Se … Allora … / Altrimenti. */
+function ConditionalColumn(p: Props) {
+  const { close, add, preview } = p;
+  const cols = preview?.columns ?? [];
+  const init = initOf(p, 'conditionalColumn');
+  const blank = (): CondRule => ({ column: cols[0]?.name ?? '', op: 'eq', value: '', vtype: vtypeOf(cols[0]), output: '' });
+  const [name, setName] = useState(init?.name ?? 'Personalizzato');
+  const [rules, setRules] = useState<CondRule[]>(init?.rules ?? [blank()]);
+  const [other, setOther] = useState(init?.otherwise ?? '');
+  const [otherCol, setOtherCol] = useState(!!init?.otherwiseIsColumn);
+  const set = (i: number, patch: Partial<CondRule>) => setRules(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const taken = cols.some((c) => c.name === name.trim());
+  const valid = !!name.trim() && !taken && rules.every((r) => r.column && (['blank', 'notBlank'].includes(r.op) || r.value.trim() !== '') && (!r.outputIsColumn || r.output));
+  const outInput = (value: string, isCol: boolean, onValue: (v: string) => void, onCol: (b: boolean) => void) => (
+    <span className="pq-out">
+      <select value={isCol ? 'col' : 'val'} onChange={(e) => onCol(e.target.value === 'col')} title="Valore o colonna"><option value="val">Valore</option><option value="col">Colonna</option></select>
+      {isCol
+        ? <select value={value} onChange={(e) => onValue(e.target.value)}><option value="" />{cols.map((c) => <option key={c.name}>{c.name}</option>)}</select>
+        : <input type="text" value={value} onChange={(e) => onValue(e.target.value)} />}
+    </span>
+  );
+  return (
+    <Shell title="Aggiungi colonna condizionale" sub="Aggiungere una colonna condizionale calcolata dalle altre colonne o dai valori." width={900} onClose={close} okDisabled={!valid}
+      onOk={() => { add({ kind: 'conditionalColumn', name: name.trim(), rules: rules.map((r) => ({ ...r, value: r.value.trim() })), otherwise: other, ...(otherCol ? { otherwiseIsColumn: true } : {}) }); close(); }}>
+      <label className="pq-field">Nome nuova colonna<input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
+      {taken && <div className="pq-err">Esiste già una colonna con questo nome.</div>}
+      <div className="pq-cond-head"><span /><span>Nome colonna</span><span>Operatore</span><span>Valore</span><span /><span>Output</span><span /></div>
+      {rules.map((r, i) => {
+        const meta = cols.find((c) => c.name === r.column);
+        const vt = vtypeOf(meta);
+        const ops = vt === 'text' ? COND_OPS.text : COND_OPS.number;
+        return (
+          <div className="pq-cond" key={i}>
+            <b>{i ? 'Altrimenti se' : 'Se'}</b>
+            <select value={r.column} onChange={(e) => { const m = cols.find((c) => c.name === e.target.value); set(i, { column: e.target.value, vtype: vtypeOf(m) }); }}>{cols.map((c) => <option key={c.name}>{c.name}</option>)}</select>
+            <select value={r.op} onChange={(e) => set(i, { op: e.target.value as FilterOp })}>{ops.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+            <input type="text" value={r.value} disabled={['blank', 'notBlank'].includes(r.op)} onChange={(e) => set(i, { value: e.target.value })} />
+            <b>Allora</b>
+            {outInput(r.output, !!r.outputIsColumn, (v) => set(i, { output: v }), (b) => set(i, { outputIsColumn: b || undefined, output: '' }))}
+            <button className="pq-x" title="Rimuovi" disabled={rules.length === 1} onClick={() => setRules(rules.filter((_, j) => j !== i))}><Icon name="close" size={12} /></button>
+          </div>
+        );
+      })}
+      <button className="pq-link" onClick={() => setRules([...rules, blank()])}>Aggiungi clausola</button>
+      <div className="pq-cond pq-cond-else"><b>Altrimenti</b>{outInput(other, otherCol, setOther, (b) => { setOtherCol(b); setOther(''); })}</div>
     </Shell>
   );
 }

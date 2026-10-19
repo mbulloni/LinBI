@@ -247,7 +247,11 @@ export type Step = { id: string } & (
   | { kind: 'unpivot'; columns: string[]; other: boolean; cast: boolean }
   | { kind: 'merge'; table: string; left: string[]; right: string[]; join: JoinKind; expand: string[] }
   | { kind: 'append'; tables: string[] }
+  | { kind: 'conditionalColumn'; name: string; rules: CondRule[]; otherwise: string; otherwiseIsColumn?: boolean }
+  | { kind: 'promoteHeaders'; renames: [string, string][] }
 );
+/** "Colonna condizionale": if [column] <op> value then output (a value, or another column). */
+export interface CondRule { column: string; op: FilterOp; value: string; vtype: ValueType; output: string; outputIsColumn?: boolean; }
 export type StepKind = Step['kind'];
 /** A step before it gets its id (distributes Omit over the union). */
 export type NewStep = Step extends infer S ? (S extends Step ? Omit<S, 'id'> : never) : never;

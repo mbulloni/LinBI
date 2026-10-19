@@ -61,7 +61,7 @@ function Editor() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
-  const [opts, setOpts] = useState({ formula: true, quality: true, sql: false });
+  const [opts, setOpts] = useState({ formula: true, quality: true, sql: false, distribution: false, profile: false });
   const [menu, setMenu] = useState<MenuState>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -80,7 +80,7 @@ function Editor() {
         const d = await api.query(`DESCRIBE SELECT * FROM (${sql})`);
         const r = await api.query(`SELECT * FROM (${sql}) LIMIT 1000`);
         if (dead) return;
-        setPreview({ columns: d.rows.map((x) => ({ name: x.column_name, type: x.column_type })), rows: r.rows, sql, at: new Date() });
+        setPreview({ columns: d.rows.map((x) => ({ name: x.column_name, type: x.column_type })), rows: r.rows, sql, at: new Date(), upto, query: q.name });
         setError(null);
       } catch (e: any) {
         if (!dead) setError(friendlyError(e.message));
@@ -102,8 +102,101 @@ function Editor() {
     }));
   }, [preview]);
 
+  // Column distribution/profile (first 1000 rows, like Power BI's default).
+  const dist = useMemo(() => {
+    if (!opts.distribution && !opts.profile) return new Map<string, { counts: [string, number][]; distinct: number; unique: number }>();
+    const rows = preview?.rows ?? [];
+    return new Map(cols.map((c) => {
+      const m = new Map<string, number>();
+      for (const r of rows) { const k = r[c.name] === null ? '(null)' : String(r[c.name]); m.set(k, (m.get(k) ?? 0) + 1); }
+      const counts = [...m.entries()].sort((a, b) => b[1] - a[1]);
+      return [c.name, { counts, distinct: m.size, unique: counts.filter(([, n]) => n === 1).length }];
+    }));
+  }, [preview, opts.distribution, opts.profile]);
+  const profileCol = opts.profile ? cols.find((c) => c.name === sel[0]) ?? cols[0] : undefined;
+  const stats = useMemo(() => {
+    if (!profileCol) return null;
+    const vals = (preview?.rows ?? []).map((r) => r[profileCol.name]);
+    const nonNull = vals.filter((v) => v !== null && v !== '');
+    const nums = nonNull.map(Number).filter((x) => Number.isFinite(x));
+    const numeric = vtypeOf(profileCol) === 'number' && nums.length > 0;
+    const avg = numeric ? nums.reduce((a, b) => a + b, 0) / nums.length : 0;
+    const sd = numeric && nums.length > 1 ? Math.sqrt(nums.reduce((a, b) => a + (b - avg) ** 2, 0) / (nums.length - 1)) : 0;
+    const d = dist.get(profileCol.name);
+    const sorted = [...nonNull].map(String).sort((a, b) => (numeric ? Number(a) - Number(b) : a.localeCompare(b, 'it')));
+    return {
+      rows: [
+        ['Conteggio', vals.length], ['Errore', 0], ['Vuoto', vals.filter((v) => v === '').length], ['Null', vals.filter((v) => v === null).length],
+        ['Distinti', d?.distinct ?? 0], ['Univoci', d?.unique ?? 0],
+        ...(numeric ? [['Min', Math.min(...nums)], ['Max', Math.max(...nums)], ['Media', avg], ['Deviazione standard', sd], ['Zero', nums.filter((x) => x === 0).length]]
+          : [['Min', sorted[0] ?? ''], ['Max', sorted[sorted.length - 1] ?? '']]),
+      ] as [string, string | number][],
+      top: (d?.counts ?? []).slice(0, 20),
+    };
+  }, [profileCol, preview, dist]);
+
   // ---- step helpers -------------------------------------------------------
-  const add = (st: NewStep) => s.pqAddStep(st);
+  // Editing an applied step: the preview shows the step's input, OK replaces the step (same id).
+  const [editing, setEditing] = useState<{ index: number; dialog: DialogState; back: number | null } | null>(null);
+  const add = (st: NewStep) => {
+    if (!editing) { s.pqAddStep(st); return; }
+    const i = editing.index;
+    s.pqSet((x) => { const qq = x.queries.find((y) => y.name === x.selected)!; qq.steps[i] = { ...st, id: qq.steps[i].id } as Step; });
+  };
+  const dialogFor = (st: Step): DialogState | null => {
+    switch (st.kind) {
+      case 'keepTop': case 'keepBottom': case 'removeTop': case 'removeBottom': return { kind: 'rows', step: st.kind };
+      case 'filterRows': return ['in', 'notIn', 'blank', 'notBlank'].includes(st.op) ? null : { kind: 'filter', col: st.column, op: st.op };
+      case 'replaceValues': return { kind: 'replace', cols: st.columns };
+      case 'splitColumn': return { kind: 'split', col: st.column };
+      case 'groupBy': return { kind: 'group', cols: st.keys };
+      case 'customColumn': return { kind: 'custom' };
+      case 'conditionalColumn': return { kind: 'conditional' };
+      case 'merge': return { kind: 'merge' };
+      case 'append': return { kind: 'append' };
+      case 'selectColumns': return { kind: 'choose' };
+      case 'transform': return st.fn === 'round' ? { kind: 'round', cols: st.columns } : null;
+      default: return null;
+    }
+  };
+  const editStep = (i: number) => {
+    const d = q && dialogFor(q.steps[i]);
+    if (!d) return;
+    const back = pq.step;
+    s.pqSet((x) => { x.step = i; });
+    setEditing({ index: i, dialog: d, back });
+  };
+  const closeDialog = () => {
+    setDialog(null);
+    if (editing) { const back = editing.back; s.pqSet((x) => { x.step = back; }); setEditing(null); }
+  };
+  // Open the edit dialog once the preview shows the step's input.
+  useEffect(() => {
+    if (editing && !dialog && preview?.upto === editing.index && preview.query === q?.name) setDialog(editing.dialog);
+  }, [editing, preview]);
+  const promoteHeaders = () => {
+    const first = preview?.rows[0];
+    if (!first) return;
+    const used = new Set<string>();
+    const renames: [string, string][] = cols.map((c, i) => {
+      let n = String(first[c.name] ?? '').trim() || `Column${i + 1}`;
+      for (let k = 2; used.has(n); k++) n = `${String(first[c.name] ?? '').trim() || 'Column'}_${k}`;
+      used.add(n);
+      return [c.name, n];
+    });
+    add({ kind: 'promoteHeaders', renames: renames.filter(([a, b]) => a !== b) });
+    // Like Power BI, a "Modificato tipo" step follows, with types detected from the remaining rows.
+    const rest = (preview?.rows ?? []).slice(1);
+    const detected: [string, PQType][] = [];
+    for (const [orig, name] of renames) {
+      const vals = rest.map((r) => r[orig]).filter((v) => v !== null && v !== '').map(String);
+      if (!vals.length) continue;
+      const t: PQType | null = vals.every((v) => /^-?\d+$/.test(v)) ? 'int' : vals.every((v) => /^-?\d+([.,]\d+)?$/.test(v)) ? 'decimal'
+        : vals.every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v)) ? 'date' : null;
+      if (t) detected.push([name, t]);
+    }
+    if (detected.length) add({ kind: 'changeType', columns: detected });
+  };
   const target = (col?: string) => (col && !sel.includes(col) ? [col] : sel.length ? sel : col ? [col] : []);
   const need = (cs: string[]) => {
     if (!cs.length) s.notify('Selezionare prima una o più colonne facendo clic sulle intestazioni.');
@@ -295,6 +388,7 @@ function Editor() {
               <Big icon="splitColumn" label={<>Dividi<br />colonna</>} onClick={() => { const c = one(T); if (c) setDialog({ kind: 'split', col: c }); }} disabled={noCols} />
               <Big icon="groupBy" label={<>Raggruppa<br />per</>} onClick={() => setDialog({ kind: 'group', cols: T })} disabled={noCols} />
               <div className="rcol">
+                <Small icon="keepRows" label="Usa la prima riga come intestazione" onClick={promoteHeaders} disabled={noCols} />
                 <button className="rbtn-s" onClick={openMenu('type')} disabled={noCols}><Icon name="calc" size={16} />Tipo di dati: {firstMeta ? TYPE_LABEL[pqTypeOf(firstMeta.type)] : '—'}<Icon name="chevronDown" size={10} /></button>
                 <Small icon="painter" label="Sostituisci valori" onClick={() => need(T) && setDialog({ kind: 'replace', cols: T })} disabled={noCols} />
               </div>
@@ -310,6 +404,7 @@ function Editor() {
           {tab === 'transform' && <>
             <Group label="Tabella">
               <Big icon="groupBy" label={<>Raggruppa<br />per</>} onClick={() => setDialog({ kind: 'group', cols: T })} disabled={noCols} />
+              <Big icon="keepRows" label={<>Usa la prima riga<br />come intestazione</>} onClick={promoteHeaders} disabled={noCols} />
               <Big icon="removeRows" label={<>Rimuovi<br />duplicati</>} onClick={() => act.removeDup(T)} disabled={noCols} />
             </Group>
             <Group label="Qualsiasi colonna">
@@ -335,6 +430,7 @@ function Editor() {
           {tab === 'add' && <>
             <Group label="Generale">
               <Big icon="customColumn" label={<>Colonna<br />personalizzata</>} onClick={() => setDialog({ kind: 'custom' })} disabled={noCols} />
+              <Big icon="customColumn" label={<>Colonna<br />condizionale</>} onClick={() => setDialog({ kind: 'conditional' })} disabled={noCols} />
               <Big icon="indexColumn" label={<>Colonna<br />indice</>} dropdown onClick={openMenu('index')} disabled={noCols} />
               <Big icon="duplicateColumn" label={<>Duplica<br />colonna</>} onClick={() => act.duplicate(one(T))} disabled={noCols} />
             </Group>
@@ -349,6 +445,8 @@ function Editor() {
             <Group label="Anteprima dati">
               <div className="rcol">
                 <label className="rcheck"><input type="checkbox" checked={opts.quality} onChange={(e) => setOpts({ ...opts, quality: e.target.checked })} />Qualità colonna</label>
+                <label className="rcheck"><input type="checkbox" checked={opts.distribution} onChange={(e) => setOpts({ ...opts, distribution: e.target.checked })} />Distribuzione colonne</label>
+                <label className="rcheck"><input type="checkbox" checked={opts.profile} onChange={(e) => setOpts({ ...opts, profile: e.target.checked })} />Profilo colonna</label>
                 <label className="rcheck"><input type="checkbox" checked={opts.sql} onChange={(e) => setOpts({ ...opts, sql: e.target.checked })} />SQL generato (DuckDB)</label>
               </div>
             </Group>
@@ -400,6 +498,16 @@ function Editor() {
                             : <span className="nm">{c.name}</span>}
                           <button className="pq-dd" onClick={openMenu('filter', c.name)}><Icon name="chevronDown" size={10} /></button>
                         </div>
+                        {opts.distribution && dist.get(c.name) && (() => {
+                          const d = dist.get(c.name)!;
+                          const top = d.counts.slice(0, 12), max = top[0]?.[1] ?? 1;
+                          return (
+                            <div className="pq-dist" title={`${d.distinct} distinti, ${d.unique} univoci`}>
+                              <div className="bars">{top.map(([k, n]) => <i key={k} style={{ height: `${(n / max) * 100}%` }} title={`${k}: ${n}`} />)}</div>
+                              <span className="cnt">{d.distinct} distinti, {d.unique} univoci</span>
+                            </div>
+                          );
+                        })()}
                         {opts.quality && (
                           <div className="pq-quality" title={`Valido ${Math.round((1 - quality.get(c.name)!) * 100)}% · Errore 0% · Vuoto ${Math.round(quality.get(c.name)! * 100)}%`}>
                             <i style={{ width: `${(1 - quality.get(c.name)!) * 100}%` }} />
@@ -423,6 +531,18 @@ function Editor() {
             )}
             {loading && <div className="pq-loading"><div className="spinner" /></div>}
           </div>
+          {stats && profileCol && (
+            <div className="pq-profile">
+              <div>
+                <h4>Statistiche colonna · {profileCol.name}</h4>
+                <table><tbody>{stats.rows.map(([k, v]) => <tr key={k}><td>{k}</td><td>{typeof v === 'number' ? v.toLocaleString('it-IT', { maximumFractionDigits: 4 }) : v}</td></tr>)}</tbody></table>
+              </div>
+              <div className="vd">
+                <h4>Distribuzione valori</h4>
+                {stats.top.map(([k, n]) => <div key={k}><span title={k}>{k}</span><b style={{ width: `${(n / (stats.top[0]?.[1] || 1)) * 100}%` }} /><span>{n}</span></div>)}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="pq-settings">
@@ -439,6 +559,7 @@ function Editor() {
               {q.steps.map((st, i) => (
                 <div key={st.id} className={'pq-step' + (upto === i + 1 ? ' sel' : '') + (upto < i + 1 ? ' after' : '')} onClick={() => selectStep(i + 1)}>
                   <button className="pq-del" title="Elimina passaggio" onClick={(e) => { e.stopPropagation(); deleteStep(i); }}><Icon name="close" size={11} /></button>
+                  {dialogFor(st) && <button className="pq-gear" title="Modifica impostazioni" onClick={(e) => { e.stopPropagation(); editStep(i); }}>⚙</button>}
                   <span className="nm" title={names[i].join(' → ')}>{names[i][0]}</span>
                 </div>
               ))}
@@ -559,7 +680,7 @@ function Editor() {
         </Menu>
       )}
 
-      {dialog && <PQDialog dialog={dialog} close={() => setDialog(null)} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} />}
+      {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} />}
 
       {confirm && (
         <div className="modal-bg pq-modal">

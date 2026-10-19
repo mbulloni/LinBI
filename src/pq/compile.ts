@@ -130,6 +130,15 @@ function stepSql(s: Step, P: string, subs: Map<string, string>): string {
       return `SELECT * EXCLUDE (${qi(s.column)}), ${parts.join(', ')} FROM ${P}`;
     }
     case 'customColumn': return `SELECT *, (${mToSql(s.formula)}) AS ${qi(s.name)} FROM ${P}`;
+    case 'conditionalColumn': {
+      // Numeric result when every literal output is a number and no output is a column; text otherwise.
+      const outs = [...s.rules.map((r) => [r.output, r.outputIsColumn] as const), [s.otherwise, s.otherwiseIsColumn] as const];
+      const numeric = outs.every(([o, col]) => !col && (o.trim() === '' || parseNumber(o) !== null));
+      const out = ([o, col]: readonly [string, boolean | undefined]) => (col ? `CAST(${qi(o)} AS VARCHAR)` : o.trim() === '' ? 'NULL' : numeric ? String(parseNumber(o)) : ql(o));
+      const whens = s.rules.map((r, i) => `WHEN ${filterCond({ id: '', kind: 'filterRows', column: r.column, op: r.op, value: r.value, vtype: r.vtype })} THEN ${out(outs[i])}`);
+      return `SELECT *, CASE ${whens.join(' ')} ELSE ${out(outs[outs.length - 1])} END AS ${qi(s.name)} FROM ${P}`;
+    }
+    case 'promoteHeaders': return `SELECT * ${s.renames.length ? `RENAME (${s.renames.map(([a, b]) => `${qi(a)} AS ${qi(b)}`).join(', ')}) ` : ''}FROM ${P} QUALIFY row_number() OVER (ORDER BY ${R}) > 1`;
     case 'indexColumn': return `SELECT *, row_number() OVER (ORDER BY ${R}) - 1 + ${Math.floor(s.start)} AS ${qi(s.name)} FROM ${P}`;
     case 'duplicateColumn': return `SELECT *, ${qi(s.column)} AS ${qi(s.name)} FROM ${P}`;
     case 'groupBy': {

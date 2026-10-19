@@ -592,3 +592,25 @@ thead .pq-rn { z-index: 2; }
 .param-fields .pill .src { color: var(--text2); font-size: 11px; }
 .nav-v { position: absolute; inset: 2px; display: flex; gap: 4px; }
 .nav-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 0 6px; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; min-height: 24px; }
+.pq-cond, .pq-cond-head { display: grid; grid-template-columns: 90px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr) 44px minmax(0,1.6fr) 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.pq-cond-head { font-size: 11px; color: var(--text2); margin-top: 8px; }
+.pq-cond-else { grid-template-columns: 90px minmax(0,1fr); }
+.pq-out { display: flex; gap: 4px; }
+.pq-out select:first-child { width: 78px; }
+.pq-out > :last-child { flex: 1; min-width: 0; }
+.pq-gear { order: 2; width: 18px; height: 18px; border: 0; background: none; cursor: pointer; color: var(--text2); font-size: 12px; border-radius: 2px; }
+.pq-gear:hover { background: #E1DFDD; color: #252423; }
+.pq-step .nm { order: 1; }
+.pq-dist { display: flex; flex-direction: column; gap: 2px; padding: 3px 4px 2px; font-weight: 400; }
+.pq-dist .bars { display: flex; align-items: flex-end; gap: 1px; height: 26px; }
+.pq-dist .bars i { flex: 1; background: #118DFF; min-height: 1px; }
+.pq-dist .cnt { font-size: 10px; color: var(--text2); white-space: nowrap; }
+.pq-profile { border-top: 1px solid var(--line); height: 210px; display: flex; gap: 24px; padding: 8px 12px; overflow: auto; flex-shrink: 0; background: #fff; font-size: 12px; }
+.pq-profile h4 { margin: 0 0 6px; font-size: 12px; }
+.pq-profile table td { padding: 1px 12px 1px 0; }
+.pq-profile table td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+.pq-profile .vd { flex: 1; min-width: 260px; }
+.pq-profile .vd div { display: grid; grid-template-columns: 140px 1fr 50px; gap: 6px; align-items: center; margin-bottom: 2px; }
+.pq-profile .vd span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pq-profile .vd b { display: block; height: 10px; background: #118DFF; }
+.pq-profile .vd span:last-child { text-align: right; color: var(--text2); }

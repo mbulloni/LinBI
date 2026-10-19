@@ -104,6 +104,12 @@ export function stepM(s: Step, prev: string, names: string[]): string[] {
       `Table.ExpandTableColumn(${mName(names[0])}, ${mStr(s.table)}, ${mList(s.expand)}, ${mList(s.expand.map((c) => `${s.table}.${c}`))})`,
     ];
     case 'append': return [`Table.Combine({${[p, ...s.tables.map(mName)].join(', ')}})`];
+    case 'conditionalColumn': {
+      const out = (o: string, col?: boolean) => (col ? mCol(o) : o.trim() === '' ? 'null' : parseNumber(o) !== null ? String(parseNumber(o)) : mStr(o));
+      const ifs = s.rules.map((r) => `if ${filterM({ id: '', kind: 'filterRows', column: r.column, op: r.op, value: r.value, vtype: r.vtype })} then ${out(r.output, r.outputIsColumn)}`).join(' else ');
+      return [`Table.AddColumn(${p}, ${mStr(s.name)}, each ${ifs} else ${out(s.otherwise, s.otherwiseIsColumn)})`];
+    }
+    case 'promoteHeaders': return [`Table.PromoteHeaders(${p}, [PromoteAllScalars=true])`];
   }
 }
 

@@ -238,7 +238,7 @@ Fabric, PDF, `.lbix` con i dati.
 
 ## Roadmap
 
-4. ~~**Power Query**~~ ✔ — prossimi passi: modifica dei passaggi esistenti, Editor avanzato modificabile (parser M), *Usa la prima riga come intestazione*, colonne condizionali, profilo colonna
+4. ~~**Power Query**~~ ✔ — modifica dei passaggi (ingranaggio), colonna condizionale, *Usa la prima riga come intestazione*, qualità/distribuzione/profilo colonne; prossimi passi: Editor avanzato modificabile (parser M)
 5. ~~**DAX completo**~~ ✔ — prossimi passi: misure rapide, IntelliSense nella barra della formula, gerarchie di date automatiche
 6. ~~**File**~~ ✔ — prossimi passi: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint
 
