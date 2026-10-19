@@ -129,7 +129,7 @@ export function units(n: number, unit: unknown, precision: unknown): string | un
 
 /** Query reference Power BI uses in selectors/projections ("Table.Measure", "Sum(Table.Column)"). */
 export function queryRef(f: { table: string; column: string; agg: string }): string {
-  const fn: Record<string, string> = { sum: 'Sum', avg: 'Avg', min: 'Min', max: 'Max', count: 'Count', countd: 'CountNonNull' };
+  const fn: Record<string, string> = { sum: 'Sum', avg: 'Avg', min: 'Min', max: 'Max', count: 'Count', countd: 'CountNonNull', median: 'Median', stdev: 'StandardDeviation', var: 'Variance' };
   return fn[f.agg] ? `${fn[f.agg]}(${f.table}.${f.column})` : `${f.table}.${f.column}`;
 }
 

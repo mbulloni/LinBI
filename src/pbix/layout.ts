@@ -24,6 +24,7 @@ const TYPE_IN: Record<string, VisualType> = {
   tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer',
   textbox: 'textbox', image: 'image', actionButton: 'button', basicShape: 'shape', shape: 'shape',
   map: 'map', azureMap: 'map', filledMap: 'filledMap', shapeMap: 'filledMap',
+  decompositionTreeVisual: 'decompositionTree', keyDriversVisual: 'keyInfluencers', smartNarrativeVisual: 'smartNarrative',
 };
 /** Decorative/navigation objects that carry no data: not imported. */
 const SKIP = new Set(['bookmarkNavigator', 'pageNavigator', 'lineShape']);
@@ -36,6 +37,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   lineClusteredColumn: 'lineClusteredColumnComboChart', lineStackedColumn: 'lineStackedColumnComboChart', ribbon: 'ribbonChart',
   waterfall: 'waterfallChart', multiRowCard: 'multiRowCard', kpi: 'kpi',
   matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape', map: 'map', filledMap: 'filledMap',
+  decompositionTree: 'decompositionTreeVisual', keyInfluencers: 'keyDriversVisual', smartNarrative: 'smartNarrativeVisual',
 };
 
 /** Power BI projection role → LinBI well, per LinBI visual type. */
@@ -49,6 +51,8 @@ function roleMap(t: VisualType): Record<string, string> {
     case 'multiRowCard': return { Values: 'values' };
     case 'kpi': return { Indicator: 'values', TrendLine: 'trend', Goal: 'target' };
     case 'waterfall': return { Category: 'category', Y: 'values' };
+    case 'decompositionTree': return { Analyze: 'values', ExplainBy: 'explain' };
+    case 'keyInfluencers': return { Target: 'target', ExplainBy: 'explain' };
     case 'map': return { Category: 'category', Series: 'legend', Y: 'lat', X: 'lon', Size: 'values' };
     case 'filledMap': return { Category: 'category', Series: 'legend', Gradient: 'values', Y: 'values' };
     case 'lineClusteredColumn': case 'lineStackedColumn': return { Category: 'category', Y: 'values', Y2: 'lineValues', Series: 'legend' };
@@ -59,8 +63,8 @@ function roleMap(t: VisualType): Record<string, string> {
   }
 }
 
-const AGG_IN: Record<number, Agg> = { 0: 'sum', 1: 'avg', 2: 'countd', 3: 'min', 4: 'max', 5: 'count', 6: 'avg' };
-const AGG_OUT: Partial<Record<Agg, [number, string]>> = { sum: [0, 'Sum'], avg: [1, 'Avg'], countd: [2, 'CountNonNull'], min: [3, 'Min'], max: [4, 'Max'], count: [5, 'Count'] };
+const AGG_IN: Record<number, Agg> = { 0: 'sum', 1: 'avg', 2: 'countd', 3: 'min', 4: 'max', 5: 'count', 6: 'median', 7: 'stdev', 8: 'var' };
+const AGG_OUT: Partial<Record<Agg, [number, string]>> = { sum: [0, 'Sum'], avg: [1, 'Avg'], countd: [2, 'CountNonNull'], min: [3, 'Min'], max: [4, 'Max'], count: [5, 'Count'], median: [6, 'Median'], stdev: [7, 'StandardDeviation'], var: [8, 'Variance'] };
 
 /* -------------------------------- helpers ------------------------------- */
 

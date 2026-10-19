@@ -73,7 +73,7 @@ function Wells({ v }: { v: Visual }) {
   if (!def.wells.length) return null;
   const mf = menu ? v.fields[menu.well]?.[menu.idx] : undefined;
   const numeric = mf ? isNumeric(colMeta(mf.table, mf.column)) : false;
-  const aggs: Agg[] = numeric ? ['sum', 'avg', 'min', 'max', 'countd', 'count', 'none'] : ['none', 'min', 'max', 'countd', 'count'];
+  const aggs: Agg[] = numeric ? ['sum', 'avg', 'min', 'max', 'countd', 'count', 'stdev', 'var', 'median', 'none'] : ['none', 'min', 'max', 'countd', 'count'];
   const wellIsMeasure = menu ? def.wells.find((w) => w.key === menu.well)?.measure : false;
 
   return (

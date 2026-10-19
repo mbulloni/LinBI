@@ -1,4 +1,4 @@
-export type Agg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'countd' | 'none' | 'measure';
+export type Agg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'countd' | 'median' | 'stdev' | 'var' | 'none' | 'measure';
 
 export interface ColumnMeta { name: string; type: string; }
 export interface TableMeta {
@@ -29,7 +29,7 @@ export type VisualType =
   | 'stackedBar100' | 'stackedColumn100' | 'line' | 'area' | 'stackedArea'
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge' | 'map' | 'filledMap'
-  | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;
@@ -80,6 +80,10 @@ export interface Visual {
   filters?: Filter[];
   /** Formatting imported from Power BI (objects/vcObjects as in the file), see visuals/pbistyle.ts. */
   style?: import('./visuals/pbistyle').PbiStyle;
+  /** Decomposition tree: expanded path (dimension index in "Spiega per", expanded value). */
+  tree?: { dim: number; value?: string | null }[];
+  /** Key influencers: categorical target value, numeric direction, selected influencer. */
+  ki?: { target?: string; dir?: 'up' | 'down'; selected?: string; tab?: 'influencers' | 'segments' };
   text?: string;       // textbox content, or original visualType for 'unsupported'
   image?: string;      // data URL for 'image'
 }

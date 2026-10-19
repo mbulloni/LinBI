@@ -217,6 +217,8 @@ Fabric, PDF, `.lbix` con i dati.
 - `.lbix` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
 - Mappe (a bolle, con torte per legenda, e colorate) senza connessione: paesi, stati USA, regioni/province/comuni italiani,
   ~7.300 città del mondo, oppure latitudine/longitudine; zoom e trascinamento, filtro incrociato
+- Oggetti visivi IA: albero di scomposizione (divisione IA valore alto/basso), influenzatori chiave (destinazione numerica o
+  categorica, fattori numerici divisi in fasce, test di significatività) e narrazione intelligente della pagina
 - Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;

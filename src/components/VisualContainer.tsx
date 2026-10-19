@@ -8,6 +8,7 @@ import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
 import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
 import { MapVisual } from '../visuals/MapVisual';
+import { DecompositionTreeVisual, KeyInfluencersVisual, SmartNarrativeVisual } from '../visuals/AiVisuals';
 import { CardVisual, KpiVisual, MatrixVisual, MultiRowCardVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
 import { isChart, visualDef } from '../visuals/catalog';
 import { fieldLabel } from '../format';
@@ -76,6 +77,9 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'shape') return <ShapeVisual v={v} />;
   if (v.type === 'image') return <img src={v.image} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />;
   if (v.type === 'unsupported') return <div className="vc-error"><b>Oggetto visivo non supportato</b><span>{v.text}</span></div>;
+  if (v.type === 'decompositionTree') return <DecompositionTreeVisual v={v} />;
+  if (v.type === 'keyInfluencers') return <KeyInfluencersVisual v={v} />;
+  if (v.type === 'smartNarrative') return <SmartNarrativeVisual v={v} />;
   if (data.empty) return <div className="vc-placeholder"><VisualIcon type={v.type} size={Math.min(120, v.h * 0.45)} /></div>;
   if (data.error) return <div className="vc-error"><b>Impossibile visualizzare l'oggetto visivo.</b><span>{data.error}</span></div>;
   if (v.type === 'card') return <CardVisual v={v} data={data} />;

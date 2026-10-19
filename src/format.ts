@@ -6,12 +6,13 @@ export const isDate = (c?: ColumnMeta) => !!c && /^(DATE|TIMESTAMP.*|TIME)$/i.te
 
 export const AGG_LABEL: Record<Agg, string> = {
   sum: 'Somma', avg: 'Media', min: 'Minimo', max: 'Massimo',
-  count: 'Conteggio', countd: 'Conteggio (distinto)', none: 'Non riepilogare', measure: 'Misura',
+  count: 'Conteggio', countd: 'Conteggio (distinto)', median: 'Mediana', stdev: 'Deviazione standard', var: 'Varianza',
+  none: 'Non riepilogare', measure: 'Misura',
 };
 
 export const AGG_PREFIX: Record<Agg, string> = {
   sum: 'Somma di', avg: 'Media di', min: 'Minimo di', max: 'Massimo di',
-  count: 'Conteggio di', countd: 'Conteggio di', none: '', measure: '',
+  count: 'Conteggio di', countd: 'Conteggio di', median: 'Mediana di', stdev: 'Deviazione standard di', var: 'Varianza di', none: '', measure: '',
 };
 
 export function fieldLabel(f: FieldRef): string {

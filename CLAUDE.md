@@ -25,6 +25,8 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - Maps: `visuals/MapVisual.tsx` (ECharts geo, Mercator projection, `boundingCoords` fit; filled-map colors through `geo.regions` because a map series bound to a geo ignores item styles; location+legend = custom pie series). Offline geocoding `geo/geocode.ts`: layers in `src/geo/*.json` (TopoJSON object `f`, props `n` name, `k` normalized aliases, `c` inner point; loaded lazily with `?raw`), best layer = column-name hint then most matches. Regenerate with `scripts/build-geo.mjs`.
 
+- AI visuals (`visuals/AiVisuals.tsx`) run their own queries through `useVisualData.ts#runVisualQuery` (synthetic table/card visuals with the same id, page filters and extra filters); `buildVisualQuery` returns null for them. Tree path in `Visual.tree`, key influencers state in `Visual.ki`.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.

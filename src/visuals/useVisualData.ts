@@ -62,3 +62,16 @@ export function useVisualData(v: Visual): VisualData {
 
   return { ...state, percent };
 }
+
+/** Runs an ad-hoc query shaped like visual `v` (its wells), on `v`'s page with every filter in scope,
+ *  plus `extra` filters. Used by visuals that need several queries (decomposition tree, key influencers, narrative). */
+export async function runVisualQuery(v: Visual, extra: import('../types').Filter[] = []): Promise<{ items: import('../query').QueryItem[]; rows: Record<string, any>[] }> {
+  const s = useStore.getState();
+  const page = s.report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? s.page();
+  const q = buildVisualQuery({ ...v, filters: [...(v.filters ?? []), ...extra] }, s.tables, s.report.relationships,
+    [...s.report.reportFilters, ...page.filters], page.visuals, s.crossFilter, s.report.measures);
+  if (!q) return { items: [], rows: [] };
+  if ('error' in q) throw new Error(q.error);
+  const res = await api.query(q.sql);
+  return { items: q.items, rows: res.rows };
+}

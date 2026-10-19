@@ -71,6 +71,9 @@ export const VISUALS: VisualDef[] = [
     wells: [{ key: 'values', label: 'Valore', measure: true, max: 1 }, { key: 'trend', label: 'Asse delle tendenze', measure: false, max: 1 },
       { key: 'target', label: 'Obiettivi', measure: true, max: 1 }],
   },
+  { type: 'keyInfluencers', name: 'Influenzatori chiave', wells: [{ key: 'target', label: 'Analizza', measure: false, max: 1 }, { key: 'explain', label: 'Spiega per', measure: false }] },
+  { type: 'decompositionTree', name: 'Albero di scomposizione', wells: [{ key: 'values', label: 'Analizza', measure: true, max: 1 }, { key: 'explain', label: 'Spiega per', measure: false }] },
+  { type: 'smartNarrative', name: 'Narrazione intelligente', wells: [] },
   { type: 'slicer', name: 'Filtro dei dati', category: 'category', wells: [{ key: 'category', label: 'Campo', measure: false, max: 1 }] },
   { type: 'table', name: 'Tabella', wells: [{ key: 'columns', label: 'Colonne', measure: false }] },
   {
@@ -84,4 +87,4 @@ const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo'
 export const visualDef = (t: VisualType): VisualDef =>
   VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
 
-export const isChart = (t: VisualType) => !['map', 'filledMap', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);
+export const isChart = (t: VisualType) => !['map', 'filledMap', 'keyInfluencers', 'decompositionTree', 'smartNarrative', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);

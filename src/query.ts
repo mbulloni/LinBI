@@ -123,6 +123,9 @@ function measureExpr(tables: TableMeta[], f: FieldRef, c: string): string {
     case 'countd': return `CAST(COUNT(DISTINCT ${c}) AS DOUBLE)`;
     case 'sum': return num ? `CAST(SUM(${c}) AS DOUBLE)` : `CAST(COUNT(${c}) AS DOUBLE)`;
     case 'avg': return num ? `CAST(AVG(${c}) AS DOUBLE)` : `CAST(COUNT(${c}) AS DOUBLE)`;
+    case 'median': return num ? `CAST(MEDIAN(${c}) AS DOUBLE)` : `CAST(COUNT(${c}) AS DOUBLE)`;
+    case 'stdev': return num ? `CAST(STDDEV_SAMP(${c}) AS DOUBLE)` : `CAST(COUNT(${c}) AS DOUBLE)`;
+    case 'var': return num ? `CAST(VAR_SAMP(${c}) AS DOUBLE)` : `CAST(COUNT(${c}) AS DOUBLE)`;
     case 'min': return num ? `CAST(MIN(${c}) AS DOUBLE)` : `CAST(MIN(${c}) AS VARCHAR)`;
     case 'max': return num ? `CAST(MAX(${c}) AS DOUBLE)` : `CAST(MAX(${c}) AS VARCHAR)`;
     default: return `CAST(${c} AS VARCHAR)`;
@@ -253,6 +256,8 @@ export function buildVisualQuery(
   v: Visual, tables: TableMeta[], rels: Relationship[], filters: Filter[], visuals: Visual[], cross: CrossFilter | null,
   daxMeasures: Measure[] = [],
 ): VisualQuery | { error: string } | null {
+  // These visuals run their own queries (visuals/AiVisuals.tsx).
+  if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative') return null;
   const def = visualDef(v.type);
   const items: QueryItem[] = [];
   for (const w of def.wells) {
