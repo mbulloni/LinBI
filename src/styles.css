@@ -615,7 +615,7 @@ thead .pq-rn { z-index: 2; }
 .pq-profile .vd span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pq-profile .vd b { display: block; height: 10px; background: #118DFF; }
 .pq-profile .vd span:last-child { text-align: right; color: var(--text2); }
-.pq-fx-input { flex: 1; min-width: 0; font: 12px 'Ubuntu Mono', 'DejaVu Sans Mono', monospace; border: 0; outline: none; background: transparent; }
+.pq-fx-input { color: #252423; flex: 1; min-width: 0; font: 12px 'Ubuntu Mono', 'DejaVu Sans Mono', monospace; border: 0; outline: none; background: transparent; }
 .pq-fx-input:focus { background: #fff; box-shadow: inset 0 -1px #0F6CBD; }
 .pq-fx-err { color: #A4262C; font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pq-code-edit { width: 100%; height: 55vh; resize: vertical; white-space: pre; }
@@ -627,3 +627,12 @@ thead .pq-rn { z-index: 2; }
 .search-item .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .search-item .hint { color: var(--text2); font-size: 11px; }
 .search-empty { padding: 8px 12px; color: var(--text2); font-size: 12px; }
+.pq-ex-bar { display: flex; align-items: center; gap: 10px; padding: 6px 10px; background: #EFF6FC; border-bottom: 1px solid var(--line); font-size: 12px; }
+.pq-ex-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pq-ex-desc code { font-size: 11px; }
+.pq-ex-h, .pq-ex-c { background: #F3F9FD !important; min-width: 160px; }
+.pq-ex-h input { width: 100%; font: inherit; font-weight: 600; }
+.pq-ex-c input { width: 100%; font: inherit; border: 1px solid transparent; background: transparent; }
+.pq-ex-c input:focus { border-color: #0F6CBD; background: #fff; outline: none; }
+.pq-ex-c input::placeholder { color: #8A8886; font-style: italic; }
+.pq-ex-pred { color: #8A8886; font-style: italic; }

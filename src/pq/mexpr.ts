@@ -66,6 +66,11 @@ const FUNCS: Record<string, (a: string[]) => string> = {
   'Text.PadStart': (a) => `lpad(CAST(${a[0]} AS VARCHAR), ${a[1]}, ${a[2] ?? "' '"})`,
   'Text.PadEnd': (a) => `rpad(CAST(${a[0]} AS VARCHAR), ${a[1]}, ${a[2] ?? "' '"})`,
   'Text.From': (a) => `CAST(${a[0]} AS VARCHAR)`,
+  // Text before/after the (n+1)-th delimiter; the whole text / "" when it is missing, like M.
+  'Text.BeforeDelimiter': (a) => `array_to_string(string_split(CAST(${a[0]} AS VARCHAR), ${a[1]})[1:(${a[2] ?? 0}) + 1], ${a[1]})`,
+  'Text.AfterDelimiter': (a) => `array_to_string(string_split(CAST(${a[0]} AS VARCHAR), ${a[1]})[(${a[2] ?? 0}) + 2:], ${a[1]})`,
+  'Text.BetweenDelimiters': (a) => `string_split(string_split(CAST(${a[0]} AS VARCHAR), ${a[1]})[2], ${a[2]})[1]`,
+  'Date.MonthName': (a) => `list_extract(['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'], month(${a[0]}))`,
   'Text.Proper': (a) => properSql(a[0]),
   'Number.From': (a) => `TRY_CAST(${a[0]} AS DOUBLE)`,
   'Number.Round': (a) => `round(${a[0]}, ${a[1] ?? 0})`,

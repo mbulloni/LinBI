@@ -5,6 +5,7 @@ import type { ColumnMeta, FilterOp, NewStep, PQType, Step, TransformFn } from '.
 import { compileQuery, qi } from '../pq/compile';
 import { dependencies, pqTypeOf, renameQueryRef, stepNames, TYPE_LABEL } from '../pq/steps';
 import { exprToStep, mToSteps } from '../pq/mparse';
+import { learn } from '../pq/examples';
 import { stepM } from '../pq/m';
 import { queryM } from '../pbix/pbit';
 import { Icon } from './icons';
@@ -336,6 +337,18 @@ function Editor() {
       return null;
     } catch (e: any) { return e.message; }
   };
+  // Colonna da esempi: examples typed in the first rows, the transformation that matches them.
+  const [ex, setEx] = useState<{ name: string; cols: string[]; examples: Map<number, string> } | null>(null);
+  const exCand = useMemo(() => {
+    if (!ex || !preview) return null;
+    return learn(preview.rows, cols.filter((c) => !ex.cols.length || ex.cols.includes(c.name)), ex.examples);
+  }, [ex, preview]);
+  const startExamples = (selected: boolean) => setEx({ name: uniqueCol('Personalizzato'), cols: selected ? sel : [], examples: new Map() });
+  const okExamples = () => {
+    if (!ex || !exCand) return;
+    add({ kind: 'customColumn', name: ex.name.trim() || uniqueCol('Personalizzato'), formula: exCand.formula });
+    setEx(null);
+  };
   const [fxText, setFxText] = useState<string | null>(null);
   const [fxErr, setFxErr] = useState<string | null>(null);
   useEffect(() => { setFxText(null); setFxErr(null); }, [upto, q?.name]);
@@ -481,6 +494,7 @@ function Editor() {
             <Group label="Generale">
               <Big icon="customColumn" label={<>Colonna<br />personalizzata</>} onClick={() => setDialog({ kind: 'custom' })} disabled={noCols} />
               <Big icon="customColumn" label={<>Colonna<br />condizionale</>} onClick={() => setDialog({ kind: 'conditional' })} disabled={noCols} />
+              <Big icon="customColumn" label={<>Colonna da<br />esempi</>} dropdown onClick={openMenu('examples')} disabled={noCols} />
               <Big icon="indexColumn" label={<>Colonna<br />indice</>} dropdown onClick={openMenu('index')} disabled={noCols} />
               <Big icon="duplicateColumn" label={<>Duplica<br />colonna</>} onClick={() => act.duplicate(one(T))} disabled={noCols} />
             </Group>
@@ -533,6 +547,14 @@ function Editor() {
             </div>
           )}
           {opts.sql && preview && <pre className="pq-sql">{preview.sql}</pre>}
+          {ex && (
+            <div className="pq-ex-bar">
+              <b>Aggiungi colonna da esempi</b>
+              <span className="pq-ex-desc">{!ex.examples.size ? 'Immettere i valori di esempio nella nuova colonna a destra.' : exCand ? <>Trasformazione: {exCand.label} · <code>{exCand.formula}</code></> : 'Nessuna trasformazione trovata per questi esempi: aggiungerne altri o cambiarli.'}</span>
+              <button className="btn primary" disabled={!exCand} onClick={okExamples}>OK</button>
+              <button className="btn" onClick={() => setEx(null)}>Annulla</button>
+            </div>
+          )}
           <div className="grid-wrap pq-grid">
             {noQuery && <div className="pq-empty">Nessuna query. Usare <b>Nuova origine</b>.</div>}
             {error && <div className="pq-error"><Icon name="warning" size={18} /><div><b>{error.split(':')[0]}</b><div>{error.includes(':') ? error.slice(error.indexOf(':') + 1).trim() : ''}</div></div></div>}
@@ -570,6 +592,7 @@ function Editor() {
                         )}
                       </th>
                     ))}
+                    {ex && <th className="pq-ex-h"><input type="text" value={ex.name} onChange={(e) => setEx({ ...ex, name: e.target.value })} title="Nome della nuova colonna" /></th>}
                   </tr>
                 </thead>
                 <tbody>{preview.rows.map((r, i) => (
@@ -580,6 +603,14 @@ function Editor() {
                       const num = vtypeOf(c) === 'number';
                       return <td key={c.name} className={(num ? 'num' : '') + (sel.includes(c.name) ? ' sel' : '') + (v === null ? ' pq-null' : '')}>{fmtCell(v, c)}</td>;
                     })}
+                    {ex && (
+                      <td className="pq-ex-c">
+                        {i < 30
+                          ? <input type="text" value={ex.examples.get(i) ?? ''} placeholder={exCand?.fn(r) ?? ''}
+                              onChange={(e) => { const m = new Map(ex.examples); if (e.target.value) m.set(i, e.target.value); else m.delete(i); setEx({ ...ex, examples: m }); }} />
+                          : <span className="pq-ex-pred">{exCand?.fn(r) ?? ''}</span>}
+                      </td>
+                    )}
                   </tr>
                 ))}</tbody>
               </table>
@@ -690,6 +721,12 @@ function Editor() {
           <button onClick={m(() => act.transform(T, 'quarter'))}>Trimestre</button>
           <button onClick={m(() => act.transform(T, 'month'))}>Mese</button>
           <button onClick={m(() => act.transform(T, 'day'))}>Giorno</button>
+        </Menu>
+      )}
+      {menu?.kind === 'examples' && (
+        <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <button onClick={m(() => startExamples(false))}>Da tutte le colonne</button>
+          <button disabled={!sel.length} onClick={m(() => startExamples(true))}>Dalla selezione</button>
         </Menu>
       )}
       {menu?.kind === 'index' && (
