@@ -6,6 +6,62 @@ import { AGG_LABEL, fieldLabel, isNumeric } from '../format';
 import { Icon, VisualIcon } from '../components/icons';
 import { Menu, Toggle } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
+import { DEFAULT_CF, fieldKey } from '../visuals/condfmt';
+import type { ColorScale, CondFormat } from '../types';
+
+function ColorPick({ label, value, onChange }: { label: string; value: string; onChange: (c: string) => void }) {
+  return (
+    <label className="fmt-row"><span>{label}</span>
+      <span className="colorpick"><input type="color" value={value} onChange={(e) => onChange(e.target.value.toUpperCase())} />{value.toUpperCase()}</span>
+    </label>
+  );
+}
+
+function ScaleEditor({ scale, onChange }: { scale: ColorScale; onChange: (s: ColorScale) => void }) {
+  return <>
+    <ColorPick label="Valore minimo" value={scale.min} onChange={(min) => onChange({ ...scale, min })} />
+    <div className="fmt-row inline"><span>Aggiungi colore centrale</span><Toggle on={!!scale.mid} onChange={(b) => onChange({ ...scale, mid: b ? '#FFEB84' : undefined })} /></div>
+    {scale.mid && <ColorPick label="Valore centrale" value={scale.mid} onChange={(mid) => onChange({ ...scale, mid })} />}
+    <ColorPick label="Valore massimo" value={scale.max} onChange={(max) => onChange({ ...scale, max })} />
+  </>;
+}
+
+/** Table/matrix: conditional formatting per value field. */
+function CondFormatCard({ v }: { v: Visual }) {
+  const s = useStore();
+  const items = visualDef(v.type).wells.flatMap((w) => (v.fields[w.key] ?? []).filter((f) => f.agg !== 'none'));
+  const [sel, setSel] = useState(0);
+  const f = items[Math.min(sel, items.length - 1)];
+  if (!f) return <Card title="Formattazione condizionale"><div style={{ color: 'var(--text2)' }}>Aggiungere un campo valore.</div></Card>;
+  const key = fieldKey(f);
+  const cf: CondFormat = v.format.cf?.[key] ?? {};
+  const set = (patch: Partial<CondFormat>) => {
+    const next = { ...cf, ...patch };
+    for (const k of Object.keys(next) as (keyof CondFormat)[]) if (next[k] === undefined || next[k] === false) delete next[k];
+    const all = { ...(v.format.cf ?? {}) };
+    if (Object.keys(next).length) all[key] = next; else delete all[key];
+    s.updateFormat(v.id, { cf: all });
+  };
+  return (
+    <Card title="Formattazione condizionale" defaultOpen={!!v.format.cf && Object.keys(v.format.cf).length > 0}>
+      <label className="fmt-row"><span>Applica al campo</span>
+        <select value={items.indexOf(f)} onChange={(e) => setSel(+e.target.value)}>
+          {items.map((x, i) => <option key={i} value={i}>{fieldLabel(x)}</option>)}
+        </select>
+      </label>
+      <div className="fmt-row inline"><span>Colore di sfondo</span><Toggle on={!!cf.background} onChange={(b) => set({ background: b ? DEFAULT_CF.background : undefined })} /></div>
+      {cf.background && <ScaleEditor scale={cf.background} onChange={(background) => set({ background })} />}
+      <div className="fmt-row inline"><span>Colore carattere</span><Toggle on={!!cf.font} onChange={(b) => set({ font: b ? DEFAULT_CF.font : undefined })} /></div>
+      {cf.font && <ScaleEditor scale={cf.font} onChange={(font) => set({ font })} />}
+      <div className="fmt-row inline"><span>Barre dei dati</span><Toggle on={!!cf.bars} onChange={(b) => set({ bars: b ? DEFAULT_CF.bars : undefined })} /></div>
+      {cf.bars && <>
+        <ColorPick label="Barra positiva" value={cf.bars.positive} onChange={(positive) => set({ bars: { ...cf.bars!, positive } })} />
+        <ColorPick label="Barra negativa" value={cf.bars.negative} onChange={(negative) => set({ bars: { ...cf.bars!, negative } })} />
+      </>}
+      <div className="fmt-row inline"><span>Icone</span><Toggle on={!!cf.icons} onChange={(b) => set({ icons: b || undefined })} /></div>
+    </Card>
+  );
+}
 
 function Wells({ v }: { v: Visual }) {
   const s = useStore();
@@ -105,8 +161,13 @@ function FormatPane({ v }: { v: Visual }) {
             <label className="fmt-row"><span>Colore predefinito</span>
               <span className="colorpick"><input type="color" value={f.color} onChange={(e) => up({ color: e.target.value })} />{f.color.toUpperCase()}</span>
             </label>
+            {cartesian && v.type !== 'scatter' && <>
+              <div className="fmt-row inline"><span>Sfumatura per valore (fx)</span><Toggle on={!!f.colorScale} onChange={(b) => up({ colorScale: b ? { min: '#DEEFFF', max: '#0B5394' } : undefined })} /></div>
+              {f.colorScale && <ScaleEditor scale={f.colorScale} onChange={(colorScale) => up({ colorScale })} />}
+            </>}
           </Card>
         )}
+        {(v.type === 'table' || v.type === 'matrix') && <CondFormatCard v={v} />}
         {v.type === 'slicer' && (
           <Card title="Impostazioni filtro dei dati" defaultOpen>
             <label className="fmt-row"><span>Stile</span>
@@ -116,7 +177,7 @@ function FormatPane({ v }: { v: Visual }) {
             </label>
           </Card>
         )}
-        {!chart && v.type !== 'slicer' && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
+        {!chart && !['slicer', 'table', 'matrix'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
       </>}
       {tab === 'general' && <>
         <Card title="Proprietà" defaultOpen>

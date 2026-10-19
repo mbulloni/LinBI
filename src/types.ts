@@ -47,6 +47,18 @@ export interface VisualFormat {
   slicerStyle: 'list' | 'dropdown';
   sortBy?: number; // index into result columns
   sortDir?: 'asc' | 'desc';
+  /** Conditional formatting of table/matrix value fields, keyed by condfmt.fieldKey(). */
+  cf?: Record<string, CondFormat>;
+  /** Charts: data colors as a gradient over the values (single series). */
+  colorScale?: ColorScale;
+}
+
+export interface ColorScale { min: string; max: string; mid?: string; }
+export interface CondFormat {
+  background?: ColorScale;
+  font?: ColorScale;
+  bars?: { positive: string; negative: string };
+  icons?: boolean;
 }
 
 export interface Visual {

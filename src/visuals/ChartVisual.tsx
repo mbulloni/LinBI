@@ -5,6 +5,7 @@ import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
+import { rangeOf, scaleColor } from './condfmt';
 
 /** The default single-series color follows the theme's first color. */
 const main = (c: string) => (c.toUpperCase() === '#118DFF' ? PALETTE[0] : c);
@@ -106,6 +107,9 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   } : { show: false };
 
   const singleColor = series.length === 1 && !leg && !lines.length;
+  // "Colori dati" › fx gradient: each bar colored by its value.
+  const grad = singleColor && f.colorScale ? f.colorScale : undefined;
+  const gradRange = grad ? rangeOf(series[0].data) : null;
   const option: echarts.EChartsCoreOption = {
     color: singleColor ? [main(f.color)] : PALETTE,
     textStyle: { fontFamily: FONT },
@@ -135,7 +139,10 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
       label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: 10, color: stacked ? '#fff' : '#252423', formatter: (p: any) => (p.value === null ? '' : pct ? fmtAuto(p.value, 1) + '%' : asPct ? fmtPct(p.value) : fmtAuto(p.value)) },
       data: s.data.map((x, i) => ({
         value: x,
-        itemStyle: selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : undefined,
+        itemStyle: {
+          ...(grad && gradRange && x !== null ? { color: scaleColor(grad, gradRange, x) } : {}),
+          ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}),
+        },
       })),
       z: k,
     })), ...lines.map((s, k) => ({

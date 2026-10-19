@@ -4,9 +4,22 @@ import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
+import { cellFormat, fieldKey, rangeOf, type Range } from './condfmt';
 
 const cell = (v: unknown, measure: boolean) => (measure ? fmtFull(v) : v === null || v === undefined ? '' : String(v));
 const toKey = (v: string | null) => (v === null ? NULL_KEY : v);
+
+/** Value cell with the visual's conditional formatting for that field. */
+function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, raw: unknown, text: string, key: string, bold = false) {
+  const { style, icon } = cellFormat(v.format.cf?.[fieldKey(it.field)], ranges.get(it.alias) ?? null, raw);
+  return (
+    <td key={key} className="num" style={{ ...(bold ? { fontWeight: 600 } : {}), ...style }}>
+      {icon && <span style={{ color: icon.color, marginRight: 4, fontSize: 10 }}>{icon.ch}</span>}{text}
+    </td>
+  );
+}
+const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[]) =>
+  new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => [i.alias, rangeOf(rows.map((r) => r[i.alias]))]));
 
 export function CardVisual({ data }: { data: VisualData }) {
   const m = data.items[0];
@@ -79,6 +92,7 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
     updateFormat(v.id, { sortBy: idx, sortDir: same && v.format.sortDir === 'desc' ? 'asc' : 'desc' });
   };
   const tot = data.totals?.[0];
+  const ranges = rangesFor(v, data.items.filter((i) => i.measure), data.rows);
   return (
     <div className="tbl">
       <table>
@@ -91,7 +105,10 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
           const key = firstDim ? toKey(r[firstDim.alias]) : '';
           return (
             <tr key={k} className={selected !== undefined && selected === key ? 'sel' : ''} onClick={() => firstDim && onSelect(r[firstDim.alias])}>
-              {data.items.map((it) => <td key={it.alias} className={it.measure ? 'num' : ''}>{data.percent.has(it.alias) ? fmtPct(r[it.alias]) : cell(r[it.alias], it.measure)}</td>)}
+              {data.items.map((it) => {
+                const text = data.percent.has(it.alias) ? fmtPct(r[it.alias]) : cell(r[it.alias], it.measure);
+                return it.measure ? decorated(v, it, ranges, r[it.alias], text, it.alias) : <td key={it.alias}>{text}</td>;
+              })}
             </tr>
           );
         })}</tbody>
@@ -131,8 +148,14 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
   const colTot = new Map((data.colTotals ?? []).map((r) => [r[col.alias], r]));
   const grand = data.totals?.[0];
   const span = Math.max(1, vals.length);
+  const ranges = rangesFor(v, vals, data.rows);
+  // Conditional formatting applies to the value cells, not to totals (Power BI default).
   const valCells = (src: Record<string, any> | undefined, k: string, bold = false) =>
-    (vals.length ? vals : [null]).map((m, i) => <td key={k + i} className="num" style={bold ? { fontWeight: 600 } : undefined}>{m && src ? (data.percent.has(m.alias) ? fmtPct(src[m.alias]) : fmtFull(src[m.alias])) : ''}</td>);
+    (vals.length ? vals : [null]).map((m, i) => {
+      const text = m && src ? (data.percent.has(m.alias) ? fmtPct(src[m.alias]) : fmtFull(src[m.alias])) : '';
+      return m && src && !bold && k !== 'g' && !k.startsWith('ct') ? decorated(v, m, ranges, src[m.alias], text, k + i)
+        : <td key={k + i} className="num" style={bold ? { fontWeight: 600 } : undefined}>{text}</td>;
+    });
 
   return (
     <div className="tbl">
