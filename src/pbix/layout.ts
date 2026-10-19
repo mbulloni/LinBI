@@ -248,6 +248,13 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         style: { pbiType, ...(sv.objects ? { objects: sv.objects } : {}), ...(sv.vcObjects ? { vcObjects: sv.vcObjects } : {}) },
       };
       if (type === 'unsupported') { v.text = pbiType; v.style!.raw = sv; }
+      if (type === 'keyInfluencers') {
+        const kd = prop(sv.objects, 'keyDrivers');
+        const tv = decode(kd.targetValue);
+        // targetValue is a literal holding a literal ('''Male''' → 'Male' → Male).
+        if (typeof tv === 'string') v.ki = { target: tv.replace(/^'(.*)'$/s, '$1').replace(/''/g, "'") };
+        if (decode(kd.numericTargetSelectedKind) === 1) v.ki = { ...v.ki, dir: 'down' };
+      }
       if (type === 'textbox') {
         const paras = prop(sv.objects, 'general').paragraphs ?? [];
         v.text = (Array.isArray(paras) ? paras : []).map((p: any) => (p.textRuns ?? []).map((r: any) => r.value ?? '').join('')).join('\n');
