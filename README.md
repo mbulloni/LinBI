@@ -238,7 +238,7 @@ Fabric, PDF, `.lbix` con i dati.
 
 ## Roadmap
 
-4. ~~**Power Query**~~ ✔ — modifica dei passaggi (ingranaggio), colonna condizionale, *Usa la prima riga come intestazione*, qualità/distribuzione/profilo colonne, Editor avanzato e barra della formula modificabili (parser M → passaggi)
+4. ~~**Power Query**~~ ✔ — modifica dei passaggi (ingranaggio), colonna condizionale, *Usa la prima riga come intestazione*, qualità/distribuzione/profilo colonne, Editor avanzato e barra della formula modificabili (parser M → passaggi), colonna da esempi, parametri (`#[Nome]` in origini e filtri, esportati come parametri Power BI), origini Web, Feed OData e Cartella (file combinati con `Source.Name`)
 5. ~~**DAX completo**~~ ✔ — prossimi passi: misure rapide, IntelliSense nella barra della formula, gerarchie di date automatiche
 6. ~~**File**~~ ✔ — prossimi passi: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint
 

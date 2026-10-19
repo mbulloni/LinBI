@@ -39,6 +39,8 @@ interface Api {
   dropTable(table: string): Promise<void>;
   materialize(table: string, sql: string): Promise<TableInfo>;
   sourceExpr(source: TableMeta['source']): Promise<string>;
+  clearRemoteCache(): Promise<void>;
+  openDir(): Promise<string | null>;
   dbConnect(c: DbConnection, password: string | null, remember: boolean): Promise<{ alias: string; tables: { schema: string; table: string; rows: number | null }[]; stored: boolean }>;
   dbForget(c: DbConnection): Promise<void>;
   addCalcColumn(table: string, column: string, expr: string, replace: boolean): Promise<TableInfo>;

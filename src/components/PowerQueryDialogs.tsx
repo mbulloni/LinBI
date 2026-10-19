@@ -5,6 +5,8 @@ import type { PQState } from '../store';
 import { compileQuery, parseNumber, qi } from '../pq/compile';
 import { mToSql, referencedColumns, SUPPORTED_FUNCTIONS } from '../pq/mexpr';
 import { pqTypeOf } from '../pq/steps';
+import { resolveSource } from '../pq/params';
+import { useStore } from '../store';
 import { Icon } from './icons';
 
 export type DialogState =
@@ -29,7 +31,7 @@ export const vtypeOf = (c?: ColumnMeta): ValueType => {
   return t === 'int' || t === 'decimal' ? 'number' : t === 'date' ? 'date' : t === 'datetime' ? 'datetime' : t === 'bool' ? 'bool' : 'text';
 };
 
-export const srcExpr = (source: Parameters<typeof api.sourceExpr>[0]) => api.sourceExpr(source);
+export const srcExpr = (source: Parameters<typeof api.sourceExpr>[0]) => api.sourceExpr(resolveSource(source));
 
 export const FILTER_OPS: Record<'text' | 'number', [FilterOp, string][]> = {
   text: [['eq', 'è uguale a'], ['ne', 'non è uguale a'], ['startsWith', 'inizia con'], ['endsWith', 'termina con'], ['contains', 'contiene'], ['notContains', 'non contiene']],
@@ -147,14 +149,23 @@ function FilterRows(p: Props & { col: string; op?: FilterOp }) {
   const init = initOf(p, 'filterRows');
   const [op, setOp] = useState<FilterOp>(init?.op ?? op0 ?? 'eq');
   const [value, setValue] = useState(init?.value ?? '');
-  const bad = vt === 'number' && parseNumber(value) === null;
+  const params = useStore.getState().report.pqParams ?? [];
+  const isParam = /^#\[[^\]]+\]$/.test(value);
+  const bad = vt === 'number' && !isParam && parseNumber(value) === null;
   return (
     <Shell title="Filtra righe" sub={<>Applicare una o più condizioni di filtro alle righe della tabella.<br />Mantieni le righe in cui <b>{col}</b></>}
       onClose={close} okDisabled={!value.trim() || bad}
       onOk={() => { add({ kind: 'filterRows', column: col, op, value: value.trim(), vtype: vt }); close(); }}>
       <div className="pq-row">
         <select value={op} onChange={(e) => setOp(e.target.value as FilterOp)}>{ops.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <input type="text" autoFocus placeholder={vt === 'date' ? 'AAAA-MM-GG' : vt === 'number' ? 'Immettere un numero' : 'Immettere un valore'} value={value} onChange={(e) => setValue(e.target.value)} />
+        {params.length > 0 && (
+          <select value={isParam ? 'p' : 'v'} title="Valore o parametro" onChange={(e) => setValue(e.target.value === 'p' ? `#[${params[0].name}]` : '')} style={{ width: 110 }}>
+            <option value="v">Valore</option><option value="p">Parametro</option>
+          </select>
+        )}
+        {isParam
+          ? <select value={value.slice(2, -1)} onChange={(e) => setValue(`#[${e.target.value}]`)}>{params.map((x) => <option key={x.name}>{x.name}</option>)}</select>
+          : <input type="text" autoFocus placeholder={vt === 'date' ? 'AAAA-MM-GG' : vt === 'number' ? 'Immettere un numero' : 'Immettere un valore'} value={value} onChange={(e) => setValue(e.target.value)} />}
       </div>
       {bad && value && <div className="pq-err">Immettere un numero valido.</div>}
     </Shell>

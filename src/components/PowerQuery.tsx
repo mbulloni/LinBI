@@ -6,6 +6,7 @@ import { compileQuery, qi } from '../pq/compile';
 import { dependencies, pqTypeOf, renameQueryRef, stepNames, TYPE_LABEL } from '../pq/steps';
 import { exprToStep, mToSteps } from '../pq/mparse';
 import { learn } from '../pq/examples';
+import { ParamsDialog } from './SourceDialogs';
 import { stepM } from '../pq/m';
 import { queryM } from '../pbix/pbit';
 import { Icon } from './icons';
@@ -349,6 +350,7 @@ function Editor() {
     add({ kind: 'customColumn', name: ex.name.trim() || uniqueCol('Personalizzato'), formula: exCand.formula });
     setEx(null);
   };
+  const [paramsOpen, setParamsOpen] = useState(false);
   const [fxText, setFxText] = useState<string | null>(null);
   const [fxErr, setFxErr] = useState<string | null>(null);
   useEffect(() => { setFxText(null); setFxErr(null); }, [upto, q?.name]);
@@ -425,8 +427,11 @@ function Editor() {
             <Group label="Nuova query">
               <Big icon="getData" label={<>Nuova<br />origine</>} dropdown onClick={openMenu('newsource')} />
             </Group>
+            <Group label="Parametri">
+              <Big icon="newTable" label={<>Gestisci<br />parametri</>} onClick={() => setParamsOpen(true)} />
+            </Group>
             <Group label="Query">
-              <Big icon="refresh" label={<>Aggiorna<br />anteprima</>} onClick={() => setReload(reload + 1)} disabled={noQuery} />
+              <Big icon="refresh" label={<>Aggiorna<br />anteprima</>} onClick={async () => { await api.clearRemoteCache(); setReload(reload + 1); }} disabled={noQuery} />
               <div className="rcol">
                 <Small icon="docs" label="Editor avanzato" onClick={() => setDialog({ kind: 'advanced', m: fullM(), name: q!.name })} disabled={noQuery} />
                 <Small icon="copy" label="Duplica" onClick={() => duplicateQuery(q!.name, false)} disabled={noQuery} />
@@ -523,7 +528,12 @@ function Editor() {
 
       <div className="pq-body">
         <div className="pq-queries">
-          <div className="pq-ph">Query [{pq.queries.length}]</div>
+          <div className="pq-ph">Query [{pq.queries.length + (s.report.pqParams?.length ?? 0)}]</div>
+          {(s.report.pqParams ?? []).map((p) => (
+            <div key={'p:' + p.name} className="pq-q pq-param" title={`Parametro (${p.type}) = ${p.value}`} onClick={() => setParamsOpen(true)}>
+              <span className="pq-param-ic">P</span><span className="nm">{p.name}</span><span className="pq-new">{p.value}</span>
+            </div>
+          ))}
           {pq.queries.map((x) => (
             <div key={x.name} className={'pq-q' + (x.name === q?.name ? ' sel' : '')} onClick={() => selectQuery(x.name)}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ kind: 'query', query: x.name, x: e.clientX, y: e.clientY }); }}>
@@ -669,6 +679,9 @@ function Editor() {
           <button onClick={m(() => s.pqNewSource('csv'))}><Icon name="docs" size={18} />Testo/CSV</button>
           <button onClick={m(() => s.pqNewSource('json'))}><Icon name="docs" size={18} />JSON</button>
           <button onClick={m(() => s.pqNewSource('parquet'))}><Icon name="sql" size={18} />Parquet</button>
+          <button onClick={m(() => s.set({ sourceDialog: 'web' }))}><Icon name="getData" size={18} />Web</button>
+          <button onClick={m(() => s.set({ sourceDialog: 'odata' }))}><Icon name="getData" size={18} />Feed OData</button>
+          <button onClick={m(() => s.set({ sourceDialog: 'folder' }))}><Icon name="getData" size={18} />Cartella</button>
         </Menu>
       )}
       {menu?.kind === 'removecols' && (
@@ -772,6 +785,7 @@ function Editor() {
         </Menu>
       )}
 
+      {paramsOpen && <ParamsDialog onClose={() => { setParamsOpen(false); setReload((x) => x + 1); }} />}
       {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} saveM={saveM} />}
 
       {confirm && (

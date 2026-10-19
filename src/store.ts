@@ -5,6 +5,7 @@ import { isNumeric, uid } from './format';
 import { visualDef } from './visuals/catalog';
 import { connected, NULL_KEY, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
+import { resolveSource, setParams } from './pq/params';
 import { parseLayout, themeFromLayout } from './pbix/layout';
 import { pbirToLayout } from './pbix/pbir';
 import { buildPbipParts, buildPbitParts } from './pbix/pbit';
@@ -66,7 +67,7 @@ export interface PQQuery { name: string; orig: string | null; source: TableMeta[
 /** `step` = number of applied steps shown (null = all, 0 = Origine). */
 export interface PQState { queries: PQQuery[]; selected: string; step: number | null; deleted: string[]; }
 
-const srcExpr = (source: TableMeta['source']) => api.sourceExpr(source);
+const srcExpr = (source: TableMeta['source']) => api.sourceExpr(resolveSource(source));
 
 /** Steps Power BI folds into the previous step of the same kind instead of adding a new one. */
 function mergeStep(prev: Step, next: Step): boolean {
@@ -159,6 +160,8 @@ interface State {
   scriptsEnabled: boolean;
   /** Visual whose script is open in the script editor. */
   scriptEditor: string | null;
+  /** Ottieni dati › Web / Feed OData / Cartella dialog. */
+  sourceDialog: 'web' | 'odata' | 'folder' | null;
   /** Nuovo parametro dialog. */
   paramDialog: 'numeric' | 'fields' | null;
   clipboard: Visual | null;
@@ -378,6 +381,7 @@ export const useStore = create<State>((set, get) => {
     scriptsEnabled: false,
     scriptEditor: null,
     paramDialog: null,
+    sourceDialog: null,
     clipboard: null,
     focusId: null,
     sourceName: null,
@@ -1098,6 +1102,7 @@ export const useStore = create<State>((set, get) => {
     refresh: async () => {
       set({ busy: 'Aggiornamento in corso…' });
       try {
+        await api.clearRemoteCache(); // Web/OData sources are downloaded again
         for (const t of get().tables) if (!t.source.dax) await loadTable(t);
         await get().finalizeModel();
       } catch (e: any) {
@@ -1175,3 +1180,7 @@ useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) appl
 
 // File passed on the command line (or opened from the file manager).
 api.onOpenArg((file) => useStore.getState().open(file));
+
+// Power Query parameters used by source/filter resolution.
+setParams(useStore.getState().report.pqParams);
+useStore.subscribe((st, prev) => { if (st.report.pqParams !== prev.report.pqParams) setParams(st.report.pqParams); });

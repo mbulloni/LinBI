@@ -14,6 +14,7 @@ import { DatabaseDialog } from './components/DatabaseDialog';
 import { PublishDialog } from './components/PublishDialog';
 import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
+import { SourceDialog } from './components/SourceDialogs';
 import { DaxQueryView } from './components/DaxQueryView';
 import { VisualStatic } from './components/VisualContainer';
 import { THEME } from './themes';
@@ -110,6 +111,7 @@ export function App() {
       <PublishDialog />
       <ScriptEditor />
       <ParameterDialog />
+      <SourceDialog />
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (

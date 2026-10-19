@@ -7,7 +7,13 @@ export interface TableMeta {
   columns: ColumnMeta[];
   /** `m` keeps the original Power Query expression of tables imported from .pbix/.pbit;
    *  `ref` makes the query start from another query (Power Query "Riferimento"). */
-  source: { path: string; sheet?: string; m?: string; ref?: string; dax?: string; db?: DbSource };
+  source: {
+    path: string; sheet?: string; m?: string; ref?: string; dax?: string; db?: DbSource;
+    /** Web.Contents / OData.Feed / Folder.Files sources (text may contain #[Parametro]). */
+    web?: { url: string; format?: 'csv' | 'json' | 'parquet' | 'xlsx' };
+    odata?: { url: string };
+    folder?: { path: string; ext: string };
+  };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
   steps?: Step[];
   /** Schema of the source before the steps (types of the M "Origine" step in .pbit export). */
@@ -203,7 +209,11 @@ export interface Report {
   modelLayout: Record<string, { x: number; y: number }>;
   measures: Measure[];
   bookmarks?: Bookmark[];
+  /** Power Query parameters (Gestisci parametri): referenced as #[Nome] in sources and filters. */
+  pqParams?: PQParam[];
 }
+
+export interface PQParam { name: string; type: 'text' | 'number' | 'date'; value: string; description?: string; }
 
 export interface CrossFilter {
   visualId: string;

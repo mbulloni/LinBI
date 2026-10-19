@@ -12,8 +12,17 @@ export const M_TYPE: Record<PQType, string> = {
   text: 'type text', int: 'Int64.Type', decimal: 'type number', date: 'type date', datetime: 'type datetime', bool: 'type logical',
 };
 
+/** Text with #[Parametro] references → M ("a" & Parametro & "b"). */
+export function mText(s: string): string {
+  const parts = s.split(/(#\[[^\]]+\])/).filter((x) => x !== '');
+  if (!parts.length) return '""';
+  return parts.map((x) => { const p = /^#\[([^\]]+)\]$/.exec(x); return p ? mName(p[1].trim()) : mStr(x); }).join(' & ');
+}
+
 export function mLiteral(v: string | null | undefined, vt: ValueType = 'text'): string {
   if (v === null || v === undefined) return 'null';
+  const param = /^#\[([^\]]+)\]$/.exec(v.trim());
+  if (param) return mName(param[1].trim());
   if (vt === 'number') return String(parseNumber(v) ?? v);
   if (vt === 'bool') return /^(true|vero|1)$/i.test(v.trim()) ? 'true' : 'false';
   const d = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(v.trim());
@@ -25,7 +34,7 @@ export function mLiteral(v: string | null | undefined, vt: ValueType = 'text'): 
 function filterM(s: Extract<Step, { kind: 'filterRows' }>): string {
   const c = mCol(s.column);
   const v = mLiteral(s.value ?? '', s.vtype);
-  const t = mStr(s.value ?? '');
+  const t = mText(s.value ?? '');
   const ops: Record<FilterOp, () => string> = {
     eq: () => `${c} = ${v}`, ne: () => `${c} <> ${v}`, gt: () => `${c} > ${v}`, ge: () => `${c} >= ${v}`, lt: () => `${c} < ${v}`, le: () => `${c} <= ${v}`,
     contains: () => `Text.Contains(${c}, ${t})`,

@@ -5,7 +5,7 @@
  * reloads the data from the sources when the template is opened.
  */
 import type { ColumnMeta, Report, TableMeta } from '../types';
-import { appendSteps, mName, mStr } from '../pq/m';
+import { appendSteps, mName, mStr, mText } from '../pq/m';
 import { buildLayout } from './layout';
 
 export interface PbitPart { path: string; utf16?: string; utf8bom?: string; dataUrl?: string; }
@@ -35,23 +35,38 @@ function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
     return `let\n    Origine = ${origin},\n    ${mName(d.table)} = ${nav}\nin\n    ${mName(d.table)}`;
   }
   const p = t.source.path;
-  const ext = p.split('.').pop()!.toLowerCase();
   const types = `{${columns.map((c) => `{${mStr(c.name)}, ${tomType(c.type).m}}`).join(', ')}}`;
   const typed = (prev: string) => columns.length
     ? `    #"Modificato tipo" = Table.TransformColumnTypes(${prev}, ${types})\nin\n    #"Modificato tipo"`
     : `    Fine = ${prev}\nin\n    Fine`;
+  if (t.source.odata) return `let\n    Origine = OData.Feed(${mText(t.source.odata.url)}, null, [Implementation="2.0"])\nin\n    Origine`;
+  if (t.source.folder) {
+    const f = t.source.folder, e = f.ext.replace(/^\./, '').toLowerCase();
+    const read = e === 'parquet' ? 'Parquet.Document([Content])' : e === 'json' ? 'Table.FromRecords(Json.Document([Content]))'
+      : 'Table.PromoteHeaders(Csv.Document([Content], [Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.Csv]), [PromoteAllScalars=true])';
+    const data = columns.filter((c) => c.name !== 'Source.Name').map((c) => c.name);
+    return `let\n    Origine = Folder.Files(${mText(f.path)}),\n    #"Righe filtrate" = Table.SelectRows(Origine, each Text.Lower([Extension]) = ${mStr('.' + e)}),\n` +
+      `    #"Contenuto letto" = Table.AddColumn(#"Righe filtrate", "Dati", each ${read}),\n` +
+      `    #"Altre colonne rimosse" = Table.SelectColumns(#"Contenuto letto", {"Name", "Dati"}),\n` +
+      `    #"Colonna espansa" = Table.ExpandTableColumn(#"Altre colonne rimosse", "Dati", {${data.map(mStr).join(', ')}}),\n` +
+      `    #"Colonne rinominate" = Table.RenameColumns(#"Colonna espansa", {{"Name", "Source.Name"}}),\n${typed('#"Colonne rinominate"')}`;
+  }
+  // Web.Contents for web files, File.Contents otherwise; parameters become M identifiers.
+  const where = t.source.web ? t.source.web.url : p;
+  const ext = (t.source.web?.format ?? where.split('?')[0].split('.').pop() ?? '').toLowerCase();
+  const contents = t.source.web ? `Web.Contents(${mText(where)})` : `File.Contents(${mText(p)})`;
   if (ext === 'csv' || ext === 'txt' || ext === 'tsv') {
-    return `let\n    Origine = Csv.Document(File.Contents(${mStr(p)}), [Delimiter="${ext === 'tsv' ? '#(tab)' : ','}", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),\n` +
+    return `let\n    Origine = Csv.Document(${contents}, [Delimiter="${ext === 'tsv' ? '#(tab)' : ','}", Encoding=65001, QuoteStyle=QuoteStyle.Csv]),\n` +
       `    #"Intestazioni alzate di livello" = Table.PromoteHeaders(Origine, [PromoteAllScalars=true]),\n${typed('#"Intestazioni alzate di livello"')}`;
   }
   if (ext === 'xlsx') {
     const item = t.source.sheet ? `{[Item=${mStr(t.source.sheet)},Kind="Sheet"]}[Data]` : '{0}[Data]';
-    return `let\n    Origine = Excel.Workbook(File.Contents(${mStr(p)}), null, true),\n    Foglio = Origine${item},\n` +
+    return `let\n    Origine = Excel.Workbook(${contents}, null, true),\n    Foglio = Origine${item},\n` +
       `    #"Intestazioni alzate di livello" = Table.PromoteHeaders(Foglio, [PromoteAllScalars=true]),\n${typed('#"Intestazioni alzate di livello"')}`;
   }
-  if (ext === 'parquet') return `let\n    Origine = Parquet.Document(File.Contents(${mStr(p)}))\nin\n    Origine`;
-  if (ext === 'json') return `let\n    Origine = Table.FromRecords(Json.Document(File.Contents(${mStr(p)}))),\n${typed('Origine')}`;
-  return `let\n    Origine = Csv.Document(File.Contents(${mStr(p)}))\nin\n    Origine`;
+  if (ext === 'parquet') return `let\n    Origine = Parquet.Document(${contents})\nin\n    Origine`;
+  if (ext === 'json') return `let\n    Origine = Table.FromRecords(Json.Document(${contents})),\n${typed('Origine')}`;
+  return `let\n    Origine = Csv.Document(${contents})\nin\n    Origine`;
 }
 
 /** Full M of a query: source followed by its applied steps (Editor avanzato, .pbit partitions). */
@@ -109,6 +124,15 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
         measures: measuresOf(name),
         annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
       }))),
+      // Power Query parameters: shared M expressions flagged as parameter queries.
+      ...(report.pqParams?.length ? {
+        expressions: report.pqParams.map((p) => {
+          const d = /^(\d{4})-(\d{2})-(\d{2})/.exec(p.value);
+          const lit = p.type === 'number' ? (Number.isFinite(Number(p.value)) ? String(Number(p.value)) : '0') : p.type === 'date' && d ? `#date(${+d[1]}, ${+d[2]}, ${+d[3]})` : mStr(p.value);
+          const type = p.type === 'number' ? 'Number' : p.type === 'date' ? 'Date' : 'Text';
+          return { name: p.name, kind: 'm', expression: `${lit} meta [IsParameterQuery=true, Type="${type}", IsParameterQueryRequired=true]`, lineageTag: crypto.randomUUID(), ...(p.description ? { description: p.description } : {}) };
+        }),
+      } : {}),
       relationships: report.relationships.map((r) => ({
         name: crypto.randomUUID(),
         fromTable: r.fromTable, fromColumn: r.fromColumn, toTable: r.toTable, toColumn: r.toColumn,

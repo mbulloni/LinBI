@@ -176,7 +176,9 @@ const pairs = (v: V | undefined, what: string): V[][] => {
   return items.map((x) => { if (x.k !== 'list') throw new MParseError(`Attesa una lista di coppie per ${what}.`); return x.items; });
 };
 const lit = (v: V): { value: string | null; vtype: ValueType } => (v.k === 'str' ? { value: v.v, vtype: 'text' } : v.k === 'num' ? { value: String(v.v), vtype: 'number' }
-  : v.k === 'date' ? { value: v.v, vtype: v.v.includes(':') ? 'datetime' : 'date' } : v.k === 'bool' ? { value: String(v.v), vtype: 'bool' } : v.k === 'null' ? { value: null, vtype: 'text' } : (() => { throw new MParseError('Atteso un valore letterale.'); })());
+  : v.k === 'date' ? { value: v.v, vtype: v.v.includes(':') ? 'datetime' : 'date' } : v.k === 'bool' ? { value: String(v.v), vtype: 'bool' } : v.k === 'null' ? { value: null, vtype: 'text' }
+    // An identifier is a Power Query parameter.
+    : v.k === 'id' ? { value: `#[${v.v}]`, vtype: 'text' } : (() => { throw new MParseError('Atteso un valore letterale.'); })());
 
 const TYPES: Record<string, PQType> = {
   'type text': 'text', 'Text.Type': 'text', 'Int64.Type': 'int', 'type number': 'decimal', 'Number.Type': 'decimal', 'Currency.Type': 'decimal', 'Percentage.Type': 'decimal',

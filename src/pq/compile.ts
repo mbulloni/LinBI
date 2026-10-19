@@ -5,6 +5,7 @@
  * as subqueries, so the editor's drafts always see each other's latest definition.
  */
 import type { FilterOp, Step, TableMeta, ValueType } from '../types';
+import { resolveText } from './params';
 import { mToSql, properSql } from './mexpr';
 import type { QueryDef } from './steps';
 
@@ -37,7 +38,9 @@ export function sqlLiteral(v: string | null | undefined, vt: ValueType = 'text')
 const list = (cols: string[]) => cols.map(qi).join(', ');
 const txt = (c: string) => `CAST(${qi(c)} AS VARCHAR)`;
 
-function filterCond(s: Extract<Step, { kind: 'filterRows' }>): string {
+function filterCond(f: Extract<Step, { kind: 'filterRows' }>): string {
+  // Parameter references (#[Nome]) in the value(s).
+  const s = { ...f, value: f.value === undefined ? undefined : resolveText(f.value), values: f.values?.map((x) => (x === null ? null : resolveText(x))) };
   const c = qi(s.column);
   const v = () => sqlLiteral(s.value ?? '', s.vtype);
   const t = () => ql(s.value ?? '');

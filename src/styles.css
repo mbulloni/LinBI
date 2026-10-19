@@ -636,3 +636,10 @@ thead .pq-rn { z-index: 2; }
 .pq-ex-c input:focus { border-color: #0F6CBD; background: #fff; outline: none; }
 .pq-ex-c input::placeholder { color: #8A8886; font-style: italic; }
 .pq-ex-pred { color: #8A8886; font-style: italic; }
+.param-mgr { display: grid; grid-template-columns: 200px 1fr; gap: 16px; min-height: 220px; }
+.param-list { border-right: 1px solid var(--line); padding-right: 8px; }
+.param-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px; cursor: pointer; border-radius: 2px; font-size: 12px; }
+.param-item.sel { background: #DEECF9; }
+.param-item button { border: 0; background: none; cursor: pointer; }
+.param-form { display: flex; flex-direction: column; gap: 6px; }
+.pq-param-ic { width: 16px; height: 16px; border-radius: 3px; background: #8A8886; color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }

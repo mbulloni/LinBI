@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   dropTable: (table) => call('db:drop', table),
   materialize: (table, sql) => call('db:materialize', table, sql),
   sourceExpr: (source) => call('db:sourceExpr', source),
+  clearRemoteCache: () => call('remote:clearCache'),
+  openDir: () => call('file:openDir'),
   dbConnect: (c, password, remember) => call('db:connect', c, password, remember),
   dbForget: (c) => call('db:forget', c),
   addCalcColumn: (table, column, expr, replace) => call('db:calcColumn', table, column, expr, replace),

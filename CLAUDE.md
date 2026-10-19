@@ -38,6 +38,8 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - M editing: `pq/mparse.ts` (`parseLet`, `parseValue`, `exprToStep`, `mToSteps(text, baseM)`): the source lines must match `queryM({source, steps: []})`; Table.* calls map back to steps, other `each` filters become `selectRows` (SQL via `mexpr`). Promote-headers names are read from data (`resolveHeaders` in `PowerQuery.tsx`). Step editing: gear → `editing` state, preview at the step input, `add` replaces the step.
 
+- Remote sources: `electron/remote.cjs` (Web/OData downloaded to `userData/remote-cache`, 10 min TTL, cleared by Aggiorna; folder = DuckDB glob with `union_by_name` + `Source.Name`); `source.web/odata/folder`. PQ parameters: `Report.pqParams`, `pq/params.ts` resolves `#[Nome]` in sources (`srcExpr`) and filter values (`compile.ts#filterCond`); M via `m.ts#mText` / identifiers; `.pbit` model `expressions` with `IsParameterQuery`. Column from examples: `pq/examples.ts#learn`.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.

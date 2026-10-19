@@ -195,6 +195,9 @@ export function Ribbon() {
           <button onClick={() => { close(); s.openNavigator('json'); }}><Icon name="docs" size={18} />JSON</button>
           <button onClick={() => { close(); s.openNavigator('parquet'); }}><Icon name="sql" size={18} />Parquet</button>
           <button onClick={() => { close(); s.set({ dbDialog: true }); }}><Icon name="sql" size={18} />Database (MySQL, PostgreSQL, SQLite)</button>
+          <button onClick={() => { close(); s.set({ sourceDialog: 'web' }); }}><Icon name="getData" size={18} />Web</button>
+          <button onClick={() => { close(); s.set({ sourceDialog: 'odata' }); }}><Icon name="getData" size={18} />Feed OData</button>
+          <button onClick={() => { close(); s.set({ sourceDialog: 'folder' }); }}><Icon name="getData" size={18} />Cartella</button>
           <hr />
           <button onClick={() => { close(); s.loadSample(); }}><Icon name="sample" size={18} />Dati di esempio (Financials)</button>
           <button onClick={() => { close(); s.openNavigator('any'); }}>Altro…</button>

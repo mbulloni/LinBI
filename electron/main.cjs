@@ -10,6 +10,7 @@ const connect = require('./connect.cjs');
 const powerbi = require('./powerbi.cjs');
 const claude = require('./claude.cjs');
 const scripts = require('./scripts.cjs');
+const remote = require('./remote.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -57,7 +58,12 @@ handle('db:query', (sql) => db.query(sql));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
-handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
+handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
+handle('remote:clearCache', () => remote.clearCache());
+handle('file:openDir', async () => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
+  return r.canceled ? null : r.filePaths[0];
+});
 handle('db:connect', (c, password, remember) => connect.connect(c, password, remember));
 handle('db:forget', (c) => connect.forget(c));
 
