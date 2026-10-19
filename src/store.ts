@@ -303,8 +303,13 @@ export const useStore = create<State>((set, get) => {
     if (!well) return;
     const agg: FieldRef['agg'] = measure ? 'measure' : ['table', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
     const list = (v.fields[well.key] ??= []);
-    if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg)) return;
+    if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg && !x.datePart)) return;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
+    // A date on a hierarchy axis becomes the automatic date hierarchy, like Power BI.
+    if (well.hierarchy && agg === 'none' && /^(DATE|TIMESTAMP)/i.test(columnOf(f)?.type ?? '') && !list.some((x) => x.table === f.table && x.column === f.column)) {
+      for (const datePart of ['year', 'quarter', 'month', 'day'] as const) list.push({ ...f, agg, datePart });
+      return;
+    }
     list.push({ ...f, agg });
   };
 

@@ -578,3 +578,5 @@ thead .pq-rn { z-index: 2; }
 .bm-opts button:hover { background: var(--hover); }
 .bm-opts hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .side-empty { color: var(--text2); font-size: 12px; padding: 8px 0; }
+.vc-header button.on { background: #DEECF9; color: #0F6CBD; }
+.vc-header button:disabled { opacity: .35; }

@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import { font, withAlpha } from '../visuals/pbistyle';
 import { Rnd } from 'react-rnd';
-import type { Visual } from '../types';
+import type { FieldRef, Visual } from '../types';
 import { THEME } from '../themes';
 import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
@@ -30,6 +30,30 @@ export function boxStyle(v: Visual): CSSProperties {
     borderRadius: f.border || f.borderRadius ? f.borderRadius ?? 4 : 0,
     overflow: f.borderRadius ? 'hidden' : undefined,
   };
+}
+
+/** Fields of the visual's drill hierarchy (axis/legend/location with more than one field). */
+export function hierarchyOf(v: Visual): FieldRef[] {
+  const w = visualDef(v.type).wells.find((x) => x.hierarchy);
+  return w ? v.fields[w.key] ?? [] : [];
+}
+
+/** Drill buttons of the visual header (Power BI: up, drill mode, next level, expand all). */
+function DrillButtons({ v }: { v: Visual }) {
+  const s = useStore();
+  const hier = hierarchyOf(v);
+  if (hier.length < 2) return null;
+  const d = v.drill ?? { level: 0, path: [] };
+  const lvl = Math.min(d.level, hier.length - 1);
+  const up = lvl > 0;
+  const down = lvl < hier.length - 1;
+  const set = (drill: Visual['drill']) => { s.updateVisual(v.id, { drill }); if (s.crossFilter?.visualId === v.id) s.setCross(null); };
+  return <>
+    <button title="Drill-up" disabled={!up} onClick={() => set({ ...d, level: lvl - 1, path: d.path.slice(0, lvl - 1), expand: false })}>↑</button>
+    <button title={d.mode ? 'Disattiva drill-down' : 'Attiva drill-down (clic su un dato per esplorarlo)'} className={d.mode ? 'on' : ''} onClick={() => set({ ...d, mode: !d.mode })}>↓</button>
+    <button title="Vai al livello successivo della gerarchia" disabled={!down} onClick={() => set({ ...d, level: lvl + 1, expand: false, path: d.path.slice(0, lvl) })}>⇊</button>
+    <button title="Espandi tutto di un livello nella gerarchia" disabled={!down} onClick={() => set({ ...d, level: lvl + 1, expand: true, path: [] })}>⑂</button>
+  </>;
 }
 
 export function VisualTitle({ v, title }: { v: Visual; title: string }) {
@@ -63,15 +87,24 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   const data = useVisualData(v);
   const cross = useStore((s) => s.crossFilter);
   const setCross = useStore((s) => s.setCross);
+  const updateVisual = useStore((s) => s.updateVisual);
   const def = visualDef(v.type);
   const catWell = def.category;
 
+  const hier = hierarchyOf(v);
+  const lvl = Math.min(v.drill?.level ?? 0, Math.max(0, hier.length - 1));
   const onSelect = (category: string | null) => {
-    const field = catWell ? v.fields[catWell]?.[0] : data.items.find((i) => !i.measure)?.field;
+    // Drill mode: clicking a data point goes one level down into it.
+    if (v.drill?.mode && hier.length > 1 && lvl < hier.length - 1 && !v.drill.expand) {
+      updateVisual(v.id, { drill: { ...v.drill, level: lvl + 1, path: [...(v.drill.path ?? []).slice(0, lvl), category] } });
+      return;
+    }
+    if (v.drill?.expand && hier.length > 1) return; // combined labels: no single value to filter on
+    const field = hier.length > 1 ? hier[lvl] : catWell ? v.fields[catWell]?.[0] : data.items.find((i) => !i.measure)?.field;
     if (!field) return;
     const value = category === null ? NULL_KEY : category;
     if (cross?.visualId === v.id && cross.value === value) setCross(null);
-    else setCross({ visualId: v.id, table: field.table, column: field.column, value });
+    else setCross({ visualId: v.id, table: field.table, column: field.column, value, ...(field.datePart ? { datePart: field.datePart } : {}) });
   };
 
   if (v.type === 'textbox') return <TextboxVisual v={v} selected={selected} />;
@@ -168,6 +201,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       </div>
       <div className="vc-frame" />
       <div className="vc-header" onMouseDown={(e) => e.stopPropagation()}>
+        <DrillButtons v={v} />
         {isChart(v.type) || v.type === 'table' || v.type === 'matrix' ? (
           <button title="Modalità messa a fuoco" onClick={() => s.set({ focusId: v.id })}><Icon name="focus" size={13} /></button>
         ) : null}

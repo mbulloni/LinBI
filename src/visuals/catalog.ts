@@ -7,6 +7,8 @@ export interface Well {
   max?: number;
   /** column names that go to this well when dropped on the visual (latitude/longitude) */
   match?: RegExp;
+  /** several fields form a drill hierarchy (only the current level is queried) */
+  hierarchy?: boolean;
 }
 
 export interface VisualDef {
@@ -17,14 +19,14 @@ export interface VisualDef {
   category?: string;
 }
 
-const axisX = (measure: boolean): Well => ({ key: measure ? 'values' : 'category', label: 'Asse X', measure, ...(measure ? {} : { max: 1 }) });
-const axisY = (measure: boolean): Well => ({ key: measure ? 'values' : 'category', label: 'Asse Y', measure, ...(measure ? {} : { max: 1 }) });
+const axisX = (measure: boolean): Well => ({ key: measure ? 'values' : 'category', label: 'Asse X', measure, ...(measure ? {} : { hierarchy: true }) });
+const axisY = (measure: boolean): Well => ({ key: measure ? 'values' : 'category', label: 'Asse Y', measure, ...(measure ? {} : { hierarchy: true }) });
 const legend: Well = { key: 'legend', label: 'Legenda', measure: false, max: 1 };
 
 const columnLike = (type: VisualType, name: string): VisualDef => ({ type, name, wells: [axisX(false), axisY(true), legend], category: 'category' });
 const combo = (type: VisualType, name: string): VisualDef => ({
   type, name, category: 'category',
-  wells: [{ key: 'category', label: 'Asse X', measure: false, max: 1 }, { key: 'values', label: 'Asse Y colonne', measure: true },
+  wells: [{ key: 'category', label: 'Asse X', measure: false, hierarchy: true }, { key: 'values', label: 'Asse Y colonne', measure: true },
     { key: 'lineValues', label: 'Asse Y linee', measure: true }, { key: 'legend', label: 'Legenda colonne', measure: false, max: 1 }],
 });
 const barLike = (type: VisualType, name: string): VisualDef => ({ type, name, wells: [axisY(false), axisX(true), legend], category: 'category' });
@@ -42,25 +44,25 @@ export const VISUALS: VisualDef[] = [
   combo('lineStackedColumn', 'Grafico a linee e istogramma in pila'),
   combo('lineClusteredColumn', 'Grafico a linee e istogramma raggruppato'),
   columnLike('ribbon', 'Grafico a nastro'),
-  { type: 'waterfall', name: 'Grafico a cascata', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Asse Y', measure: true, max: 1 }] },
+  { type: 'waterfall', name: 'Grafico a cascata', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, hierarchy: true }, { key: 'values', label: 'Asse Y', measure: true, max: 1 }] },
   {
     type: 'scatter', name: 'Grafico a dispersione', category: 'details',
     wells: [{ key: 'details', label: 'Valori', measure: false, max: 1 }, { key: 'x', label: 'Asse X', measure: true, max: 1 },
       { key: 'y', label: 'Asse Y', measure: true, max: 1 }, { key: 'legend', label: 'Legenda', measure: false, max: 1 }],
   },
-  { type: 'pie', name: 'Grafico a torta', category: 'category', wells: [{ key: 'category', label: 'Legenda', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
-  { type: 'donut', name: 'Grafico ad anello', category: 'category', wells: [{ key: 'category', label: 'Legenda', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
-  { type: 'treemap', name: 'Mappa ad albero', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
-  { type: 'funnel', name: 'Imbuto', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
+  { type: 'pie', name: 'Grafico a torta', category: 'category', wells: [{ key: 'category', label: 'Legenda', measure: false, hierarchy: true }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
+  { type: 'donut', name: 'Grafico ad anello', category: 'category', wells: [{ key: 'category', label: 'Legenda', measure: false, hierarchy: true }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
+  { type: 'treemap', name: 'Mappa ad albero', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, hierarchy: true }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
+  { type: 'funnel', name: 'Imbuto', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, hierarchy: true }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
   {
     type: 'map', name: 'Mappa', category: 'category',
-    wells: [{ key: 'category', label: 'Posizione', measure: false, max: 1 }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
+    wells: [{ key: 'category', label: 'Posizione', measure: false, hierarchy: true }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
       { key: 'lat', label: 'Latitudine', measure: false, max: 1, match: /^(lat|latitud)/i }, { key: 'lon', label: 'Longitudine', measure: false, max: 1, match: /^(lon|lng|longitud)/i },
       { key: 'values', label: 'Dimensioni bolle', measure: true, max: 1 }],
   },
   {
     type: 'filledMap', name: 'Mappa colorata', category: 'category',
-    wells: [{ key: 'category', label: 'Posizione', measure: false, max: 1 }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
+    wells: [{ key: 'category', label: 'Posizione', measure: false, hierarchy: true }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
       { key: 'values', label: 'Saturazione colore', measure: true, max: 1 }],
   },
   { type: 'gauge', name: 'Misuratore', wells: [{ key: 'values', label: 'Valore', measure: true, max: 1 }, { key: 'target', label: 'Valore di destinazione', measure: true, max: 1 }] },

@@ -16,6 +16,7 @@ export const AGG_PREFIX: Record<Agg, string> = {
 };
 
 export function fieldLabel(f: FieldRef): string {
+  if (f.datePart) return { year: 'Anno', quarter: 'Trimestre', month: 'Mese', day: 'Giorno' }[f.datePart];
   return f.agg === 'none' || f.agg === 'measure' ? f.column : `${AGG_PREFIX[f.agg]} ${f.column}`;
 }
 

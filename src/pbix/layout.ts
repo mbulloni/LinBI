@@ -91,8 +91,11 @@ function exprToField(e: any, from: FromMap): FieldRef | null {
   if (e?.HierarchyLevel) {
     const h = e.HierarchyLevel.Expression?.Hierarchy;
     const pvs = h?.Expression?.PropertyVariationSource;
-    // Auto date hierarchy (Date → Year/Quarter/Month/Day): fall back to the date column itself.
-    if (pvs) return { table: entity(pvs.Expression), column: pvs.Property, agg: 'none' };
+    // Auto date hierarchy (Date → Year/Quarter/Month/Day): the date column at that level.
+    if (pvs) {
+      const part = ({ Year: 'year', Anno: 'year', Quarter: 'quarter', Trimestre: 'quarter', Month: 'month', Mese: 'month', Day: 'day', Giorno: 'day' } as const)[e.HierarchyLevel.Level as string];
+      return { table: entity(pvs.Expression), column: pvs.Property, agg: 'none', ...(part ? { datePart: part } : {}) };
+    }
     return { table: entity(h?.Expression), column: e.HierarchyLevel.Level, agg: 'none' };
   }
   return null;
@@ -197,7 +200,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
           if (!f || !known(f)) continue;
           const list = (fields[well] ??= []);
           if (w.max && list.length >= w.max) continue;
-          if (!list.some((x) => x.table === f.table && x.column === f.column && x.agg === f.agg)) {
+          if (!list.some((x) => x.table === f.table && x.column === f.column && x.agg === f.agg && x.datePart === f.datePart)) {
             list.push(type === 'table' && f.agg === 'none' ? f : f.agg === 'none' && w.measure ? { ...f, agg: 'count' } : f);
           }
         }
@@ -453,7 +456,9 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       for (const w of def.wells) {
         const role = roles.find(([, well]) => well === w.key)?.[0];
         if (!role) continue;
-        for (const f of v.fields[w.key] ?? []) {
+        // Date hierarchy levels go out as the plain date column (the .pbit model has no auto date tables).
+        const seenDate = new Set<string>();
+        for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
           const src = { SourceRef: { Source: alias[f.table] } };
           let expr: any, name: string;
           if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }

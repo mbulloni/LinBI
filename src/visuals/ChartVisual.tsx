@@ -68,9 +68,12 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   const area = v.type === 'area' || v.type === 'stackedArea';
 
   const cat = d.items.find((i) => i.well === 'category');
+  // "Expand all" levels: one combined category per row ("2014 Trim 1").
+  const catItems = d.items.filter((i) => i.well === 'category');
+  const ck = (r: Record<string, any>): string | null => (catItems.length > 1 ? catItems.map((c) => r[c.alias] ?? '(Vuoto)').join(' ') : r[cat!.alias]);
   const leg = d.items.find((i) => i.well === 'legend');
   const vals = d.items.filter((i) => i.well === 'values');
-  const categories = cat ? uniq(d.rows.map((r) => r[cat.alias])) : [null];
+  const categories = cat ? uniq(d.rows.map((r) => ck(r))) : [null];
   const catIndex = new Map(categories.map((c, i) => [c, i]));
 
   type S = { name: string; data: (number | null)[] };
@@ -79,16 +82,16 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     const legends = uniq(d.rows.map((r) => r[leg.alias]));
     series = legends.map((l) => ({ name: catLabel(l), data: categories.map(() => null as number | null) }));
     const li = new Map(legends.map((l, i) => [l, i]));
-    for (const r of d.rows) series[li.get(r[leg.alias])!].data[cat ? catIndex.get(r[cat.alias])! : 0] = r[vals[0].alias];
+    for (const r of d.rows) series[li.get(r[leg.alias])!].data[cat ? catIndex.get(ck(r))! : 0] = r[vals[0].alias];
   } else {
     series = vals.map((m) => ({ name: fieldLabel(m.field), data: categories.map(() => null as number | null) }));
-    for (const r of d.rows) vals.forEach((m, k) => (series[k].data[cat ? catIndex.get(r[cat.alias])! : 0] = r[m.alias]));
+    for (const r of d.rows) vals.forEach((m, k) => (series[k].data[cat ? catIndex.get(ck(r))! : 0] = r[m.alias]));
   }
   // Combo charts: line measures on a secondary axis, one value per category.
   const lineItems = d.items.filter((i) => i.well === 'lineValues');
   const lines: S[] = lineItems.map((m) => ({ name: fieldLabel(m.field), data: categories.map(() => null as number | null) }));
   for (const r of (leg && d.rowTotals) || d.rows) {
-    const i = cat ? catIndex.get(r[cat.alias]) : 0;
+    const i = cat ? catIndex.get(ck(r)) : 0;
     if (i !== undefined) lineItems.forEach((m, k) => (lines[k].data[i] = r[m.alias]));
   }
   if (pct) {

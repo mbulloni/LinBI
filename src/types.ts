@@ -22,7 +22,9 @@ export interface TableMeta {
 export interface DbSource { kind: 'mysql' | 'postgres' | 'sqlite'; host?: string; port?: string; database?: string; user?: string; file?: string; schema: string; table: string; }
 export type DbConnection = Omit<DbSource, 'schema' | 'table'>;
 
-export interface FieldRef { table: string; column: string; agg: Agg; }
+/** Level of the automatic date hierarchy (a date column placed on an axis becomes Year › Quarter › Month › Day). */
+export type DatePart = 'year' | 'quarter' | 'month' | 'day';
+export interface FieldRef { table: string; column: string; agg: Agg; datePart?: DatePart; }
 
 export type VisualType =
   | 'stackedBar' | 'stackedColumn' | 'clusteredBar' | 'clusteredColumn'
@@ -95,6 +97,8 @@ export interface Visual {
   script?: string;
   /** Q&A: question and the answer's visual spec (kept so Claude is not asked again). */
   qna?: { question: string; spec?: import('./api').QnaSpec; source?: 'local' | 'claude' };
+  /** Drill state of a hierarchy axis: current level, values drilled into, "expand all" levels shown, drill mode on. */
+  drill?: { level: number; path: (string | null)[]; expand?: boolean; mode?: boolean };
   /** Top N rows by the first value (Q&A "i primi 5"). */
   topN?: number;
   topAsc?: boolean;
@@ -107,6 +111,9 @@ export interface Filter {
   table: string;
   column: string;
   values: string[]; // empty = all
+  datePart?: DatePart;
+  /** set by drill-through on the target page (removed when leaving it) */
+  drillthrough?: boolean;
 }
 
 export interface Page {
@@ -193,6 +200,7 @@ export interface CrossFilter {
   table: string;
   column: string;
   value: string;
+  datePart?: DatePart;
 }
 
 export type View = 'report' | 'data' | 'model' | 'dax';

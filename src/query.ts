@@ -1,4 +1,4 @@
-import type { CrossFilter, Filter, FieldRef, Measure, Relationship, TableMeta, Visual } from './types';
+import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, TableMeta, Visual } from './types';
 import { measureSql } from './dax';
 import { isNumeric } from './format';
 import { visualDef } from './visuals/catalog';
@@ -16,7 +16,19 @@ export interface VisualQuery {
   rowTotalsSql?: string;  // matrix: one row per row group
   items: QueryItem[];
 }
-export interface FilterSpec { table: string; column: string; values: string[]; }
+export interface FilterSpec { table: string; column: string; values: string[]; datePart?: DatePart; }
+
+const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+/** SQL of a date hierarchy level applied to a column expression (identity without a level). */
+export function partExpr(part: DatePart | undefined, sql: string): string {
+  switch (part) {
+    case 'year': return `CAST(YEAR(${sql}) AS INTEGER)`;
+    case 'quarter': return `('Trim ' || QUARTER(${sql}))`;
+    case 'month': return `list_extract([${MONTHS.map((m) => `'${m}'`).join(', ')}], MONTH(${sql}))`;
+    case 'day': return `CAST(DAY(${sql}) AS INTEGER)`;
+    default: return sql;
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Relationship graph                                                  */
@@ -148,9 +160,9 @@ export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[]
   for (const s of visuals) {
     if (s.id === v.id || s.type !== 'slicer' || !s.slicerValues?.length) continue;
     const field = s.fields.category?.[0];
-    if (field) out.push({ table: field.table, column: field.column, values: s.slicerValues });
+    if (field) out.push({ table: field.table, column: field.column, values: s.slicerValues, datePart: field.datePart });
   }
-  if (cross && cross.visualId !== v.id) out.push({ table: cross.table, column: cross.column, values: [cross.value] });
+  if (cross && cross.visualId !== v.id) out.push({ table: cross.table, column: cross.column, values: [cross.value], datePart: cross.datePart });
   return out;
 }
 
@@ -166,10 +178,12 @@ type Core = { sql: string } | { error: string };
 
 const uniq = <T,>(a: T[]) => [...new Set(a)];
 const k = (it: QueryItem) => 'k_' + it.alias;
+/** Sort key of a dim: its "sort by column", or the month/quarter number of a date hierarchy level. */
+const sortKeyOf = (d: QueryItem, colSql: string) => (d.field.datePart === 'month' ? `MONTH(${colSql})` : d.field.datePart === 'quarter' ? `QUARTER(${colSql})` : colSql);
 const sk = (it: QueryItem) => 's_' + it.alias;
 
 function whereFor(ctx: Ctx, tree: JoinTree): string {
-  const where = ctx.filters.filter((f) => tree.alias.has(f.table)).map((f) => filterSql(`${tree.alias.get(f.table)}.${qi(f.column)}`, f.values));
+  const where = ctx.filters.filter((f) => tree.alias.has(f.table)).map((f) => filterSql(partExpr(f.datePart, `${tree.alias.get(f.table)}.${qi(f.column)}`), f.values));
   return where.length ? ` WHERE ${where.join(' AND ')}` : '';
 }
 
@@ -198,7 +212,7 @@ function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx): Core {
     }
     if (!tree) return { error: missingError(ctx, dimTables[0], dimTables[1] ?? dimTables[0]) };
     const a = (d: QueryItem) => tree!.alias.get(d.field.table);
-    const sel = [...dims.map((d) => `${a(d)}.${qi(d.field.column)} AS ${k(d)}`), ...dims.filter((d) => d.sortCol).map((d) => `${a(d)}.${qi(d.sortCol!)} AS ${sk(d)}`)];
+    const sel = [...dims.map((d) => `${partExpr(d.field.datePart, `${a(d)}.${qi(d.field.column)}`)} AS ${k(d)}`), ...dims.filter((d) => d.sortCol).map((d) => `${sortKeyOf(d, `${a(d)}.${qi(d.sortCol!)}`)} AS ${sk(d)}`)];
     return { sql: `SELECT DISTINCT ${sel.join(', ')} FROM ${tree.from}${whereFor(ctx, tree)}` };
   }
 
@@ -212,8 +226,8 @@ function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx): Core {
   for (const [base, ms] of groups) {
     const tree = joinTree(ctx.rels, base, dimTables, filterTables);
     if ('missing' in tree) return { error: missingError(ctx, base, tree.missing) };
-    const col = (f: FieldRef) => `${tree.alias.get(f.table)}.${qi(f.column)}`;
-    const sortCol = (d: QueryItem) => `${tree.alias.get(d.field.table)}.${qi(d.sortCol!)}`;
+    const col = (f: FieldRef) => partExpr(f.datePart, `${tree.alias.get(f.table)}.${qi(f.column)}`);
+    const sortCol = (d: QueryItem) => sortKeyOf(d, `${tree.alias.get(d.field.table)}.${qi(d.sortCol!)}`);
     const sorted = dims.filter((d) => d.sortCol);
     const where = whereFor(ctx, tree);
     const group = dims.length ? ' GROUP BY ALL' : '';
@@ -260,9 +274,19 @@ export function buildVisualQuery(
   if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative' || v.type === 'qna') return null;
   const def = visualDef(v.type);
   const items: QueryItem[] = [];
+  // Hierarchy axis: only the current drill level (or, with "expand all", every level down to it);
+  // the values drilled into become filters on the upper levels.
+  const extra: Filter[] = [];
   for (const w of def.wells) {
-    for (const f of v.fields[w.key] ?? []) items.push({ alias: 'c' + items.length, field: f, well: w.key, measure: f.agg !== 'none' });
+    let fs = v.fields[w.key] ?? [];
+    if (w.hierarchy && fs.length > 1) {
+      const lvl = Math.min(v.drill?.level ?? 0, fs.length - 1);
+      (v.drill?.path ?? []).slice(0, lvl).forEach((val, i) => { if (!v.drill?.expand) extra.push({ id: 'drill' + i, table: fs[i].table, column: fs[i].column, datePart: fs[i].datePart, values: [val === null ? NULL_KEY : val] }); });
+      fs = v.drill?.expand ? fs.slice(0, lvl + 1) : [fs[lvl]];
+    }
+    for (const f of fs) items.push({ alias: 'c' + items.length, field: f, well: w.key, measure: f.agg !== 'none' });
   }
+  if (extra.length) v = { ...v, filters: [...(v.filters ?? []), ...extra] };
   if (!items.length) return null;
   // Every measure item compiles to (base table, columns, SQL template): plain aggregations
   // run on their column's table, DAX measures on the table their columns come from.
@@ -287,6 +311,8 @@ export function buildVisualQuery(
     const t = tables.find((x) => x.name === d.field.table);
     const sc = t?.sortBy?.[d.field.column];
     if (sc && sc !== d.field.column && t!.columns.some((c) => c.name === sc)) d.sortCol = sc;
+    // Months and quarters sort by date (MIN of the date column in the group), not alphabetically.
+    if (d.field.datePart === 'month' || d.field.datePart === 'quarter') d.sortCol = d.field.column;
   }
   // DAX measures run as correlated subqueries over the groups produced by core():
   // each one sees the visual's filters plus "dim = this group's value".
@@ -297,8 +323,9 @@ export function buildVisualQuery(
     const c: Core = !ds.length && !plain.length ? { sql: 'SELECT 1 AS __one' } : core(ds, plain, ctx);
     if ('error' in c || !dax.length) return c;
     try {
-      const groups = ds.map((d) => ({ table: d.field.table, column: d.field.column, ref: `g.${k(d)}` }));
-      const sel = dax.map((m) => `${measureSql(model, m.field.column, m.field.table, ctx.filters, groups)} AS ${m.alias}`);
+      const groups = ds.map((d) => ({ table: d.field.table, column: d.field.column, ref: `g.${k(d)}`, ...(d.field.datePart ? { expr: (x: string) => partExpr(d.field.datePart, x) } : {}) }));
+      const outer = ctx.filters.map((f) => ({ ...f, ...(f.datePart ? { expr: (x: string) => partExpr(f.datePart, x) } : {}) }));
+      const sel = dax.map((m) => `${measureSql(model, m.field.column, m.field.table, outer, groups)} AS ${m.alias}`);
       let sql = `SELECT g.*, ${sel.join(', ')} FROM (${c.sql}) AS g`;
       // Like Power BI, groups where every measure is blank are not shown.
       if (ds.length && !plain.length) sql = `SELECT * FROM (${sql}) AS b WHERE NOT (${dax.map((m) => `b.${m.alias} IS NULL`).join(' AND ')})`;
@@ -320,7 +347,7 @@ export function buildVisualQuery(
   } else if (fmt.sortBy !== undefined && items[fmt.sortBy]) {
     const it = items[fmt.sortBy];
     order = `${it.measure ? it.alias : key(it)} ${fmt.sortDir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST`;
-  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) || !measures.length) {
+  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) || !measures.length || dims.some((d) => d.field.datePart)) {
     order = dims.map(dimKey).join(', ');
   } else if (v.fields.legend?.length && dims.length > 1) {
     // Stacked/clustered with legend: rank categories by their total, like Power BI.
