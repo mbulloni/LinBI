@@ -5,6 +5,8 @@ export interface Well {
   label: string;
   measure: boolean; // values are aggregated by default
   max?: number;
+  /** column names that go to this well when dropped on the visual (latitude/longitude) */
+  match?: RegExp;
 }
 
 export interface VisualDef {
@@ -50,6 +52,17 @@ export const VISUALS: VisualDef[] = [
   { type: 'donut', name: 'Grafico ad anello', category: 'category', wells: [{ key: 'category', label: 'Legenda', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
   { type: 'treemap', name: 'Mappa ad albero', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
   { type: 'funnel', name: 'Imbuto', category: 'category', wells: [{ key: 'category', label: 'Categoria', measure: false, max: 1 }, { key: 'values', label: 'Valori', measure: true, max: 1 }] },
+  {
+    type: 'map', name: 'Mappa', category: 'category',
+    wells: [{ key: 'category', label: 'Posizione', measure: false, max: 1 }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
+      { key: 'lat', label: 'Latitudine', measure: false, max: 1, match: /^(lat|latitud)/i }, { key: 'lon', label: 'Longitudine', measure: false, max: 1, match: /^(lon|lng|longitud)/i },
+      { key: 'values', label: 'Dimensioni bolle', measure: true, max: 1 }],
+  },
+  {
+    type: 'filledMap', name: 'Mappa colorata', category: 'category',
+    wells: [{ key: 'category', label: 'Posizione', measure: false, max: 1 }, { key: 'legend', label: 'Legenda', measure: false, max: 1 },
+      { key: 'values', label: 'Saturazione colore', measure: true, max: 1 }],
+  },
   { type: 'gauge', name: 'Misuratore', wells: [{ key: 'values', label: 'Valore', measure: true, max: 1 }, { key: 'target', label: 'Valore di destinazione', measure: true, max: 1 }] },
   { type: 'card', name: 'Scheda', wells: [{ key: 'values', label: 'Campi', measure: true, max: 1 }] },
   { type: 'multiRowCard', name: 'Scheda con più righe', wells: [{ key: 'values', label: 'Campi', measure: false }] },
@@ -71,4 +84,4 @@ const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo'
 export const visualDef = (t: VisualType): VisualDef =>
   VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
 
-export const isChart = (t: VisualType) => !['card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);
+export const isChart = (t: VisualType) => !['map', 'filledMap', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);

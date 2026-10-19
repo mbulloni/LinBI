@@ -215,6 +215,8 @@ Fabric, PDF, `.lbix` con i dati.
 - Editor di Power Query con passaggi applicati, codice M e SQL equivalente (vedi sopra)
 - DAX: misure, colonne e tabelle calcolate, vista query DAX (vedi sopra)
 - `.lbix` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
+- Mappe (a bolle, con torte per legenda, e colorate) senza connessione: paesi, stati USA, regioni/province/comuni italiani,
+  ~7.300 città del mondo, oppure latitudine/longitudine; zoom e trascinamento, filtro incrociato
 - Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;
@@ -233,6 +235,13 @@ nella pagina (lo store è esposto come `window.__linbi`, il query builder come `
 stampa il valore restituito dallo script (`SCRIPT_RESULT {...}`), cattura uno screenshot ed esce.
 `LINBI_PBIT_OUT=out.pbit` salva l'esportazione `.pbit` senza finestra di dialogo. File `.pbix` di prova: cartella `data/`
 del repository di pbixray (sample Microsoft).
+
+## Dati geografici
+
+`src/geo/` è generato da `node scripts/build-geo.mjs <cartella>`: confini dei paesi e città da
+[Natural Earth](https://www.naturalearthdata.com/) (pubblico dominio, tramite `world-atlas`), stati USA da US Census
+(pubblico dominio, tramite `us-atlas`), regioni, province e comuni italiani da
+[openpolis/geojson-italy](https://github.com/openpolis/geojson-italy) su dati ISTAT (CC BY 4.0).
 
 ## Licenza
 

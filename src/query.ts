@@ -323,7 +323,7 @@ export function buildVisualQuery(
   } else {
     order = `${measures[0].alias} DESC NULLS LAST`;
   }
-  const limit = v.type === 'table' || v.type === 'matrix' ? 5000 : 1000;
+  const limit = v.type === 'table' || v.type === 'matrix' ? 5000 : v.type === 'map' || v.type === 'filledMap' ? 10000 : 1000;
   const out: VisualQuery = { sql: finalize(main, dims, measures, order, limit), items };
 
   // Combo chart with a column legend: the lines are per category only (rowTotalsSql, keyed by category).

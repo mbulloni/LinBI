@@ -134,7 +134,8 @@ function FormatPane({ v }: { v: Visual }) {
   const tg = (k: keyof VisualFormat): [boolean, (b: boolean) => void] => [f[k] as boolean, (b) => up({ [k]: b })];
   const chart = isChart(v.type);
   const cartesian = chart && !['pie', 'donut', 'treemap', 'funnel', 'gauge'].includes(v.type);
-  const hasLegend = ['pie', 'donut'].includes(v.type) || (cartesian && v.type !== 'scatter') || v.type === 'scatter';
+  const mapv = v.type === 'map' || v.type === 'filledMap';
+  const hasLegend = ['pie', 'donut'].includes(v.type) || (cartesian && v.type !== 'scatter') || v.type === 'scatter' || mapv;
 
   return (
     <div>
@@ -155,8 +156,8 @@ function FormatPane({ v }: { v: Visual }) {
             </label>
           </Card>
         )}
-        {chart && v.type !== 'gauge' && <Card title="Etichette dati" toggle={tg('dataLabels')} />}
-        {(chart || v.type === 'gauge') && !['pie', 'donut', 'treemap'].includes(v.type) && (
+        {(chart || v.type === 'map') && v.type !== 'gauge' && <Card title="Etichette dati" toggle={tg('dataLabels')} />}
+        {(chart || v.type === 'gauge' || mapv) && !['pie', 'donut', 'treemap'].includes(v.type) && (
           <Card title="Colonne / Colori" defaultOpen>
             <label className="fmt-row"><span>Colore predefinito</span>
               <span className="colorpick"><input type="color" value={f.color} onChange={(e) => up({ color: e.target.value })} />{f.color.toUpperCase()}</span>
@@ -177,7 +178,7 @@ function FormatPane({ v }: { v: Visual }) {
             </label>
           </Card>
         )}
-        {!chart && !['slicer', 'table', 'matrix'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
+        {!chart && !mapv && !['slicer', 'table', 'matrix'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
       </>}
       {tab === 'general' && <>
         <Card title="Proprietà" defaultOpen>

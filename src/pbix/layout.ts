@@ -23,6 +23,7 @@ const TYPE_IN: Record<string, VisualType> = {
   card: 'card', cardVisual: 'card', multiRowCard: 'multiRowCard', kpi: 'kpi',
   tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer',
   textbox: 'textbox', image: 'image', actionButton: 'button', basicShape: 'shape', shape: 'shape',
+  map: 'map', azureMap: 'map', filledMap: 'filledMap', shapeMap: 'filledMap',
 };
 /** Decorative/navigation objects that carry no data: not imported. */
 const SKIP = new Set(['bookmarkNavigator', 'pageNavigator', 'lineShape']);
@@ -34,7 +35,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   treemap: 'treemap', funnel: 'funnel', scatter: 'scatterChart', gauge: 'gauge', card: 'card', table: 'tableEx',
   lineClusteredColumn: 'lineClusteredColumnComboChart', lineStackedColumn: 'lineStackedColumnComboChart', ribbon: 'ribbonChart',
   waterfall: 'waterfallChart', multiRowCard: 'multiRowCard', kpi: 'kpi',
-  matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape',
+  matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape', map: 'map', filledMap: 'filledMap',
 };
 
 /** Power BI projection role → LinBI well, per LinBI visual type. */
@@ -48,6 +49,8 @@ function roleMap(t: VisualType): Record<string, string> {
     case 'multiRowCard': return { Values: 'values' };
     case 'kpi': return { Indicator: 'values', TrendLine: 'trend', Goal: 'target' };
     case 'waterfall': return { Category: 'category', Y: 'values' };
+    case 'map': return { Category: 'category', Series: 'legend', Y: 'lat', X: 'lon', Size: 'values' };
+    case 'filledMap': return { Category: 'category', Series: 'legend', Gradient: 'values', Y: 'values' };
     case 'lineClusteredColumn': case 'lineStackedColumn': return { Category: 'category', Y: 'values', Y2: 'lineValues', Series: 'legend' };
     case 'table': return { Values: 'columns' };
     case 'matrix': return { Rows: 'rows', Columns: 'columns', Values: 'values' };

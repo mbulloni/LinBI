@@ -23,6 +23,8 @@ const VIS: Record<VisualType, ReactNode> = {
   donut: <><circle cx="10" cy="10" r="6" fill="none" stroke={B} strokeWidth="4" /><path d="M10 4 A6 6 0 0 1 15.7 11.9" stroke={D} strokeWidth="4" fill="none" /></>,
   treemap: <><rect x="2" y="2" width="9" height="16" fill={B} /><rect x="12" y="2" width="6" height="9" fill={D} /><rect x="12" y="12" width="6" height="6" fill={O} /></>,
   funnel: <><rect x="2" y="2" width="16" height="3.5" fill={B} /><rect x="4" y="6.5" width="12" height="3.5" fill={B} /><rect x="6" y="11" width="8" height="3.5" fill={B} /><rect x="8" y="15.5" width="4" height="3" fill={B} /></>,
+  map: <><path d="M2 5 L7 3 L13 5 L18 3 V15 L13 17 L7 15 L2 17 Z" fill="#E6E6E6" stroke={G} strokeWidth=".8" /><circle cx="7" cy="9" r="2.2" fill={B} opacity=".8" /><circle cx="13" cy="11" r="1.5" fill={B} opacity=".8" /></>,
+  filledMap: <><path d="M2 5 L7 3 L13 5 L18 3 V15 L13 17 L7 15 L2 17 Z" fill="#E6E6E6" stroke={G} strokeWidth=".8" /><path d="M7 3 L13 5 V17 L7 15 Z" fill={B} /></>,
   gauge: <><path d="M3 15 A7 7 0 0 1 17 15" stroke="#C8C6C4" strokeWidth="4" fill="none" /><path d="M3 15 A7 7 0 0 1 12.5 8.4" stroke={B} strokeWidth="4" fill="none" /></>,
   card: <><rect x="2" y="4" width="16" height="12" rx="1" fill="none" stroke={G} /><text x="10" y="13" fontSize="7" textAnchor="middle" fill={K} fontWeight="700">123</text></>,
   multiRowCard: <><rect x="2" y="2.5" width="16" height="6.5" fill="none" stroke={G} /><rect x="2" y="2.5" width="1.5" height="6.5" fill={B} /><rect x="2" y="11" width="16" height="6.5" fill="none" stroke={G} /><rect x="2" y="11" width="1.5" height="6.5" fill={B} /><path d="M6 5.8 H15 M6 14.3 H13" stroke={K} strokeWidth="1.4" /></>,

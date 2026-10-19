@@ -23,6 +23,8 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - Power BI formatting fidelity: `Visual.style` keeps the imported `objects`/`vcObjects` (+ `pbiType`, and the whole `singleVisual` as `raw` for visuals LinBI cannot render). Renderers read it with `visuals/pbistyle.ts#sp(v, obj, prop, state?)` (plain or `{id:'default'}` entries, then theme `visualStyles`), colors via `decode` (Literal, ThemeDataColor ColorId 0=bg 1=fg 2..=dataColors, Percent tint/shade), font sizes in pt (`pt()`). Title/background/border also map to `VisualFormat` (editable). `buildLayout` starts from `style` and overwrites only LinBI-managed props. Pages keep size (`width/height`), `backgroundColor/Transparency/Fit`, `wallpaper` (outspace), `hidden`, `pbiName` (section name, target of navigation buttons). Buttons/shapes: `visuals/Shapes.tsx` (Ctrl+click runs page navigation/back/web URL). Conditional formatting: `visuals/condfmt.ts`, `VisualFormat.cf` keyed by `fieldKey()`.
 
+- Maps: `visuals/MapVisual.tsx` (ECharts geo, Mercator projection, `boundingCoords` fit; filled-map colors through `geo.regions` because a map series bound to a geo ignores item styles; location+legend = custom pie series). Offline geocoding `geo/geocode.ts`: layers in `src/geo/*.json` (TopoJSON object `f`, props `n` name, `k` normalized aliases, `c` inner point; loaded lazily with `?raw`), best layer = column-name hint then most matches. Regenerate with `scripts/build-geo.mjs`.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.

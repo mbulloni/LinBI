@@ -263,6 +263,7 @@ export const useStore = create<State>((set, get) => {
       return !w.max || (v.fields[k]?.length ?? 0) < w.max;
     };
     let well = wellKey ? def.wells.find((w) => w.key === wellKey) : undefined;
+    well ??= def.wells.find((w) => w.match?.test(f.column) && hasRoom(w.key));
     if (!well) {
       well = (num ? def.wells.find((w) => w.measure && hasRoom(w.key)) : undefined)
         ?? def.wells.find((w) => !w.measure && hasRoom(w.key))

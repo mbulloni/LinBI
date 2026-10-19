@@ -497,3 +497,5 @@ thead .pq-rn { z-index: 2; }
 .pbi-other[open] { display: flex; }
 .pbi-other .publish-opt { margin-top: 6px; width: 100%; }
 .pagetab.hidden-page { font-style: italic; opacity: .65; }
+.map-credit { position: absolute; right: 6px; bottom: 4px; font-size: 8px; color: #8A8886; pointer-events: none; background: rgba(255,255,255,.7); padding: 0 3px; max-width: calc(100% - 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-note { color: #A4262C; }

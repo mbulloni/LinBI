@@ -28,7 +28,7 @@ export type VisualType =
   | 'stackedBar' | 'stackedColumn' | 'clusteredBar' | 'clusteredColumn'
   | 'stackedBar100' | 'stackedColumn100' | 'line' | 'area' | 'stackedArea'
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
-  | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge'
+  | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge' | 'map' | 'filledMap'
   | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {

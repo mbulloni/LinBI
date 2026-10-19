@@ -7,6 +7,7 @@ import { useStore } from '../store';
 import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
 import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
+import { MapVisual } from '../visuals/MapVisual';
 import { CardVisual, KpiVisual, MatrixVisual, MultiRowCardVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
 import { isChart, visualDef } from '../visuals/catalog';
 import { fieldLabel } from '../format';
@@ -83,6 +84,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'table') return <TableVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'matrix') return <MatrixVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'slicer') return <SlicerVisual v={v} data={data} />;
+  if (v.type === 'map' || v.type === 'filledMap') return <MapVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   return <ChartVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
 }
 
