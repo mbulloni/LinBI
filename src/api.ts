@@ -14,7 +14,8 @@ export interface PowerBIModel {
   resources: Record<string, string>;
   warnings: string[];
 }
-export interface PbiStatus { clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; }
+export interface PbiProfile { id: string; name: string; tenant: string; account: string | null; }
+export interface PbiStatus { profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
 export interface PbiWorkspace { id: string; name: string; dedicated: boolean; }
 export interface PbiResult { datasetId: string; reportId: string | null; webUrl: string | null; warnings: string[]; }
 type TableInfo = { name: string; rowCount: number; columns: ColumnMeta[] };
@@ -44,7 +45,10 @@ interface Api {
   savePbip(parts: { path: string; text?: string; dataUrl?: string }[], suggested?: string): Promise<string | null>;
   pbi: {
     status(): Promise<PbiStatus>;
-    configure(clientId: string, tenant: string): Promise<PbiStatus>;
+    configure(clientId: string, tenant: string, name: string): Promise<PbiStatus>;
+    addProfile(clientId: string, tenant: string, name: string): Promise<PbiStatus>;
+    selectProfile(id: string): Promise<PbiStatus>;
+    removeProfile(): Promise<PbiStatus>;
     signOut(): Promise<void>;
     loginStart(): Promise<{ userCode: string; verificationUri: string; message: string }>;
     loginWait(): Promise<PbiStatus>;

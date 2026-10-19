@@ -177,7 +177,8 @@ finiscono mai nel report: sono cifrate con il portachiavi di sistema (Electron `
 in Microsoft Entra ID (client pubblico, autorizzazioni delegate *Power BI Service*: Workspace.Read.All,
 Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create, Item.ReadWrite.All): la finestra spiega i passi.
 L'accesso usa il codice dispositivo (si completa nel browser); il token di aggiornamento è cifrato con
-`safeStorage` in `~/.config/linbi/powerbi.json`.
+`safeStorage` in `~/.config/linbi/powerbi.json`. **Profili**: uno per ogni app/tenant (es. tenant di test, tenant
+aziendale), ciascuno con il proprio accesso salvato; si sceglie dal menu *Profilo* della finestra Pubblica.
 
 - **Dataset push + report** (Power BI Pro, qualsiasi area di lavoro): dataset push con tabelle, relazioni e misure
   DAX, righe lette da DuckDB (10.000 per richiesta); colonne/tabelle calcolate come valori fissi, relazioni inattive e

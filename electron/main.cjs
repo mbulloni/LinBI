@@ -61,7 +61,10 @@ handle('db:forget', (c) => connect.forget(c));
 
 // Power BI service (electron/powerbi.cjs): progress lines go to the renderer as 'pbi:progress'.
 handle('pbi:status', () => powerbi.status());
-handle('pbi:configure', (clientId, tenant) => powerbi.configure(clientId, tenant));
+handle('pbi:configure', (clientId, tenant, name) => powerbi.configure(clientId, tenant, name));
+handle('pbi:addProfile', (clientId, tenant, name) => powerbi.addProfile(clientId, tenant, name));
+handle('pbi:selectProfile', (id) => powerbi.selectProfile(id));
+handle('pbi:removeProfile', () => powerbi.removeProfile());
 handle('pbi:signOut', () => powerbi.signOut());
 handle('pbi:loginStart', () => powerbi.loginStart());
 handle('pbi:loginWait', () => powerbi.loginWait());

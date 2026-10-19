@@ -31,7 +31,10 @@ contextBridge.exposeInMainWorld('api', {
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
   pbi: {
     status: () => call('pbi:status'),
-    configure: (clientId, tenant) => call('pbi:configure', clientId, tenant),
+    configure: (clientId, tenant, name) => call('pbi:configure', clientId, tenant, name),
+    addProfile: (clientId, tenant, name) => call('pbi:addProfile', clientId, tenant, name),
+    selectProfile: (id) => call('pbi:selectProfile', id),
+    removeProfile: () => call('pbi:removeProfile'),
     signOut: () => call('pbi:signOut'),
     loginStart: () => call('pbi:loginStart'),
     loginWait: () => call('pbi:loginWait'),

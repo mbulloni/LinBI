@@ -12,9 +12,12 @@ export function PublishDialog() {
   const s = useStore();
   const open = s.publishDialog;
   const [st, setSt] = useState<PbiStatus | null>(null);
-  const [setup, setSetup] = useState(false);
+  // Settings form: 'edit' = app of the active profile, 'new' = another profile (another app/tenant).
+  const [setup, setSetup] = useState<false | 'edit' | 'new'>(false);
+  const [profName, setProfName] = useState('');
   const [clientId, setClientId] = useState('');
   const [tenant, setTenant] = useState('organizations');
+  const [confirmDel, setConfirmDel] = useState(false);
   const [login, setLogin] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [spaces, setSpaces] = useState<PbiWorkspace[] | null>(null);
   const [ws, setWs] = useState<string | null>(null);
@@ -35,7 +38,8 @@ export function PublishDialog() {
   useEffect(() => {
     if (!open) return;
     setLog([]); setResult(null); setError(null); setFrac(null); setName(base);
-    api.pbi.status().then((x) => { setSt(x); setClientId(x.clientId); setTenant(x.tenant); setSetup(!x.clientId); }).catch((e) => setError(e.message));
+    setConfirmDel(false);
+    api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(x.clientId ? false : 'edit'); }).catch((e) => setError(e.message));
     return api.pbi.onProgress((msg, f) => { setLog((l) => [...l.slice(-200), msg]); if (f !== null) setFrac(f); });
   }, [open]);
 
@@ -43,11 +47,17 @@ export function PublishDialog() {
     if (!open || !st?.account) return;
     api.pbi.workspaces().then((list) => {
       setSpaces(list);
+      if (!list.length) { setWs(null); return; }
       const pick = list.find((w) => w.id === st.lastWorkspace) ?? list.find((w) => w.dedicated) ?? list[0];
       setWs(pick.id);
       setMode(pick.dedicated ? 'fabric' : 'push');
     }).catch((e) => setError(e.message));
-  }, [open, st?.account]);
+  }, [open, st?.profileId, st?.account]);
+
+  function fillSetup(x: PbiStatus | null) {
+    setProfName(x?.profileName || (x?.profiles.length ? '' : 'Predefinito'));
+    setClientId(x?.clientId ?? ''); setTenant(x?.tenant ?? 'organizations');
+  }
 
   if (!open) return null;
   const close = () => { if (login) api.pbi.loginCancel(); setLogin(null); s.set({ publishDialog: false }); };
@@ -60,7 +70,15 @@ export function PublishDialog() {
     try { await fn(); } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
 
-  const saveSetup = () => wrap(async () => { setSt(await api.pbi.configure(clientId, tenant)); setSetup(false); setSpaces(null); });
+  const fresh = (x: PbiStatus) => { setSt(x); setSpaces(null); setWs(null); setLog([]); setResult(null); setConfirmDel(false); };
+  const saveSetup = () => wrap(async () => {
+    fresh(setup === 'new' ? await api.pbi.addProfile(clientId, tenant, profName) : await api.pbi.configure(clientId, tenant, profName));
+    setSetup(false);
+  });
+  const newProfile = () => { setProfName(''); setClientId(''); setTenant('organizations'); setSetup('new'); setConfirmDel(false); };
+  const editProfile = () => { fillSetup(st); setSetup('edit'); setConfirmDel(false); };
+  const pickProfile = (id: string) => wrap(async () => { if (login) { await api.pbi.loginCancel(); setLogin(null); } fresh(await api.pbi.selectProfile(id)); });
+  const removeProfile = () => wrap(async () => { const x = await api.pbi.removeProfile(); fresh(x); fillSetup(x); if (!x.clientId) setSetup('edit'); });
   const signIn = () => wrap(async () => {
     const code = await api.pbi.loginStart();
     setLogin(code);
@@ -94,6 +112,20 @@ export function PublishDialog() {
       <div className="dialog" style={{ width: 720, maxHeight: '90vh' }}>
         <div className="dh"><h2>Pubblica in Power BI</h2><button onClick={close}><Icon name="close" /></button></div>
         <div className="db pq-db">
+          {!setup && st && st.profiles.length > 0 && (
+            <div className="pq-row">
+              <label className="pq-field" style={{ flex: 1 }}>Profilo (tenant)
+                <select value={st.profileId ?? ''} disabled={busy} onChange={(e) => pickProfile(e.target.value)}>
+                  {st.profiles.map((p) => <option key={p.id} value={p.id}>{p.name}{p.account ? ` — ${p.account}` : ''}</option>)}
+                </select>
+              </label>
+              <button className="btn" style={{ minWidth: 0, alignSelf: 'flex-end' }} disabled={busy} onClick={newProfile}>Nuovo profilo</button>
+              {confirmDel
+                ? <><button className="btn primary" style={{ minWidth: 0, alignSelf: 'flex-end' }} disabled={busy} onClick={removeProfile}>Elimina «{st.profileName}»</button>
+                    <button className="btn" style={{ minWidth: 0, alignSelf: 'flex-end' }} onClick={() => setConfirmDel(false)}>Annulla</button></>
+                : <button className="btn" style={{ minWidth: 0, alignSelf: 'flex-end' }} disabled={busy} onClick={() => setConfirmDel(true)}>Elimina</button>}
+            </div>
+          )}
           {setup ? (
             <>
               <div className="pq-note">
@@ -104,6 +136,9 @@ export function PublishDialog() {
                   <li><b>Autorizzazioni API</b> › Aggiungi › <b>Power BI Service</b> › Autorizzazioni delegate: Workspace.Read.All, Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create; per il modello completo anche Item.ReadWrite.All. Se richiesto, far concedere il consenso dall'amministratore.</li>
                   <li>Copiare qui <b>ID applicazione (client)</b> e <b>ID directory (tenant)</b>.</li>
                 </ol>
+              </div>
+              <div className="pq-row">
+                <label className="pq-field" style={{ flex: 1 }}>Nome del profilo<input type="text" value={profName} onChange={(e) => setProfName(e.target.value)} placeholder="es. Tenant di test" /></label>
               </div>
               <div className="pq-row">
                 <label className="pq-field" style={{ flex: 1 }}>ID applicazione (client)<input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /></label>
@@ -192,11 +227,11 @@ export function PublishDialog() {
         </div>
         <div className="df">
           {setup ? <>
-            <button className="btn primary" disabled={busy || !clientId.trim()} onClick={saveSetup}>Salva</button>
+            <button className="btn primary" disabled={busy || !clientId.trim() || !profName.trim()} onClick={saveSetup}>{setup === 'new' ? 'Crea profilo' : 'Salva'}</button>
             {st?.clientId && <button className="btn" onClick={() => setSetup(false)}>Annulla</button>}
           </> : <>
             {st?.account && <button className="btn primary" disabled={busy || empty || !space || !name.trim() || (mode === 'fabric' && !space.dedicated)} onClick={publish}>{busy ? 'Pubblicazione…' : 'Pubblica'}</button>}
-            <button className="btn" disabled={busy} onClick={() => setSetup(true)}>Impostazioni app</button>
+            <button className="btn" disabled={busy} onClick={editProfile}>Impostazioni app</button>
           </>}
           <button className="btn" onClick={close}>Chiudi</button>
         </div>

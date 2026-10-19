@@ -27,17 +27,40 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const cfgFile = () => path.join(app.getPath('userData'), 'powerbi.json');
 
 // ---------- configuration and tokens ----------
+// powerbi.json = { active, profiles: [{ id, name, clientId, tenant, refresh, account, lastWorkspace, ... }] }:
+// one profile per Entra app/tenant, each with its own encrypted refresh token. loadCfg/saveCfg work on the
+// active profile. The old flat file (a single app) becomes the first profile.
 
 let refreshToken = null;
 const tokens = new Map();
+let pending = null;
 
+function readFile() {
+  let f;
+  try { f = JSON.parse(fs.readFileSync(cfgFile(), 'utf8')); } catch { f = {}; }
+  if (!Array.isArray(f.profiles)) {
+    const old = f;
+    f = { active: null, profiles: [] };
+    if (old.clientId) { const id = crypto.randomUUID(); f.profiles.push({ id, name: 'Predefinito', ...old }); f.active = id; }
+  }
+  if (!f.profiles.some((p) => p.id === f.active)) f.active = f.profiles[0]?.id ?? null;
+  return f;
+}
+function writeFile(f) {
+  fs.writeFileSync(cfgFile(), JSON.stringify(f, null, 2), { mode: 0o600 });
+}
 function loadCfg() {
-  try { return JSON.parse(fs.readFileSync(cfgFile(), 'utf8')); } catch { return {}; }
+  const f = readFile();
+  return f.profiles.find((p) => p.id === f.active) ?? {};
 }
 function saveCfg(patch) {
-  const cfg = { ...loadCfg(), ...patch };
-  fs.writeFileSync(cfgFile(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
-  return cfg;
+  const f = readFile();
+  const p = f.profiles.find((x) => x.id === f.active);
+  if (!p) throw new Error('Nessun profilo Power BI configurato.');
+  Object.assign(p, patch);
+  for (const k of Object.keys(patch)) if (patch[k] === undefined) delete p[k];
+  writeFile(f);
+  return p;
 }
 
 function storedRefresh() {
@@ -58,25 +81,76 @@ function claims(idToken) {
   try { return JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url').toString('utf8')); } catch { return {}; }
 }
 
-/** Public state for the dialog: configuration, signed-in account, last workspace. */
-function status() {
-  const cfg = loadCfg();
-  return { clientId: cfg.clientId ?? '', tenant: cfg.tenant ?? 'organizations', account: storedRefresh() ? cfg.account ?? null : null, lastWorkspace: cfg.lastWorkspace ?? null, persistent: safeStorage.isEncryptionAvailable() };
+/** Forgets the in-memory tokens and any sign-in in progress (another profile becomes active). */
+function resetSession() {
+  refreshToken = null;
+  tokens.clear();
+  pending = null;
 }
 
-function configure(clientId, tenant) {
+/** Public state for the dialog: active profile (configuration, signed-in account, last workspace) and all profiles. */
+function status() {
+  const f = readFile();
+  const cfg = f.profiles.find((p) => p.id === f.active) ?? {};
+  return {
+    profileId: cfg.id ?? null, profileName: cfg.name ?? '',
+    clientId: cfg.clientId ?? '', tenant: cfg.tenant ?? 'organizations', account: storedRefresh() ? cfg.account ?? null : null, lastWorkspace: cfg.lastWorkspace ?? null, persistent: safeStorage.isEncryptionAvailable(),
+    profiles: f.profiles.map((p) => ({ id: p.id, name: p.name, tenant: p.tenant ?? 'organizations', account: p.refresh ? p.account ?? null : null })),
+  };
+}
+
+function checkApp(clientId, name) {
   if (!/^[0-9a-f-]{36}$/i.test(clientId.trim())) throw new Error('ID applicazione (client) non valido: deve essere un GUID.');
-  signOut();
-  saveCfg({ clientId: clientId.trim(), tenant: tenant.trim() || 'organizations' });
+  if (!String(name ?? '').trim()) throw new Error('Indicare un nome per il profilo.');
+}
+
+/** Saves the app of the active profile (creating the first profile); changing app or tenant signs out. */
+function configure(clientId, tenant, name) {
+  checkApp(clientId, name);
+  const f = readFile();
+  const cfg = f.profiles.find((p) => p.id === f.active);
+  const app = { clientId: clientId.trim(), tenant: tenant.trim() || 'organizations', name: name.trim() };
+  if (!cfg) return addProfile(clientId, tenant, name);
+  if (cfg.clientId !== app.clientId || (cfg.tenant ?? 'organizations') !== app.tenant) {
+    signOut();
+    saveCfg({ ...app, lastWorkspace: undefined, pushRelationships: undefined });
+  } else saveCfg({ name: app.name });
+  return status();
+}
+
+/** New profile (another app/tenant), made active. */
+function addProfile(clientId, tenant, name) {
+  checkApp(clientId, name);
+  const f = readFile();
+  const id = crypto.randomUUID();
+  f.profiles.push({ id, name: name.trim(), clientId: clientId.trim(), tenant: tenant.trim() || 'organizations' });
+  f.active = id;
+  writeFile(f);
+  resetSession();
+  return status();
+}
+
+function selectProfile(id) {
+  const f = readFile();
+  if (!f.profiles.some((p) => p.id === id)) throw new Error('Profilo non trovato.');
+  if (f.active !== id) { f.active = id; writeFile(f); resetSession(); }
+  return status();
+}
+
+/** Deletes the active profile with its saved sign-in; the next one becomes active. */
+function removeProfile() {
+  const f = readFile();
+  f.profiles = f.profiles.filter((p) => p.id !== f.active);
+  f.active = f.profiles[0]?.id ?? null;
+  writeFile(f);
+  resetSession();
   return status();
 }
 
 function signOut() {
   refreshToken = null;
   tokens.clear();
-  const cfg = loadCfg();
-  delete cfg.refresh; delete cfg.account;
-  fs.writeFileSync(cfgFile(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  if (loadCfg().id) saveCfg({ refresh: undefined, account: undefined });
 }
 
 async function form(url, params) {
@@ -84,8 +158,6 @@ async function form(url, params) {
   const j = await r.json().catch(() => ({}));
   return { ok: r.ok, j };
 }
-
-let pending = null;
 
 /** Starts the device code flow: the user types `user_code` at `verification_uri` in any browser. */
 async function loginStart() {
@@ -109,6 +181,7 @@ async function loginWait() {
     const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/token`, {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: cfg.clientId, device_code: p.device,
     });
+    if (pending !== p) break; // cancelled, or another profile selected meanwhile
     if (ok) {
       pending = null;
       tokens.set('pbi', { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
@@ -455,4 +528,4 @@ async function publishFabric(spec, progress) {
   return { datasetId: sm.id, reportId: report?.id ?? null, webUrl: report?.id ? `https://app.powerbi.com/groups/${ws}/reports/${report.id}` : null, warnings };
 }
 
-module.exports = { status, configure, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric };
+module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric };
