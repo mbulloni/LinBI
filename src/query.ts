@@ -257,7 +257,7 @@ export function buildVisualQuery(
   daxMeasures: Measure[] = [],
 ): VisualQuery | { error: string } | null {
   // These visuals run their own queries (visuals/AiVisuals.tsx).
-  if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative') return null;
+  if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative' || v.type === 'qna') return null;
   const def = visualDef(v.type);
   const items: QueryItem[] = [];
   for (const w of def.wells) {
@@ -315,10 +315,12 @@ export function buildVisualQuery(
   const fmt = v.format;
   const key = (d: QueryItem) => (d.sortCol ? `q.${sk(d)}` : `q.${k(d)}`);
   const dimKey = (d: QueryItem) => `${key(d)} ASC NULLS LAST`;
-  if (fmt.sortBy !== undefined && items[fmt.sortBy]) {
+  if (v.topN && measures.length) {
+    order = `${measures[0].alias} ${v.topAsc ? 'ASC' : 'DESC'} NULLS LAST`;
+  } else if (fmt.sortBy !== undefined && items[fmt.sortBy]) {
     const it = items[fmt.sortBy];
     order = `${it.measure ? it.alias : key(it)} ${fmt.sortDir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST`;
-  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard'].includes(v.type) || !measures.length) {
+  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) || !measures.length) {
     order = dims.map(dimKey).join(', ');
   } else if (v.fields.legend?.length && dims.length > 1) {
     // Stacked/clustered with legend: rank categories by their total, like Power BI.
@@ -328,7 +330,8 @@ export function buildVisualQuery(
   } else {
     order = `${measures[0].alias} DESC NULLS LAST`;
   }
-  const limit = v.type === 'table' || v.type === 'matrix' ? 5000 : v.type === 'map' || v.type === 'filledMap' ? 10000 : 1000;
+  // Python/R visuals get up to 150,000 rows, like Power BI.
+  const limit = v.topN ? v.topN : v.type === 'table' || v.type === 'matrix' ? 5000 : v.type === 'map' || v.type === 'filledMap' ? 10000 : v.type === 'pythonVisual' || v.type === 'rVisual' ? 150000 : 1000;
   const out: VisualQuery = { sql: finalize(main, dims, measures, order, limit), items };
 
   // Combo chart with a column legend: the lines are per category only (rowTotalsSql, keyed by category).

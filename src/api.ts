@@ -14,6 +14,18 @@ export interface PowerBIModel {
   resources: Record<string, string>;
   warnings: string[];
 }
+export interface ClaudeStatus { configured: boolean; fromEnv: boolean; model: string; models: string[]; persistent: boolean; }
+/** Visual described by a Q&A answer (local rules or Claude). */
+export interface QnaSpec {
+  answerable: boolean;
+  visual: string;
+  fields: { well: string; table: string; column: string; agg: string }[];
+  filters: { table: string; column: string; values: string[] }[];
+  topN: number | null;
+  sortAscending: boolean | null;
+  title: string;
+  restatement: string;
+}
 export interface PbiProfile { id: string; name: string; tenant: string; account: string | null; }
 export interface PbiStatus { profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
 export interface PbiWorkspace { id: string; name: string; dedicated: boolean; }
@@ -43,6 +55,13 @@ interface Api {
   savePbit(parts: PbitPart[], suggested?: string): Promise<string | null>;
   printPdf(suggested?: string): Promise<string | null>;
   savePbip(parts: { path: string; text?: string; dataUrl?: string }[], suggested?: string): Promise<string | null>;
+  claude: {
+    status(): Promise<ClaudeStatus>;
+    configure(key: string | null, model?: string): Promise<ClaudeStatus>;
+    ask(question: string, schema: string): Promise<{ spec: QnaSpec; model: string; usage: { input: number; output: number } }>;
+  };
+  /** Python/R visual: runs the script on the CSV dataset, returns a PNG data URL. */
+  runScript(lang: 'python' | 'r', script: string, csv: string, width: number, height: number): Promise<string>;
   pbi: {
     status(): Promise<PbiStatus>;
     configure(clientId: string, tenant: string, name: string): Promise<PbiStatus>;

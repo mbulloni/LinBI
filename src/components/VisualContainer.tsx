@@ -8,6 +8,8 @@ import { useVisualData } from '../visuals/useVisualData';
 import { ChartVisual } from '../visuals/ChartVisual';
 import { ButtonVisual, ShapeVisual } from '../visuals/Shapes';
 import { MapVisual } from '../visuals/MapVisual';
+import { ScriptVisual } from '../visuals/Script';
+import { QnaVisual } from '../qna/QnaVisual';
 import { DecompositionTreeVisual, KeyInfluencersVisual, SmartNarrativeVisual } from '../visuals/AiVisuals';
 import { CardVisual, KpiVisual, MatrixVisual, MultiRowCardVisual, SlicerVisual, TableVisual, TextboxVisual } from '../visuals/Others';
 import { isChart, visualDef } from '../visuals/catalog';
@@ -80,6 +82,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'decompositionTree') return <DecompositionTreeVisual v={v} />;
   if (v.type === 'keyInfluencers') return <KeyInfluencersVisual v={v} />;
   if (v.type === 'smartNarrative') return <SmartNarrativeVisual v={v} />;
+  if (v.type === 'qna') return <QnaVisual v={v} selected={selected} />;
   if (data.empty) return <div className="vc-placeholder"><VisualIcon type={v.type} size={Math.min(120, v.h * 0.45)} /></div>;
   if (data.error) return <div className="vc-error"><b>Impossibile visualizzare l'oggetto visivo.</b><span>{data.error}</span></div>;
   if (v.type === 'card') return <CardVisual v={v} data={data} />;
@@ -88,6 +91,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'table') return <TableVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'matrix') return <MatrixVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   if (v.type === 'slicer') return <SlicerVisual v={v} data={data} />;
+  if (v.type === 'pythonVisual' || v.type === 'rVisual') return <ScriptVisual v={v} data={data} />;
   if (v.type === 'map' || v.type === 'filledMap') return <MapVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
   return <ChartVisual v={v} data={data} cross={cross} onSelect={onSelect} />;
 }
@@ -123,7 +127,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       minHeight={40}
       dragGrid={s.snapToGrid ? [16, 16] : [1, 1]}
       resizeGrid={s.snapToGrid ? [16, 16] : [1, 1]}
-      cancel=".tbl, .slicer-v, .textbox-v[contenteditable=true], .vc-header"
+      cancel=".tbl, .qna-bar, .qna-settings, .slicer-v, .textbox-v[contenteditable=true], .vc-header"
       style={{ zIndex: selected ? 1000 : v.z }}
       enableResizing={selected}
       resizeHandleClasses={selected ? { topLeft: 'rnd-handle', topRight: 'rnd-handle', bottomLeft: 'rnd-handle', bottomRight: 'rnd-handle', top: 'rnd-handle', bottom: 'rnd-handle', left: 'rnd-handle', right: 'rnd-handle' } : undefined}
@@ -159,6 +163,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       </div>
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          {(v.type === 'pythonVisual' || v.type === 'rVisual') && <><button onClick={() => { setMenu(null); s.set({ scriptEditor: v.id }); }}>Editor di script</button><hr /></>}
           {allFields.length > 0 && v.type !== 'textbox' && v.type !== 'card' && v.type !== 'kpi' && v.type !== 'slicer' && v.type !== 'gauge' && <>
             <div className="hdr">Ordina asse</div>
             {allFields.map(({ f }, i) => (

@@ -12,6 +12,7 @@ import { PowerQueryEditor } from './components/PowerQuery';
 import { DaxBar } from './components/DaxBar';
 import { DatabaseDialog } from './components/DatabaseDialog';
 import { PublishDialog } from './components/PublishDialog';
+import { ScriptEditor } from './visuals/Script';
 import { DaxQueryView } from './components/DaxQueryView';
 import { VisualStatic } from './components/VisualContainer';
 import { THEME } from './themes';
@@ -103,6 +104,7 @@ export function App() {
       <Navigator />
       <DatabaseDialog />
       <PublishDialog />
+      <ScriptEditor />
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (

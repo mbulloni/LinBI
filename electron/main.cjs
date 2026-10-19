@@ -8,6 +8,8 @@ const db = require('./db.cjs');
 const pbip = require('./pbip.cjs');
 const connect = require('./connect.cjs');
 const powerbi = require('./powerbi.cjs');
+const claude = require('./claude.cjs');
+const scripts = require('./scripts.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
 app.commandLine.appendSwitch('no-sandbox');
@@ -60,6 +62,10 @@ handle('db:connect', (c, password, remember) => connect.connect(c, password, rem
 handle('db:forget', (c) => connect.forget(c));
 
 // Power BI service (electron/powerbi.cjs): progress lines go to the renderer as 'pbi:progress'.
+handle('claude:status', () => claude.status());
+handle('claude:configure', (key, model) => claude.configure(key, model));
+handle('claude:ask', (question, schema) => claude.ask(question, schema));
+handle('script:run', (lang, script, csv, w, h) => scripts.run(lang, script, csv, w, h));
 handle('pbi:status', () => powerbi.status());
 handle('pbi:configure', (clientId, tenant, name) => powerbi.configure(clientId, tenant, name));
 handle('pbi:addProfile', (clientId, tenant, name) => powerbi.addProfile(clientId, tenant, name));

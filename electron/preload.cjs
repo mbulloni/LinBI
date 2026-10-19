@@ -29,6 +29,12 @@ contextBridge.exposeInMainWorld('api', {
   savePbit: (parts, suggested) => call('pbit:save', parts, suggested),
   printPdf: (suggested) => call('pdf:print', suggested),
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
+  claude: {
+    status: () => call('claude:status'),
+    configure: (key, model) => call('claude:configure', key, model),
+    ask: (question, schema) => call('claude:ask', question, schema),
+  },
+  runScript: (lang, script, csv, w, h) => call('script:run', lang, script, csv, w, h),
   pbi: {
     status: () => call('pbi:status'),
     configure: (clientId, tenant, name) => call('pbi:configure', clientId, tenant, name),

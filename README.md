@@ -219,6 +219,11 @@ Fabric, PDF, `.lbix` con i dati.
   ~7.300 città del mondo, oppure latitudine/longitudine; zoom e trascinamento, filtro incrociato
 - Oggetti visivi IA: albero di scomposizione (divisione IA valore alto/basso), influenzatori chiave (destinazione numerica o
   categorica, fattori numerici divisi in fasce, test di significatività) e narrazione intelligente della pagina
+- Domande e risposte: motore locale (italiano/inglese, campi, misure, valori, "per", "primi N", tipo di grafico) oppure
+  Claude (chiave API Anthropic nelle impostazioni del visual; riceve solo lo schema del modello e alcuni valori di esempio,
+  mai le righe); "Trasforma in oggetto visivo"
+- Oggetti visivi Python e R (`dataset` come in Power BI; Python con pandas + matplotlib, R con Rscript), da abilitare
+  per sessione perché eseguono codice
 - Formattazione condizionale (scale di colori, barre dei dati, icone) e sfumature dei colori dati nei grafici
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;

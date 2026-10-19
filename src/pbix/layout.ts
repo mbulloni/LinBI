@@ -25,6 +25,7 @@ const TYPE_IN: Record<string, VisualType> = {
   textbox: 'textbox', image: 'image', actionButton: 'button', basicShape: 'shape', shape: 'shape',
   map: 'map', azureMap: 'map', filledMap: 'filledMap', shapeMap: 'filledMap',
   decompositionTreeVisual: 'decompositionTree', keyDriversVisual: 'keyInfluencers', smartNarrativeVisual: 'smartNarrative',
+  pythonVisual: 'pythonVisual', scriptVisual: 'rVisual', qnaVisual: 'qna',
 };
 /** Decorative/navigation objects that carry no data: not imported. */
 const SKIP = new Set(['bookmarkNavigator', 'pageNavigator', 'lineShape']);
@@ -38,6 +39,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   waterfall: 'waterfallChart', multiRowCard: 'multiRowCard', kpi: 'kpi',
   matrix: 'pivotTable', slicer: 'slicer', textbox: 'textbox', image: 'image', button: 'actionButton', shape: 'basicShape', map: 'map', filledMap: 'filledMap',
   decompositionTree: 'decompositionTreeVisual', keyInfluencers: 'keyDriversVisual', smartNarrative: 'smartNarrativeVisual',
+  pythonVisual: 'pythonVisual', rVisual: 'scriptVisual', qna: 'qnaVisual',
 };
 
 /** Power BI projection role → LinBI well, per LinBI visual type. */
@@ -51,6 +53,7 @@ function roleMap(t: VisualType): Record<string, string> {
     case 'multiRowCard': return { Values: 'values' };
     case 'kpi': return { Indicator: 'values', TrendLine: 'trend', Goal: 'target' };
     case 'waterfall': return { Category: 'category', Y: 'values' };
+    case 'pythonVisual': case 'rVisual': return { Values: 'values' };
     case 'decompositionTree': return { Analyze: 'values', ExplainBy: 'explain' };
     case 'keyInfluencers': return { Target: 'target', ExplainBy: 'explain' };
     case 'map': return { Category: 'category', Series: 'legend', Y: 'lat', X: 'lon', Size: 'values' };
@@ -391,6 +394,8 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         put(objects, 'labels', { show: L(String(fm.dataLabels)) });
         if (fm.color && fm.color !== '#118DFF') put(objects, 'dataPoint', { fill: color(fm.color) });
       }
+      if ((v.type === 'pythonVisual' || v.type === 'rVisual') && v.script !== undefined) put(objects, 'script', { source: Ls(v.script), provider: Ls(v.type === 'rVisual' ? 'R' : 'Python') });
+      if (v.type === 'qna' && v.qna?.question) put(objects, 'hiddenProperties', { savedUtterance: Ls(v.qna.question) });
       if (v.type === 'textbox') {
         const same = (objects.general?.[0]?.properties?.paragraphs ?? []).map((p: any) => (p.textRuns ?? []).map((r: any) => r.value ?? '').join('')).join('\n') === (v.text ?? '');
         if (!same) put(objects, 'general', { paragraphs: (v.text ?? '').split('\n').map((t) => ({ textRuns: [{ value: t }] })) });

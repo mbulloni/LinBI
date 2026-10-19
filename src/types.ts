@@ -29,7 +29,8 @@ export type VisualType =
   | 'stackedBar100' | 'stackedColumn100' | 'line' | 'area' | 'stackedArea'
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge' | 'map' | 'filledMap'
-  | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative'
+  | 'pythonVisual' | 'rVisual' | 'qna' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;
@@ -84,6 +85,13 @@ export interface Visual {
   tree?: { dim: number; value?: string | null }[];
   /** Key influencers: categorical target value, numeric direction, selected influencer. */
   ki?: { target?: string; dir?: 'up' | 'down'; selected?: string; tab?: 'influencers' | 'segments' };
+  /** Python/R visual script. */
+  script?: string;
+  /** Q&A: question and the answer's visual spec (kept so Claude is not asked again). */
+  qna?: { question: string; spec?: import('./api').QnaSpec; source?: 'local' | 'claude' };
+  /** Top N rows by the first value (Q&A "i primi 5"). */
+  topN?: number;
+  topAsc?: boolean;
   text?: string;       // textbox content, or original visualType for 'unsupported'
   image?: string;      // data URL for 'image'
 }

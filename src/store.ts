@@ -142,6 +142,10 @@ interface State {
   gridlines: boolean;
   snapToGrid: boolean;
   busy: string | null;
+  /** Python/R visuals run only after the user enables them in this session (like Power BI Desktop). */
+  scriptsEnabled: boolean;
+  /** Visual whose script is open in the script editor. */
+  scriptEditor: string | null;
   clipboard: Visual | null;
   focusId: string | null;
   relManage: boolean;
@@ -271,7 +275,7 @@ export const useStore = create<State>((set, get) => {
         ?? def.wells[0];
     }
     if (!well) return;
-    const agg: FieldRef['agg'] = measure ? 'measure' : v.type === 'table' || v.type === 'multiRowCard' ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
+    const agg: FieldRef['agg'] = measure ? 'measure' : ['table', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
     const list = (v.fields[well.key] ??= []);
     if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg)) return;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
@@ -333,6 +337,8 @@ export const useStore = create<State>((set, get) => {
     gridlines: false,
     snapToGrid: false,
     busy: null,
+    scriptsEnabled: false,
+    scriptEditor: null,
     clipboard: null,
     focusId: null,
     sourceName: null,

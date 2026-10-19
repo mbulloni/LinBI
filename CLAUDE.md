@@ -27,6 +27,9 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 
 - AI visuals (`visuals/AiVisuals.tsx`) run their own queries through `useVisualData.ts#runVisualQuery` (synthetic table/card visuals with the same id, page filters and extra filters); `buildVisualQuery` returns null for them. Tree path in `Visual.tree`, key influencers state in `Visual.ki`.
 
+- Q&A: `qna/rules.ts` (index of field names + IT/EN synonyms + distinct text values from DuckDB; `parse()` → `QnaSpec`; `toVisual()` builds the answer visual; `schemaText()` for Claude) and `qna/QnaVisual.tsx`. Claude path: `electron/claude.cjs` (official `@anthropic-ai/sdk`, `claude-opus-5-5` default, structured output `json_schema`, `fallbacks: "default"`, key in safeStorage `userData/claude.json` or `ANTHROPIC_API_KEY`; `ANTHROPIC_BASE_URL` for a mock). Claude answers are stored in `Visual.qna.spec`. `Visual.topN/topAsc` limit any visual query.
+- Python/R visuals: `visuals/Script.tsx` + `electron/scripts.cjs` (CSV → `dataset`, PNG out, 60 s timeout, `python -I`); run only after `store.scriptsEnabled` (session consent). Script in `Visual.script` or imported `objects.script.source`.
+
 ## Gotchas
 - pandas NaN must never reach model.json (JS JSON.parse fails): `json.dump(allow_nan=False)`.
 - Old Report/Layout files keep visual geometry only in `config.layouts[0].position`.
