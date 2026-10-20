@@ -63,6 +63,9 @@ contextBridge.exposeInMainWorld('api', {
     remove: (prefix) => call('webcred:remove', prefix),
   },
   sharepointLists: (site) => call('sharepoint:lists', site),
+  sensitivityLabels: () => call('pbi:labels'),
+  recentSources: () => call('recent:list'),
+  addRecentSource: (p) => call('recent:add', p),
   createEmptyTable: (table, columns) => call('db:createEmpty', table, columns),
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),

@@ -550,6 +550,8 @@ class Compiler {
         return { sql: `SELECT DISTINCT ${this.proj(tv, v)} FROM (${tv.sql}) ${v}`, cols: tv.cols };
       }
       case 'CALCULATETABLE': return this.tv(A[0], this.calculate(env, A.slice(1)));
+      // As an iterator's table (quick measures: AVERAGEX(KEEPFILTERS(VALUES(c)), …)) KEEPFILTERS is the table itself.
+      case 'KEEPFILTERS': return this.tv(A[0], env);
       case 'RELATEDTABLE': {
         if (A[0]?.k !== 'tbl') throw new DaxError('RELATEDTABLE richiede una tabella');
         return this.rowsOf(A[0].name, this.calculate(env, []).fc);

@@ -123,6 +123,11 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
 
   return (
     <div className="center">
+      {s.paused && (
+        <div className="pausebar"><b>Oggetti visivi sospesi</b><span>Le modifiche non aggiornano gli oggetti visivi finché non si aggiorna.</span>
+          <button className="btn" onClick={() => s.set({ pauseTick: s.pauseTick + 1 })}>Aggiorna</button>
+          <button className="btn" onClick={() => s.set({ paused: false })}>Riprendi le query</button></div>
+      )}
       <div className="canvas-wrap" ref={wrap} style={page.wallpaper ? { background: page.wallpaper } : undefined}>
         {focus ? (
           <div style={{ position: 'absolute', inset: 16, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1.6px 3.6px rgba(0,0,0,.13)' }}>

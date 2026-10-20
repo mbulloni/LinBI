@@ -11,7 +11,7 @@ const Eye = ({ open }: { open: boolean }) => (
     {open ? <circle cx="8" cy="8" r="2" fill="#605E5C" /> : <path d="M2 14 L14 2" stroke="#605E5C" strokeWidth="1.2" />}</svg>
 );
 
-function PaneShell({ title, onClose, children, tools }: { title: string; onClose: () => void; children: ReactNode; tools?: ReactNode }) {
+export function PaneShell({ title, onClose, children, tools }: { title: string; onClose: () => void; children: ReactNode; tools?: ReactNode }) {
   return (
     <div className="pane side-pane">
       <div className="pane-head"><h3>{title}</h3><div className="tools">{tools}<button title="Chiudi" onClick={onClose}><Icon name="close" size={12} /></button></div></div>

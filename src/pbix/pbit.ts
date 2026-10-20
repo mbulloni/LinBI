@@ -52,6 +52,10 @@ function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
   const typed = (prev: string) => columns.length
     ? `    #"Modificato tipo" = Table.TransformColumnTypes(${prev}, ${types})\nin\n    #"Modificato tipo"`
     : `    Fine = ${prev}\nin\n    Fine`;
+  if (t.source.inline) {
+    const { columns: cs, rows } = t.source.inline;
+    return `let\n    Origine = #table({${cs.map(mStr).join(', ')}}, {${rows.map((r) => `{${cs.map((_, i) => (r[i] === null || r[i] === undefined || r[i] === '' ? 'null' : mStr(r[i]!))).join(', ')}}`).join(', ')}})\nin\n    Origine`;
+  }
   if (t.source.odata) return `let\n    Origine = OData.Feed(${mText(t.source.odata.url)}, null, [Implementation="2.0"])\nin\n    Origine`;
   const sp = t.source.sharepoint;
   if (sp?.list) return `let\n    Origine = SharePoint.Tables(${mText(sp.site)}, [ApiVersion = 15]),\n    Elenco = Origine{[Title=${mText(sp.list)}]}[Items]\nin\n    Elenco`;
@@ -241,6 +245,17 @@ export function buildPbipParts(report: Report, tables: TableMeta[]): { path: str
   ];
 }
 
+/** Sensitivity label of the organization (Microsoft Purview) as Office custom properties, like Power BI Desktop. */
+function labelParts(report: Report): PbitPart[] {
+  const l = report.sensitivity;
+  if (!l?.id || !l.tenant) return [];
+  const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const props: [string, string][] = [['Enabled', 'true'], ['SetDate', new Date().toISOString().replace(/\.\d+Z$/, 'Z')], ['Method', 'Standard'], ['Name', l.name], ['SiteId', l.tenant], ['ActionId', crypto.randomUUID()], ['ContentBits', '0']];
+  const xml = '<?xml version="1.0" encoding="utf-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/custom-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">' +
+    props.map(([k, v], i) => `<property fmtid="{D5CDD505-2E9C-101B-9397-08002B2CF9AE}" pid="${i + 2}" name="MSIP_Label_${l.id}_${k}"><vt:lpwstr>${esc(v)}</vt:lpwstr></property>`).join('') + '</Properties>';
+  return [{ path: 'docProps/custom.xml', utf8: xml }];
+}
+
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
   const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
   const diagram = {
@@ -258,8 +273,10 @@ export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] 
   const contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="json" ContentType="" /><Default Extension="png" ContentType="" /><Default Extension="jpg" ContentType="" /><Default Extension="gif" ContentType="" />' +
     '<Override PartName="/Version" ContentType="" /><Override PartName="/DataModelSchema" ContentType="" /><Override PartName="/DiagramLayout" ContentType="" />' +
-    '<Override PartName="/Report/Layout" ContentType="" /><Override PartName="/Settings" ContentType="application/json" /><Override PartName="/Metadata" ContentType="application/json" /></Types>';
+    '<Override PartName="/Report/Layout" ContentType="" /><Override PartName="/Settings" ContentType="application/json" /><Override PartName="/Metadata" ContentType="application/json" />' +
+    (labelParts(report).length ? '<Override PartName="/docProps/custom.xml" ContentType="application/vnd.openxmlformats-officedocument.custom-properties+xml" />' : '') + '</Types>';
   return [
+    ...labelParts(report),
     { path: 'Version', utf16: '1.28' },
     { path: '[Content_Types].xml', utf8bom: contentTypes },
     { path: 'DataModelSchema', utf16: JSON.stringify(buildModelSchema(report, tables)) },

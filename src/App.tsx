@@ -16,6 +16,9 @@ import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
 import { SourceDialog } from './components/SourceDialogs';
 import { DaxQueryView } from './components/DaxQueryView';
+import { QuickMeasureDialog } from './components/QuickMeasure';
+import { MobileLayoutView } from './components/MobileLayout';
+import { EnterDataDialog } from './components/EnterData';
 import { VisualStatic } from './components/VisualContainer';
 import { THEME } from './themes';
 import { Icon } from './components/icons';
@@ -23,6 +26,7 @@ import { FiltersPane, CollapsedPane } from './panes/FiltersPane';
 import { VisualizationsPane } from './panes/VisualizationsPane';
 import { BookmarksPane, SelectionPane } from './panes/SelectionPane';
 import { DataPane } from './panes/DataPane';
+import { PerformancePane } from './panes/PerformancePane';
 import type { View } from './types';
 
 const VIEWS: [View, string, string][] = [
@@ -41,6 +45,7 @@ function useShortcuts() {
       const ctrl = e.ctrlKey || e.metaKey;
       if (s.pq) return;
       if (s.readMode) { if (e.key === 'Escape') s.set({ readMode: false }); return; }
+      if (s.formatPainter && e.key === 'Escape') { s.set({ formatPainter: null }); return; }
       if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); s.save(e.shiftKey); return; }
       if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); s.open(); return; }
       if (typing) return;
@@ -83,7 +88,7 @@ export function App() {
   useShortcuts();
 
   return (
-    <div className="app">
+    <div className={'app' + (s.formatPainter ? ' painting' : '')}>
       <TitleBar />
       {s.readMode ? (
         <div className="readbar"><b>Modalità lettura</b><span>I pulsanti e i navigatori rispondono al clic. Esc per tornare alla modifica.</span>
@@ -96,10 +101,11 @@ export function App() {
           ))}
         </div>}
         <div className="workspace">
-          {s.view === 'report' && <ReportView onFit={onFit} />}
+          {s.view === 'report' && (s.mobileLayout && !s.readMode ? <MobileLayoutView /> : <ReportView onFit={onFit} />)}
           {s.view === 'data' && <DataView />}
           {s.view === 'model' && <ModelView />}
           {s.view === 'dax' && <DaxQueryView />}
+          {s.view === 'report' && !s.readMode && s.panes.perf && <PerformancePane />}
           {s.view === 'report' && !s.readMode && s.panes.bookmarks && <BookmarksPane />}
           {s.view === 'report' && !s.readMode && s.panes.selection && <SelectionPane />}
           {s.view === 'report' && (s.panes.filters ? <FiltersPane /> : <CollapsedPane title="Filtri" onOpen={() => s.set({ panes: { ...s.panes, filters: true } })} />)}
@@ -115,6 +121,8 @@ export function App() {
       <ScriptEditor />
       <ParameterDialog />
       <SourceDialog />
+      <QuickMeasureDialog />
+      <EnterDataDialog />
       {s.printing && (
         <div className="print-root">
           {s.report.pages.map((p) => (

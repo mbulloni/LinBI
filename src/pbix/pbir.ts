@@ -77,10 +77,13 @@ export function pbirToLayout(files: Files): string {
           return { ...pos0, config: JSON.stringify({ name: v.name, ...parent, singleVisualGroup: { displayName: v.visualGroup.displayName ?? v.name, groupMode: 0, ...(v.isHidden ? { isHidden: true } : {}) } }), filters: '[]' };
         }
         const q = convertQuery(v.visual.query);
+        // Mobile layout: visuals/<id>/mobile.json { position } → legacy layouts entry id 1.
+        const mob = parse(files[`pages/${id}/visuals/${v.name}/mobile.json`])?.position;
         return {
           ...pos0,
           config: JSON.stringify({
             name: v.name,
+            layouts: [{ id: 0, position: pos0 }, ...(mob ? [{ id: 1, position: mob }] : [])],
             ...parent,
             singleVisual: {
               visualType: v.visual.visualType,

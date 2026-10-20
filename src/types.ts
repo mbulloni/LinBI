@@ -16,6 +16,8 @@ export interface TableMeta {
     /** SharePoint Online (Microsoft Graph, Microsoft account): files of a site (SharePoint.Files, combined like a folder,
      *  optionally under `folder` and with extension `ext`) or the items of a list (SharePoint.Tables › `list`). */
     sharepoint?: { site: string; folder?: string; ext?: string; list?: string };
+    /** Home › Immetti dati: values typed in LinBI (text; typed by a changeType step), saved in the report. */
+    inline?: { columns: string[]; rows: (string | null)[][] };
   };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
   steps?: Step[];
@@ -175,6 +177,8 @@ export interface Page {
   drillthrough?: { fields: { table: string; column: string; datePart?: DatePart }[]; keepAll?: boolean };
   /** Page usable as a report-page tooltip. */
   tooltip?: boolean;
+  /** Layout per dispositivi mobili: phone canvas position of the visuals placed on it (visual id → geometry). */
+  mobile?: Record<string, { x: number; y: number; w: number; h: number }>;
   /** Visual groups (Selection pane); a hidden group hides its visuals and subgroups. */
   groups?: VisualGroup[];
 }
@@ -238,9 +242,13 @@ export interface Report {
   bookmarks?: Bookmark[];
   /** Power Query parameters (Gestisci parametri): referenced as #[Nome] in sources and filters. */
   pqParams?: PQParam[];
+  /** Riservatezza: sensitivity label (Microsoft Purview id + tenant when it comes from the organization). */
+  sensitivity?: SensitivityLabel;
   /** Custom visuals (.pbiviz) imported from a file or embedded in a .pbix/.pbip. */
   customVisuals?: CustomVisualPkg[];
 }
+
+export interface SensitivityLabel { name: string; id?: string; tenant?: string; color?: string; description?: string; }
 
 /** A custom visual package: the .pbiviz.json resource (visual, capabilities, content.js/css…) and its package.json. */
 export interface CustomVisualPkg { guid: string; pbiviz: any; package?: any; }

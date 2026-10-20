@@ -195,6 +195,16 @@ def custom_visuals(z, names):
     return [v for v in found.values() if "pbiviz" in v]
 
 
+def sensitivity(xml):
+    """Microsoft Purview sensitivity label of the file (docProps/custom.xml MSIP_Label_<id>_* properties)."""
+    props = dict(re.findall(r'name="MSIP_Label_([0-9a-fA-F-]+_[A-Za-z]+)"><vt:lpwstr>([^<]*)</vt:lpwstr>', xml))
+    for key, value in props.items():
+        label_id, field = key.rsplit("_", 1)
+        if field == "Enabled" and value.lower() == "true":
+            return {"id": label_id, "name": props.get(label_id + "_Name", "Etichetta"), "tenant": props.get(label_id + "_SiteId")}
+    return None
+
+
 def main():
     path, outdir = sys.argv[1], sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
@@ -214,6 +224,10 @@ def main():
                 if mime.startswith("image/") or mime == "application/json":
                     out["resources"][n.rsplit("/", 1)[1]] = f"data:{mime};base64," + base64.b64encode(z.read(n)).decode()
         out["customVisuals"] = custom_visuals(z, names)
+        if "docProps/custom.xml" in names:
+            label = sensitivity(z.read("docProps/custom.xml").decode("utf-8", "replace"))
+            if label:
+                out["sensitivity"] = label
         if "DataModel" in names:
             out["kind"] = "pbix"
             from_pbixray(path, outdir, out)

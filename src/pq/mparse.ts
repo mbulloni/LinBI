@@ -139,7 +139,7 @@ class P {
     let id: string;
     if (rest.startsWith('#"')) { const j = skipAtom(this.s, this.i); id = unquote(this.s.slice(this.i, j)); this.i = j; }
     else {
-      const m = /^[A-Za-z_][\w]*(\.[A-Za-z_]\w*)*/.exec(rest);
+      const m = /^#?[A-Za-z_][\w]*(\.[A-Za-z_]\w*)*/.exec(rest);
       if (!m) throw new MParseError(`Espressione non riconosciuta: ${rest.slice(0, 40)}`);
       id = m[0]; this.i += id.length;
     }
@@ -359,6 +359,35 @@ function editedSource(docSteps: [string, string][], baseSteps: [string, string][
   if (next.folder) for (const [from, to] of changes) if (from === '.' + next.folder.ext) { next.folder.ext = to.replace(/^\./, ''); used++; }
   if (!used) fail();
   return next;
+}
+
+/** Data typed in the M of a table ("Immetti dati"): LinBI's #table({cols}, {{…}}) or Power BI's
+ *  Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("…", BinaryEncoding.Base64), Compression.Deflate)), … type table [A = _t, …]). */
+export async function inlineFromM(m: string): Promise<{ columns: string[]; rows: (string | null)[][] } | null> {
+  let doc: ReturnType<typeof parseLet>;
+  try { doc = parseLet(m); } catch { return null; }
+  const first = doc.steps[0]?.[1] ?? '';
+  const cell = (v: V): string | null => (v.k === 'str' ? v.v : v.k === 'num' ? String(v.v) : v.k === 'bool' ? String(v.v) : v.k === 'date' ? v.v : null);
+  if (/^#table\s*\(/.test(first.trim())) {
+    try {
+      const v = parseValue(first);
+      if (v.k !== 'call' || v.args[0]?.k !== 'list' || v.args[1]?.k !== 'list') return null;
+      const columns = v.args[0].items.map((x) => (x.k === 'str' ? x.v : ''));
+      const rows = v.args[1].items.map((r) => (r.k === 'list' ? r.items.map(cell) : []));
+      return columns.every(Boolean) ? { columns, rows } : null;
+    } catch { return null; }
+  }
+  const b64 = /Binary\.FromText\("([A-Za-z0-9+/=]+)",\s*BinaryEncoding\.Base64\)/.exec(first)?.[1];
+  const cols = /type table \[([^\]]*)\]/.exec(first)?.[1];
+  if (!b64 || !cols) return null;
+  try {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const deflate = /Compression\.Deflate/.test(first);
+    const text = deflate ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text() : new TextDecoder().decode(bytes);
+    const data = JSON.parse(text) as unknown[][];
+    const columns = cols.split(',').map((c) => c.split('=')[0].trim().replace(/^#"(.*)"$/, '$1').replace(/""/g, '"'));
+    return { columns, rows: data.map((r) => columns.map((_, i) => (r[i] === null || r[i] === undefined ? null : String(r[i])))) };
+  } catch { return null; }
 }
 
 /** Whole document → source (possibly edited, see editedSource) and the steps after it. */

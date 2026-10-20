@@ -13,6 +13,7 @@ export interface PowerBIModel {
   pbir?: Record<string, string>;
   resources: Record<string, string>;
   customVisuals?: CustomVisualPkg[];
+  sensitivity?: { id: string; name: string; tenant?: string };
   /** Power Query parameters (expressions with IsParameterQuery=true). */
   parameters?: { name: string; expression: string; description?: string }[];
   warnings: string[];
@@ -92,6 +93,11 @@ interface Api {
     set(prefix: string, cred: { kind: WebCredKind; user?: string; name?: string; secret?: string }): Promise<boolean>;
     remove(prefix: string): Promise<void>;
   };
+  /** Sensitivity labels of the organization (Microsoft Graph, Microsoft account of Pubblica). */
+  sensitivityLabels(): Promise<{ id: string; name: string; color?: string; description?: string; tenant: string }[]>;
+  /** Origini recenti (data files). */
+  recentSources(): Promise<string[]>;
+  addRecentSource(path: string): Promise<void>;
   /** Lists of a SharePoint Online site (Microsoft account). */
   sharepointLists(site: string): Promise<string[]>;
   createEmptyTable(table: string, columns: { name: string; dataType: string }[]): Promise<TableInfo>;

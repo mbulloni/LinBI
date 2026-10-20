@@ -106,4 +106,12 @@ async function createEmpty(table, columns) {
   return describe(table);
 }
 
-module.exports = { query, preview, importFile, materialize, sourceExpr, addCalcColumn, dropColumn, describe, exportParquet, dropTable, createEmpty, kindOf };
+/** Immetti dati: the typed values as a VALUES table (text columns). */
+function inlineExpr(inline) {
+  const cols = inline.columns.map((c) => '"' + String(c).replace(/"/g, '""') + '"');
+  const val = (v) => (v === null || v === undefined || v === '' ? 'NULL::VARCHAR' : ql(v));
+  if (!inline.rows.length) return `(SELECT ${cols.map((c) => `NULL::VARCHAR AS ${c}`).join(', ')} WHERE false)`;
+  return `(SELECT * FROM (VALUES ${inline.rows.map((r) => `(${inline.columns.map((_, i) => val(r[i])).join(', ')})`).join(', ')}) AS t(${cols.join(', ')}))`;
+}
+
+module.exports = { query, preview, importFile, materialize, sourceExpr, inlineExpr, addCalcColumn, dropColumn, describe, exportParquet, dropTable, createEmpty, kindOf };

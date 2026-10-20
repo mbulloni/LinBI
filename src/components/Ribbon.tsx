@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
 import { VISUALS } from '../visuals/catalog';
 import { THEMES } from '../themes';
-import type { Theme } from '../types';
+import type { SensitivityLabel, Theme } from '../types';
+import { api } from '../api';
 
 function ThemeSwatch({ t, active, onClick, label }: { t: Theme; active: boolean; onClick: () => void; label?: boolean }) {
   return (
@@ -69,8 +70,8 @@ export function Ribbon() {
       <Big icon="getData" label={<>Ottieni<br />dati</>} dropdown onClick={openMenu('getdata')} />
       <Big icon="excel" label={<>Cartella di<br />lavoro di Excel</>} onClick={() => s.openNavigator('excel')} />
       <Big icon="sql" label={<>Database<br />SQL</>} onClick={() => s.set({ dbDialog: true })} title="MySQL/MariaDB, PostgreSQL, SQLite" />
-      <Big icon="enterData" label={<>Immetti<br />dati</>} disabled title="Disponibile in una fase successiva" />
-      <Big icon="recent" label={<>Origini<br />recenti</>} disabled dropdown />
+      <Big icon="enterData" label={<>Immetti<br />dati</>} onClick={() => s.set({ enterData: true })} />
+      <Big icon="recent" label={<>Origini<br />recenti</>} dropdown onClick={openMenu('recent')} />
     </Group>
   );
 
@@ -87,7 +88,8 @@ export function Ribbon() {
             <div className="rcol">
               <Small icon="cut" label="Taglia" onClick={cut} disabled={!selVisual} />
               <Small icon="copy" label="Copia" onClick={copy} disabled={!selVisual} />
-              <Small icon="painter" label="Copia formato" disabled />
+              <Small icon="painter" label={s.formatPainter ? 'Copia formato (attivo)' : 'Copia formato'} disabled={!selVisual && !s.formatPainter}
+                onClick={() => s.set({ formatPainter: s.formatPainter ? null : selVisual ? { from: selVisual.id, type: selVisual.type, format: structuredClone(selVisual.format), style: selVisual.style ? structuredClone(selVisual.style) : undefined } : null })} />
             </div>
           </Group>
           {dataGroup}
@@ -110,9 +112,9 @@ export function Ribbon() {
           </Group>
           <Group label="Calcoli">
             <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
-            <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
+            <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} disabled={!s.tables.length} />
           </Group>
-          <Group label="Riservatezza"><Big icon="sensitivity" label="Riservatezza" disabled dropdown /></Group>
+          <Group label="Riservatezza"><Big icon="sensitivity" label="Riservatezza" dropdown onClick={openMenu('sensitivity')} /></Group>
           <Group label="Condividi"><Big icon="publish" label="Pubblica" onClick={() => s.set({ publishDialog: true })} /></Group>
         </>}
 
@@ -140,7 +142,7 @@ export function Ribbon() {
           </Group>
           <Group label="Calcoli">
             <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
-            <Big icon="quickMeasure" label={<>Misura<br />rapida</>} disabled />
+            <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} disabled={!s.tables.length} />
             <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', s.tables.find((t) => t.name === s.dataViewTable)?.name ?? s.tables[0]?.name)} disabled={!s.tables.length} />
             <Big icon="newTable" label={<>Nuova<br />tabella</>} onClick={() => s.startDax('table')} />
           </Group>
@@ -159,7 +161,7 @@ export function Ribbon() {
           </Group>
           <Group label="Ridimensiona">
             <Big icon="pageView" label={<>Visualizzazione<br />pagina</>} dropdown onClick={openMenu('pageview')} disabled={!report} />
-            <Big icon="mobile" label={<>Layout<br />per dispositivi mobili</>} disabled />
+            <Big icon="mobile" label={<>Layout<br />per dispositivi mobili</>} onClick={() => s.set({ mobileLayout: !s.mobileLayout, view: 'report', selectedVisualId: null })} disabled={!report} />
           </Group>
           <Group label="Opzioni di pagina">
             <div className="rcol">
@@ -177,9 +179,9 @@ export function Ribbon() {
         </>}
 
         {tab === 'optimize' && <>
-          <Group label="Query"><Big icon="pause" label={<>Sospendi<br />oggetti visivi</>} disabled /></Group>
-          <Group label="Prestazioni"><Big icon="analyzer" label={<>Analizzatore<br />prestazioni</>} disabled /></Group>
-          <Group label="Dati"><Big icon="refresh" label={<>Aggiorna<br />oggetti visivi</>} onClick={() => s.set({ dataVersion: s.dataVersion + 1 })} /></Group>
+          <Group label="Query"><Big icon="pause" label={s.paused ? <>Riprendi<br />oggetti visivi</> : <>Sospendi<br />oggetti visivi</>} onClick={() => s.set({ paused: !s.paused })} /></Group>
+          <Group label="Prestazioni"><Big icon="analyzer" label={<>Analizzatore<br />prestazioni</>} onClick={() => s.set({ panes: { ...s.panes, perf: !s.panes.perf }, view: 'report' })} /></Group>
+          <Group label="Dati"><Big icon="refresh" label={<>Aggiorna<br />oggetti visivi</>} onClick={() => s.set({ dataVersion: s.dataVersion + 1, pauseTick: s.pauseTick + 1 })} /></Group>
         </>}
 
         {tab === 'help' && <>
@@ -250,6 +252,8 @@ export function Ribbon() {
           <button onClick={() => { close(); const id = s.addVisual('bookmarkNavigator'); s.updateVisual(id, { w: 500, h: 44 }); }}>Navigatore segnalibri</button>
         </Menu>
       )}
+      {menu?.kind === 'sensitivity' && <SensitivityMenu x={menu.x} y={menu.y} onClose={close} />}
+      {menu?.kind === 'recent' && <RecentMenu x={menu.x} y={menu.y} onClose={close} />}
       {menu?.kind === 'params' && (
         <Menu x={menu.x} y={menu.y} onClose={close}>
           <button onClick={() => { close(); s.set({ paramDialog: 'numeric' }); }}>Intervallo numerico</button>
@@ -263,5 +267,53 @@ export function Ribbon() {
         </Menu>
       )}
     </div>
+  );
+}
+
+
+/** Default labels (Microsoft Purview default label set) when the organization's labels are not loaded. */
+const DEFAULT_LABELS: SensitivityLabel[] = [
+  { name: 'Personale', color: '#0078D4' }, { name: 'Pubblico', color: '#107C10' }, { name: 'Generale', color: '#605E5C' },
+  { name: 'Riservato', color: '#E66C37' }, { name: 'Altamente riservato', color: '#A4262C' },
+];
+
+/** Home › Riservatezza: the report's sensitivity label. */
+function SensitivityMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const s = useStore();
+  const [org, setOrg] = useState<SensitivityLabel[] | null>(null);
+  const cur = s.report.sensitivity;
+  const pick = (l?: SensitivityLabel) => { s.mut((r) => { if (l) r.sensitivity = l; else delete r.sensitivity; }); onClose(); };
+  const load = async () => {
+    try { setOrg(await api.sensitivityLabels()); } catch (e: any) { s.notify(e.message, 10000); }
+  };
+  const item = (l: SensitivityLabel) => (
+    <button key={(l.id ?? '') + l.name} title={l.description} onClick={() => pick(l)}>
+      <span style={{ width: 12 }}>{cur?.name === l.name && cur?.id === l.id ? '✓' : ''}</span>
+      <span className="sens-dot" style={{ background: l.color ?? '#605E5C' }} />{l.name}
+    </button>
+  );
+  return (
+    <Menu x={x} y={y} onClose={onClose}>
+      <div className="hdr">Etichetta di riservatezza</div>
+      <button onClick={() => pick(undefined)}><span style={{ width: 12 }}>{cur ? '' : '✓'}</span>(Nessuna)</button>
+      {(org ?? DEFAULT_LABELS).map(item)}
+      <hr />
+      {org ? <div className="hdr">Etichette dell'organizzazione (Microsoft Purview)</div>
+        : <button onClick={load}>Carica le etichette dell'organizzazione…</button>}
+    </Menu>
+  );
+}
+
+/** Home › Origini recenti: data files loaded before, reopened in the Navigator. */
+function RecentMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const s = useStore();
+  const [list, setList] = useState<string[] | null>(null);
+  useEffect(() => { api.recentSources().then(setList).catch(() => setList([])); }, []);
+  return (
+    <Menu x={x} y={y} onClose={onClose}>
+      <div className="hdr">Origini recenti</div>
+      {list && !list.length && <div className="side-empty" style={{ padding: '4px 12px' }}>Nessuna origine recente.</div>}
+      {(list ?? []).map((p) => <button key={p} title={p} onClick={() => { onClose(); s.openNavigator('any', p); }}><Icon name="getData" size={16} />{p.split('/').pop()}<span className="menu-sub">{p.replace(/\/[^/]+$/, '')}</span></button>)}
+    </Menu>
   );
 }

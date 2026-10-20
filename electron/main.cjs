@@ -58,13 +58,19 @@ handle('db:query', (sql) => db.query(sql));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
-handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder || source.sharepoint ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
+handle('db:sourceExpr', (source) => (source.inline ? db.inlineExpr(source.inline) : source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder || source.sharepoint ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
 handle('remote:clearCache', () => remote.clearCache());
 const webcred = require('./webcred.cjs');
 handle('webcred:list', () => webcred.list());
 handle('webcred:set', (prefix, cred) => webcred.set(prefix, cred));
 handle('webcred:remove', (prefix) => webcred.remove(prefix));
 handle('sharepoint:lists', (site) => require('./sharepoint.cjs').lists(site));
+handle('pbi:labels', () => powerbi.labels());
+// Origini recenti: data files used to load tables (most recent first, existing files only).
+const recentFile = () => path.join(app.getPath('userData'), 'recent-sources.json');
+const readRecent = () => { try { return JSON.parse(fs.readFileSync(recentFile(), 'utf8')); } catch { return []; } };
+handle('recent:list', () => readRecent().filter((p) => fs.existsSync(p)).slice(0, 10));
+handle('recent:add', (p) => { fs.writeFileSync(recentFile(), JSON.stringify([p, ...readRecent().filter((x) => x !== p)].slice(0, 20))); });
 handle('file:openDir', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];

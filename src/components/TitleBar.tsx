@@ -8,6 +8,7 @@ import type { PbiStatus } from '../api';
 
 export function TitleBar() {
   const { filePath, dirty, past, future, undo, redo, save, sourceName } = useStore();
+  const sensitivity = useStore((s) => s.report.sensitivity);
   const [max, setMax] = useState(false);
   // "Accedi": the Power BI account used by Pubblica (device-code sign-in, one per tenant profile).
   const publishOpen = useStore((s) => s.publishDialog);
@@ -42,7 +43,7 @@ export function TitleBar() {
         <button title="Annulla (Ctrl+Z)" disabled={!past.length} onClick={undo}><Icon name="undo" /></button>
         <button title="Ripeti (Ctrl+Y)" disabled={!future.length} onClick={redo}><Icon name="redo" /></button>
       </div>
-      <div className="title">{title}</div>
+      <div className="title">{title}{sensitivity && <span className="sens-pill" title={sensitivity.description ?? 'Etichetta di riservatezza'}><span className="sens-dot" style={{ background: sensitivity.color ?? '#605E5C' }} />{sensitivity.name}</span>}</div>
       <CommandSearch />
       <button className="user" title={account ? `Power BI: ${account}${pbi?.profileName ? ` (${pbi.profileName})` : ''}` : 'Accedi a Power BI'} onClick={userClick}>
         <Icon name="user" size={16} />{account ? account.split('@')[0] : 'Accedi'}

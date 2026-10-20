@@ -530,4 +530,19 @@ async function publishFabric(spec, progress) {
   return { datasetId: sm.id, reportId: report?.id ?? null, webUrl: report?.id ? `https://app.powerbi.com/groups/${ws}/reports/${report.id}` : null, warnings };
 }
 
-module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token };
+/** Sensitivity labels available to the signed-in user (Microsoft Purview, Graph InformationProtectionPolicy.Read). */
+async function labels() {
+  const graph = process.env.LINBI_GRAPH || 'https://graph.microsoft.com/v1.0';
+  const t = await token('graph');
+  const tenant = claims(t).tid ?? '';
+  for (const url of [`${graph}/me/security/informationProtection/sensitivityLabels`, `${graph.replace('/v1.0', '/beta')}/me/security/informationProtection/sensitivityLabels`]) {
+    const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+    if (r.status === 404 || r.status === 400) continue;
+    if (!r.ok) throw new Error(`Etichette di riservatezza non disponibili (${r.status}): servono il permesso Microsoft Graph InformationProtectionPolicy.Read e una licenza Microsoft Purview.`);
+    const j = await r.json();
+    return (j.value ?? []).filter((l) => l.isActive !== false).map((l) => ({ id: l.id, name: l.displayName ?? l.name, color: l.color || undefined, description: l.description || l.tooltip || undefined, tenant }));
+  }
+  throw new Error('Etichette di riservatezza non disponibili per questo account.');
+}
+
+module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token, labels };

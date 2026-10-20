@@ -191,7 +191,8 @@ export function VisualStatic({ v, read }: { v: Visual; read?: boolean }) {
   );
 }
 
-export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
+/** `geom`/`onGeom`: another layout of the visual (mobile layout) instead of its page position. */
+export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: number; geom?: { x: number; y: number; w: number; h: number }; onGeom?: (g: { x: number; y: number; w: number; h: number }) => void }) {
   const s = useStore();
   const selected = s.selectedVisualId === v.id;
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -203,8 +204,8 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
   return (
     <Rnd
       className={'vc' + (selected ? ' selected' : '') + (s.multiSel.includes(v.id) ? ' multisel' : '') + (over ? ' drop-target' : '')}
-      size={{ width: v.w, height: v.h }}
-      position={{ x: v.x, y: v.y }}
+      size={{ width: geom?.w ?? v.w, height: geom?.h ?? v.h }}
+      position={{ x: geom?.x ?? v.x, y: geom?.y ?? v.y }}
       scale={scale}
       bounds="parent"
       minWidth={60}
@@ -218,6 +219,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       resizeHandleStyles={{ top: { left: '50%', marginLeft: -4, top: -5 }, bottom: { left: '50%', marginLeft: -4, bottom: -5 }, left: { top: '50%', marginTop: -4, left: -5 }, right: { top: '50%', marginTop: -4, right: -5 }, topLeft: { left: -5, top: -5 }, topRight: { right: -5, top: -5 }, bottomLeft: { left: -5, bottom: -5 }, bottomRight: { right: -5, bottom: -5 } }}
       onMouseDown={(e: MouseEvent) => {
         e.stopPropagation();
+        if (s.formatPainter) { s.applyFormatPainter(v.id); return; }
         // Ctrl+click: multiple selection (on buttons Ctrl+click runs the action instead, like Power BI).
         if ((e.ctrlKey || e.metaKey) && v.type !== 'button') {
           const cur = new Set(s.multiSel.length ? s.multiSel : s.selectedVisualId ? [s.selectedVisualId] : []);
@@ -231,10 +233,15 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
       }}
       onDragStart={() => document.body.classList.add('linbi-dragging')}
       onResizeStart={() => document.body.classList.add('linbi-dragging')}
-      onDragStop={(_e, d) => { document.body.classList.remove('linbi-dragging'); if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) }); }}
+      onDragStop={(_e, d) => {
+        document.body.classList.remove('linbi-dragging');
+        if (onGeom && geom) { if (d.x !== geom.x || d.y !== geom.y) onGeom({ ...geom, x: Math.round(d.x), y: Math.round(d.y) }); return; }
+        if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) });
+      }}
       onResizeStop={(_e, _dir, ref, _delta, pos) => {
         document.body.classList.remove('linbi-dragging');
-        s.updateVisual(v.id, { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) });
+        const g = { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) };
+        if (onGeom) onGeom(g); else s.updateVisual(v.id, g);
       }}
     >
       <div

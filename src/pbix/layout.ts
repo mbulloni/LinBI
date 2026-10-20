@@ -180,6 +180,8 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
     const visuals: Visual[] = [];
     const groups: (VisualGroup & { parentName?: string })[] = [];
     const groupOf = new Map<Visual, string>();
+    // Mobile layout: config.layouts entry with id 1 (id 0 = report layout).
+    const mobile: NonNullable<Page['mobile']> = {};
 
     for (const raw of containers) {
       const vc = { ...raw, ...geom(raw) };
@@ -290,6 +292,8 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         ...(sv.display?.mode === 'hidden' ? { hidden: true } : {}),
       };
       if (cfg.parentGroupName) groupOf.set(v, cfg.parentGroupName);
+      const mob = (cfg.layouts ?? []).find((l: any) => l?.id === 1)?.position;
+      if (mob) mobile[v.id] = { x: Math.round(mob.x ?? 0), y: Math.round(mob.y ?? 0), w: Math.max(20, Math.round(mob.width ?? 100)), h: Math.max(20, Math.round(mob.height ?? 100)) };
       if (type === 'unsupported') { v.text = pbiType; v.style!.raw = sv; }
       if (type === 'keyInfluencers') {
         const kd = prop(sv.objects, 'keyDrivers');
@@ -334,6 +338,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       })(),
       ...(groups.length ? { groups: groups.map(({ parentName, ...g }) => ({ ...g, ...(parentName && groups.some((x) => x.pbiName === parentName) ? { parent: groups.find((x) => x.pbiName === parentName)!.id } : {}) })) } : {}),
       filters: parseFilters(sec.filters, tables),
+      ...(Object.keys(mobile).length ? { mobile } : {}),
       background: bgName ? resources[bgName] : undefined,
       ...(sec.width && sec.height && (sec.width !== PAGE_W || sec.height !== PAGE_H) ? { width: sec.width, height: sec.height } : {}),
       ...(typeof bgColor === 'string' ? { backgroundColor: bgColor } : {}),
@@ -401,6 +406,12 @@ function parseBookmarks(list: unknown, pages: Page[], tables: TableMeta[]): Book
 
 const L = (v: string) => ({ expr: { Literal: { Value: v } } });
 const Ls = (s: string) => L(`'${s.replace(/'/g, "''")}'`);
+
+/** Mobile layout position of a visual (layouts entry with id 1). */
+const mobileLayout = (p: Page, v: Visual) => {
+  const g = p.mobile?.[v.id];
+  return g ? [{ id: 1, position: { x: g.x, y: g.y, z: v.z * 1000, width: g.w, height: g.h } }] : [];
+};
 
 /** Filters on a date level target the level of the automatic date hierarchy (when exported with date tables). */
 let DATE_HIER = true;
@@ -499,7 +510,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
     const containers = p.visuals.filter((v) => v.type !== 'unsupported' || v.style?.raw).map((v, vi) => {
       if (v.type === 'unsupported') {
         // Not rendered by LinBI (custom visuals, Q&A…): written back unchanged at its current position.
-        const config = { name: vname(v), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }], singleVisual: v.hidden ? { ...(v.style!.raw as object), display: { mode: 'hidden' } } : v.style!.raw, ...(v.group ? { parentGroupName: gname(p.groups!.find((g) => g.id === v.group)!) } : {}) };
+        const config = { name: vname(v), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }, ...mobileLayout(p, v)], singleVisual: v.hidden ? { ...(v.style!.raw as object), display: { mode: 'hidden' } } : v.style!.raw, ...(v.group ? { parentGroupName: gname(p.groups!.find((g) => g.id === v.group)!) } : {}) };
         return { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, config: JSON.stringify(config), filters: '[]' };
       }
       const def = visualDef(v.type, v.custom);
@@ -594,7 +605,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       const parent = v.group ? p.groups?.find((g) => g.id === v.group) : undefined;
       const config = {
         name: vname(v),
-        layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }],
+        layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }, ...mobileLayout(p, v)],
         ...(parent ? { parentGroupName: gname(parent) } : {}),
         singleVisual: {
           ...(v.hidden ? { display: { mode: 'hidden' } } : {}),

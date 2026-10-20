@@ -1,6 +1,6 @@
 // Power BI "AI visuals": decomposition tree, key influencers, smart narrative.
 // They run several ad-hoc queries (runVisualQuery) on the visual's page with all filters in scope.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FieldRef, Filter, Visual } from '../types';
 import { useStore } from '../store';
 import { runVisualQuery } from './useVisualData';
@@ -19,14 +19,19 @@ function useLive<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | null; er
   const report = useStore((s) => s.report);
   const cross = useStore((s) => s.crossFilter);
   const version = useStore((s) => s.dataVersion);
+  const paused = useStore((s) => s.paused);
+  const pauseTick = useStore((s) => s.pauseTick);
+  const ran = useRef<number | null>(null);
   const [st, setSt] = useState<{ data: T | null; error: string | null; loading: boolean }>({ data: null, error: null, loading: true });
   useEffect(() => {
+    if (paused && ran.current === pauseTick) return;
+    ran.current = pauseTick;
     let live = true;
     setSt((s) => ({ ...s, loading: true }));
     fn().then((data) => live && setSt({ data, error: null, loading: false })).catch((e) => live && setSt({ data: null, error: e.message, loading: false }));
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tables, report.relationships, report.reportFilters, report.pages, report.measures, cross, version, ...deps]);
+  }, [tables, report.relationships, report.reportFilters, report.pages, report.measures, cross, version, paused, pauseTick, ...deps]);
   return st;
 }
 

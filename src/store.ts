@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { api } from './api';
-import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, NULL_KEY, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
 import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
+import { inlineFromM } from './pq/mparse';
 import { parseLayout, setCfExportRanges, themeFromLayout } from './pbix/layout';
 import { runVisualQuery } from './visuals/useVisualData';
 import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
@@ -30,6 +31,15 @@ export function isHiddenVisual(p: Page, v: Visual): boolean {
     seen.add(g.id);
   }
   return false;
+}
+
+export interface PerfEntry { id: number; visualId: string; at: number; queryMs: number; renderMs: number; rows: number; sql: string; error?: string }
+let perfSeq = 0;
+/** Analizzatore prestazioni: adds an entry while recording (called by useVisualData). */
+export function recordPerf(e: Omit<PerfEntry, 'id'>) {
+  const st = useStore.getState();
+  if (!st.perf.recording) return;
+  useStore.setState({ perf: { ...st.perf, entries: [...st.perf.entries, { ...e, id: ++perfSeq }].slice(-500) } });
 }
 
 export const defaultFormat = (type: VisualType): VisualFormat => ({
@@ -141,7 +151,9 @@ interface State {
   view: View;
   selectedVisualId: string | null;
   crossFilter: CrossFilter | null;
-  panes: { filters: boolean; viz: boolean; data: boolean; selection: boolean; bookmarks: boolean };
+  panes: { filters: boolean; viz: boolean; data: boolean; selection: boolean; bookmarks: boolean; perf?: boolean };
+  /** Analizzatore prestazioni: recording on, and one entry per visual query (ms). */
+  perf: { recording: boolean; entries: PerfEntry[] };
   /** Visuals selected together (Ctrl+click), e.g. to group them. */
   multiSel: string[];
   vizTab: 'build' | 'format';
@@ -158,6 +170,19 @@ interface State {
   gridlines: boolean;
   /** Modalità lettura: no editing, buttons and navigators work with a plain click (like the Power BI service). */
   readMode: boolean;
+  /** Copia formato: formatting picked from a visual, applied to the next visual clicked. */
+  formatPainter: { from: string; type: VisualType; format: VisualFormat; style?: Visual['style'] } | null;
+  applyFormatPainter: (targetId: string) => void;
+  /** Ottimizza › Sospendi oggetti visivi: visual queries do not run until Aggiorna (pauseTick) or resume. */
+  paused: boolean;
+  pauseTick: number;
+  /** Visualizza › Layout per dispositivi mobili (editing the phone layout of the page). */
+  mobileLayout: boolean;
+  /** Home › Immetti dati: dialog open, and creation of the table (typed like Power BI's automatic type detection). */
+  enterData: boolean;
+  createInlineTable: (name: string, columns: string[], rows: (string | null)[][]) => Promise<void>;
+  /** Home › Misura rapida dialog. */
+  quickMeasure: boolean;
   snapToGrid: boolean;
   busy: string | null;
   /** Python/R visuals run only after the user enables them in this session (like Power BI Desktop). */
@@ -258,7 +283,7 @@ interface State {
   updateFilter: (scope: FilterScope, id: string, values: string[], field?: Omit<FieldRef, 'agg'>) => void;
   removeFilter: (scope: FilterScope, id: string) => void;
 
-  openNavigator: (kind: string) => Promise<void>;
+  openNavigator: (kind: string, path?: string) => Promise<void>;
   loadNavigator: () => Promise<void>;
   loadSample: () => Promise<void>;
   removeTable: (name: string) => Promise<void>;
@@ -378,6 +403,7 @@ export const useStore = create<State>((set, get) => {
     selectedVisualId: null,
     crossFilter: null,
     panes: { filters: true, viz: true, data: true, selection: false, bookmarks: false },
+    perf: { recording: false, entries: [] },
     multiSel: [],
     vizTab: 'build',
     dataVersion: 0,
@@ -392,6 +418,56 @@ export const useStore = create<State>((set, get) => {
     fileMenu: false,
     gridlines: false,
     readMode: false,
+    quickMeasure: false,
+    enterData: false,
+    createInlineTable: async (name, columns, rows) => {
+      set({ busy: 'Creazione della tabella…' });
+      try {
+        // Numbers with a decimal comma are stored with a point; each column gets the narrowest type of its values.
+        const num = /^-?\d+([.,]\d+)?$/;
+        const types = columns.map((_, i) => {
+          const vals = rows.map((r) => r[i]).filter((x): x is string => x !== null && x !== '');
+          if (!vals.length) return 'text' as const;
+          if (vals.every((x) => /^-?\d+$/.test(x))) return 'int' as const;
+          if (vals.every((x) => num.test(x))) return 'decimal' as const;
+          if (vals.every((x) => /^\d{4}-\d{2}-\d{2}$/.test(x))) return 'date' as const;
+          if (vals.every((x) => /^(true|false|vero|falso)$/i.test(x))) return 'bool' as const;
+          return 'text' as const;
+        });
+        const clean = rows.map((r) => columns.map((_, i) => {
+          const x = r[i] ?? null;
+          if (x === null || x === '') return null;
+          if (types[i] === 'decimal') return x.replace(',', '.');
+          if (types[i] === 'bool') return /^(true|vero)$/i.test(x) ? 'true' : 'false';
+          return x;
+        }));
+        const typed = columns.map((c, i) => [c, types[i]] as [string, typeof types[number]]).filter(([, t]) => t !== 'text');
+        await loadTable({ name, source: { path: '', inline: { columns, rows: clean } }, steps: typed.length ? [{ id: uid(), kind: 'changeType', columns: typed }] : [] });
+        set({ enterData: false, dataVersion: get().dataVersion + 1 });
+      } catch (e: any) {
+        get().notify('Creazione non riuscita: ' + e.message);
+      } finally {
+        set({ busy: null });
+      }
+    },
+    mobileLayout: false,
+    paused: false,
+    pauseTick: 0,
+    formatPainter: null,
+    applyFormatPainter: (targetId) => {
+      const fp = get().formatPainter;
+      if (!fp || fp.from === targetId) { set({ formatPainter: null }); return; }
+      get().mut((r) => {
+        const v = findVisual(r, targetId);
+        if (!v) return;
+        // The target keeps its title text, sort, conditional formatting (tied to its fields) and tooltip page.
+        const { titleText, sortBy, sortDir, cf, tooltipPage } = v.format;
+        v.format = { ...structuredClone(fp.format), titleText, sortBy, sortDir, cf, tooltipPage };
+        const same = fp.type === v.type && (fp.type !== 'custom' || fp.style?.pbiType === v.style?.pbiType);
+        v.style = { ...v.style, ...(fp.style?.vcObjects ? { vcObjects: structuredClone(fp.style.vcObjects) } : {}), ...(same && fp.style?.objects ? { objects: structuredClone(fp.style.objects) } : {}) };
+      });
+      set({ formatPainter: null });
+    },
     snapToGrid: false,
     busy: null,
     scriptsEnabled: false,
@@ -425,6 +501,18 @@ export const useStore = create<State>((set, get) => {
             const sheet = /Item="([^"]+)",Kind="Sheet"/.exec(mText)?.[1];
             let ok = false;
             if (src) { try { await importTable(src, t.name, sheet, t.m ?? undefined); ok = true; } catch { /* fall through */ } }
+            // Data typed in the M itself (Immetti dati): loaded as an inline table.
+            const inline = !ok && t.m ? await inlineFromM(t.m) : null;
+            if (inline) {
+              const TYPE: Record<string, PQType> = { int64: 'int', double: 'decimal', decimal: 'decimal', boolean: 'bool' };
+              const typed = (t.columns ?? []).flatMap((c): [string, PQType][] => {
+                const i = inline.columns.indexOf(c.name);
+                if (i < 0) return [];
+                if (c.dataType === 'dateTime') return [[c.name, inline.rows.every((r) => !r[i] || /^\d{4}-\d{2}-\d{2}$/.test(r[i]!)) ? 'date' : 'datetime']];
+                return TYPE[c.dataType] ? [[c.name, TYPE[c.dataType]]] : [];
+              });
+              try { await loadTable({ name: t.name, source: { path: '', inline }, steps: typed.length ? [{ id: uid(), kind: 'changeType', columns: typed }] : [] }); ok = true; } catch { /* empty table */ }
+            }
             if (!ok) {
               const meta = await api.createEmptyTable(t.name, t.columns ?? []);
               set((s) => ({ tables: [...s.tables, { ...meta, source: { path: src ?? '', m: t.m ?? undefined } }] }));
@@ -461,7 +549,7 @@ export const useStore = create<State>((set, get) => {
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}) };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}) };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
@@ -1122,9 +1210,9 @@ export const useStore = create<State>((set, get) => {
       if (list) list.splice(0, list.length, ...list.filter((f) => f.id !== id));
     }),
 
-    openNavigator: async (kind) => {
+    openNavigator: async (kind, chosen) => {
       set({ fileMenu: false });
-      const path = await api.openDataDialog(kind);
+      const path = chosen ?? await api.openDataDialog(kind);
       if (!path) return;
       set({ navigator: { path, tableName: tableNameFor(path, get().tables), preview: null, loading: true } });
       try {
@@ -1141,6 +1229,7 @@ export const useStore = create<State>((set, get) => {
       try {
         await importTable(nav.path, nav.tableName);
         set({ navigator: null });
+        api.addRecentSource(nav.path).catch(() => {});
         const n = await get().detectRelationships([nav.tableName]);
         if (n) get().notify(`Rilevate automaticamente ${n} ${n === 1 ? 'relazione' : 'relazioni'}. Verificarle nella vista modello.`);
       } catch (e: any) {
