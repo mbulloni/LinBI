@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { useStore, defaultFormat } from '../store';
 import { uid } from '../format';
-import type { Agg, Visual, VisualFormat } from '../types';
+import type { Agg, AnalyticsLine, Visual, VisualFormat } from '../types';
+import { analyticsKinds, KIND_LABEL, supportsAnalytics } from '../visuals/analytics';
 import { VISUALS, visualDef, isChart, customName, customPkg } from '../visuals/catalog';
 import { dataViewObjects, persist } from '../visuals/custom/objects';
 import type { CustomVisualPkg } from '../types';
@@ -10,6 +11,8 @@ import { Icon, VisualIcon } from '../components/icons';
 import { Menu, Toggle } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
 import { DEFAULT_CF, fieldKey, ICON_SET } from '../visuals/condfmt';
+import { sp } from '../visuals/pbistyle';
+import { bname, sname } from '../pbix/layout';
 import type { CfRule, ColorScale, CondFormat, FieldRef, Page } from '../types';
 
 function ColorPick({ label, value, onChange }: { label: string; value: string; onChange: (c: string) => void }) {
@@ -275,6 +278,101 @@ function CustomFormatCards({ v }: { v: Visual }) {
   return <>{cards.length ? cards : <div style={{ color: 'var(--text2)', padding: '10px 0' }}>L'oggetto visivo non dichiara opzioni di formato.</div>}</>;
 }
 
+const ACTIONS: [string, string][] = [['Back', 'Indietro'], ['Bookmark', 'Segnalibro'], ['Drillthrough', 'Drill-through'], ['PageNavigation', 'Spostamento tra le pagine'], ['QnA', 'Q&A'], ['WebUrl', 'URL Web'], ['ApplyAllSlicers', 'Applica tutti i filtri dei dati'], ['ClearAllSlicers', 'Cancella tutti i filtri dei dati']];
+
+/** Button "Azione" card: vcObjects.visualLink (type, destination, tooltip), stored as Power BI literals. */
+function ActionCard({ v }: { v: Visual }) {
+  const s = useStore();
+  const get = (p: string) => sp(v, 'visualLink', p);
+  const put = (patch: Record<string, string | boolean | undefined>) => {
+    const vc = { ...(v.style?.vcObjects ?? {}) };
+    const props = { ...(vc.visualLink?.find((e) => !e.selector)?.properties ?? {}) };
+    for (const [k, x] of Object.entries(patch)) {
+      if (x === undefined || x === '') delete props[k];
+      else props[k] = { expr: { Literal: { Value: typeof x === 'boolean' ? String(x) : `'${x.replace(/'/g, "''")}'` } } };
+    }
+    vc.visualLink = [{ properties: props }];
+    s.updateVisual(v.id, { style: { ...v.style, vcObjects: vc } });
+  };
+  const type = String(get('type') ?? '');
+  const tip = get('tooltip');
+  return (
+    <Card title="Azione" toggle={[get('show') !== false && !!type, (b) => put({ show: b, ...(b && !type ? { type: 'Back' } : {}) })]} defaultOpen>
+      <label className="fmt-row"><span>Tipo</span>
+        <select value={type} onChange={(e) => put({ type: e.target.value, show: true })}>
+          {!type && <option value="">(nessuna)</option>}
+          {ACTIONS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select></label>
+      {type === 'Bookmark' && <label className="fmt-row"><span>Segnalibro</span>
+        <select value={String(get('bookmark') ?? '')} onChange={(e) => put({ bookmark: e.target.value })}>
+          <option value="">Nessuno</option>
+          {(s.report.bookmarks ?? []).map((b) => <option key={b.id} value={bname(b)}>{b.name}</option>)}
+        </select></label>}
+      {type === 'PageNavigation' && <label className="fmt-row"><span>Destinazione</span>
+        <select value={String(get('navigationSection') ?? '')} onChange={(e) => put({ navigationSection: e.target.value })}>
+          <option value="">Nessuna</option>
+          {s.report.pages.map((p) => <option key={p.id} value={sname(p)}>{p.name}</option>)}
+        </select></label>}
+      {type === 'Drillthrough' && <>
+        <label className="fmt-row"><span>Destinazione</span>
+          <select value={String(get('drillthroughSection') ?? '')} onChange={(e) => put({ drillthroughSection: e.target.value })}>
+            <option value="">Nessuna</option>
+            {s.report.pages.filter((p) => p.drillthrough).map((p) => <option key={p.id} value={sname(p)}>{p.name}</option>)}
+          </select></label>
+        {!s.report.pages.some((p) => p.drillthrough) && <div style={{ color: 'var(--text2)', fontSize: 11 }}>Nessuna pagina con campi di drill-through.</div>}
+      </>}
+      {type === 'WebUrl' && <label className="fmt-row"><span>URL Web</span><input type="text" value={String(get('webUrl') ?? '')} placeholder="https://" onChange={(e) => put({ webUrl: e.target.value })} /></label>}
+      <label className="fmt-row"><span>Descrizione comando</span><input type="text" value={typeof tip === 'string' ? tip : ''} placeholder="Automatica" onChange={(e) => put({ tooltip: e.target.value })} /></label>
+    </Card>
+  );
+}
+
+/** Riquadro Analisi: one card per line kind, "+ Aggiungi riga" like Power BI. */
+function AnalyticsPane({ v }: { v: Visual }) {
+  const s = useStore();
+  const lines = v.format.analytics ?? [];
+  const legend = !!v.fields.legend?.length;
+  const measures = v.type === 'scatter' ? [] : [...(v.fields.values ?? []), ...(v.fields.lineValues ?? [])];
+  const save = (next: AnalyticsLine[]) => s.updateFormat(v.id, { analytics: next.length ? next : undefined });
+  const edit = (id: string, patch: Partial<AnalyticsLine>) => save(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  return (
+    <div>
+      {analyticsKinds(v, legend).map((kind) => {
+        const own = lines.filter((l) => l.kind === kind);
+        const add = () => save([...lines, { id: uid(), kind, ...(kind === 'constant' || kind === 'xConstant' ? { value: 0 } : {}), ...(kind === 'percentile' ? { percentile: 50 } : {}), ...(measures[0] && kind !== 'constant' && kind !== 'trend' ? { measure: fieldKey(measures[0]) } : {}), color: '#252423', style: 'dashed' }]);
+        return (
+          <Card key={kind} title={KIND_LABEL[kind] + (own.length ? ` (${own.length})` : '')} defaultOpen={own.length > 0}>
+            {own.map((l, i) => (
+              <div key={l.id} className="an-line">
+                <div className="fmt-row inline"><b>{l.name || `${KIND_LABEL[kind]} ${i + 1}`}</b>
+                  <button title="Elimina" onClick={() => save(lines.filter((x) => x.id !== l.id))}><Icon name="trash" size={13} /></button></div>
+                <label className="fmt-row"><span>Nome</span><input type="text" value={l.name ?? ''} placeholder={`${KIND_LABEL[kind]} ${i + 1}`} onChange={(e) => edit(l.id, { name: e.target.value || undefined })} /></label>
+                {(kind === 'constant' || kind === 'xConstant') && <label className="fmt-row"><span>Valore</span><input type="number" value={l.value ?? 0} onChange={(e) => edit(l.id, { value: +e.target.value })} /></label>}
+                {kind === 'percentile' && <label className="fmt-row"><span>Percentile</span><input type="number" min={0} max={100} value={l.percentile ?? 50} onChange={(e) => edit(l.id, { percentile: Math.min(100, Math.max(0, +e.target.value)) })} /></label>}
+                {measures.length > 1 && kind !== 'constant' && kind !== 'trend' && <label className="fmt-row"><span>Serie</span>
+                  <select value={l.measure ?? fieldKey(measures[0])} onChange={(e) => edit(l.id, { measure: e.target.value })}>
+                    {measures.map((m) => <option key={fieldKey(m)} value={fieldKey(m)}>{fieldLabel(m)}</option>)}
+                  </select></label>}
+                {v.type === 'scatter' && !['constant', 'xConstant', 'trend'].includes(kind) && <label className="fmt-row"><span>Misura</span>
+                  <select value={l.axis ?? 'y'} onChange={(e) => edit(l.id, { axis: e.target.value as 'x' | 'y' })}><option value="y">Asse Y</option><option value="x">Asse X</option></select></label>}
+                <ColorPick label="Colore" value={l.color ?? '#252423'} onChange={(color) => edit(l.id, { color })} />
+                <label className="fmt-row"><span>Trasparenza (%)</span><input type="number" min={0} max={100} value={l.transparency ?? 0} onChange={(e) => edit(l.id, { transparency: +e.target.value })} /></label>
+                <label className="fmt-row"><span>Stile</span>
+                  <select value={l.style ?? 'dashed'} onChange={(e) => edit(l.id, { style: e.target.value as AnalyticsLine['style'] })}>
+                    <option value="dashed">Tratteggiato</option><option value="solid">Continuo</option><option value="dotted">Punteggiato</option>
+                  </select></label>
+                <label className="fmt-row"><span>Larghezza</span><input type="number" min={1} max={10} value={l.width ?? 1.5} onChange={(e) => edit(l.id, { width: +e.target.value })} /></label>
+                <div className="fmt-row inline"><span>Etichetta dati</span><Toggle on={!!l.label} onChange={(b) => edit(l.id, { label: b || undefined })} /></div>
+              </div>
+            ))}
+            <button className="an-add" onClick={add}><Icon name="plus" size={12} /> Aggiungi riga</button>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 function FormatPane({ v }: { v: Visual }) {
   const s = useStore();
   const [tab, setTab] = useState<'visual' | 'general'>('visual');
@@ -339,6 +437,7 @@ function FormatPane({ v }: { v: Visual }) {
             {!s.report.pages.some((p) => p.tooltip) && <div style={{ color: 'var(--text2)', fontSize: 11 }}>Nessuna pagina impostata come descrizione comando.</div>}
           </Card>
         )}
+        {v.type === 'button' && <ActionCard v={v} />}
         {v.type === 'slicer' && (
           <Card title="Impostazioni filtro dei dati" defaultOpen>
             <label className="fmt-row"><span>Stile</span>
@@ -348,7 +447,7 @@ function FormatPane({ v }: { v: Visual }) {
             </label>
           </Card>
         )}
-        {!chart && !mapv && !['slicer', 'table', 'matrix', 'custom'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
+        {!chart && !mapv && !['slicer', 'table', 'matrix', 'custom', 'button'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
       </>}
       {tab === 'general' && <>
         <Card title="Proprietà" defaultOpen>
@@ -484,11 +583,11 @@ export function VisualizationsPane() {
         <h3>Visualizzazioni</h3>
         <div className="tools"><button title="Comprimi" onClick={() => s.set({ panes: { ...s.panes, viz: false } })}><Icon name="collapseRight" /></button></div>
       </div>
-      <div style={{ padding: '0 12px 4px', fontWeight: 600 }}>{s.vizTab === 'build' ? 'Compila oggetto visivo' : 'Formato oggetto visivo'}</div>
+      <div style={{ padding: '0 12px 4px', fontWeight: 600 }}>{s.vizTab === 'build' ? 'Compila oggetto visivo' : s.vizTab === 'analytics' ? 'Analisi' : 'Formato oggetto visivo'}</div>
       <div className="viz-tabs">
         <button className={s.vizTab === 'build' ? 'active' : ''} title="Aggiungi dati all'oggetto visivo" onClick={() => s.set({ vizTab: 'build' })}><Icon name="build" size={18} /></button>
         <button className={s.vizTab === 'format' ? 'active' : ''} title="Formato oggetto visivo" onClick={() => s.set({ vizTab: 'format' })}><Icon name="brush" size={18} /></button>
-        <button disabled title="Analisi (non disponibile)"><Icon name="analytics" size={18} /></button>
+        <button className={s.vizTab === 'analytics' ? 'active' : ''} title="Aggiungi ulteriori analisi all'oggetto visivo" onClick={() => s.set({ vizTab: 'analytics' })}><Icon name="analytics" size={18} /></button>
       </div>
       <div className="pane-body">
         {s.vizTab === 'build' && <>
@@ -503,6 +602,8 @@ export function VisualizationsPane() {
           </div>
           {v ? <Wells v={v} /> : <PageSettings />}
         </>}
+        {s.vizTab === 'analytics' && (v && supportsAnalytics(v) ? <AnalyticsPane key={v.id} v={v} />
+          : <div style={{ color: 'var(--text2)', paddingTop: 10 }}>{v ? 'Nessuna analisi disponibile per questo oggetto visivo.' : "Selezionare un oggetto visivo per aggiungere un'analisi."}</div>)}
         {s.vizTab === 'format' && (v ? <FormatPane key={v.id} v={v} /> : <div style={{ color: 'var(--text2)', paddingTop: 10 }}>Selezionare un oggetto visivo per formattarlo.</div>)}
       </div>
     </div>

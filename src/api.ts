@@ -70,6 +70,8 @@ interface Api {
   };
   /** Python/R visual: runs the script on the CSV dataset, returns a PNG data URL. */
   runScript(lang: 'python' | 'r', script: string, csv: string, width: number, height: number): Promise<string>;
+  /** Opzioni › interpreters for Python/R visuals (no argument = read). */
+  scriptPaths(p?: { python?: string; r?: string }): Promise<{ python?: string; r?: string }>;
   pbi: {
     status(): Promise<PbiStatus>;
     configure(clientId: string, tenant: string, name: string): Promise<PbiStatus>;

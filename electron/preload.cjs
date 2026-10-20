@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld('api', {
     ask: (question, schema) => call('claude:ask', question, schema),
   },
   runScript: (lang, script, csv, w, h) => call('script:run', lang, script, csv, w, h),
+  scriptPaths: (p) => call('script:paths', p),
   pbi: {
     status: () => call('pbi:status'),
     configure: (clientId, tenant, name) => call('pbi:configure', clientId, tenant, name),

@@ -83,6 +83,7 @@ handle('claude:status', () => claude.status());
 handle('claude:configure', (key, model) => claude.configure(key, model));
 handle('claude:ask', (question, schema) => claude.ask(question, schema));
 handle('script:run', (lang, script, csv, w, h) => scripts.run(lang, script, csv, w, h));
+handle('script:paths', (p) => (p ? scripts.setPaths(p) : scripts.paths()));
 handle('pbi:status', () => powerbi.status());
 handle('pbi:configure', (clientId, tenant, name) => powerbi.configure(clientId, tenant, name));
 handle('pbi:addProfile', (clientId, tenant, name) => powerbi.addProfile(clientId, tenant, name));

@@ -6,6 +6,17 @@ stesso flusso di lavoro (Ottieni dati → Strumento di navigazione → trascina 
 
 Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 
+## Screenshot
+
+| | |
+|---|---|
+| ![Riquadro Analisi: linee media, max, costante e tendenza](docs/screenshots/analytics.png) | ![Pulsanti Applica/Cancella tutti i filtri dei dati e drill-through](docs/screenshots/buttons.png) |
+| **Riquadro Analisi** — linee costante, min, max, media, mediana, percentile e di tendenza | **Pulsanti** — Applica / Cancella tutti i filtri dei dati, drill-through, scheda Azione |
+| ![Esplora Q&A](docs/screenshots/qna.png) | ![File › Ottieni dati](docs/screenshots/getdata.png) |
+| **Esplora Q&A** — aperto da un pulsante con azione Q&A | **File › Ottieni dati** — tutte le origini dal menu File |
+| ![Opzioni](docs/screenshots/options.png) | |
+| **Opzioni e impostazioni** — caricamento dati, script Python/R, Q&A, Data/ora automatica | |
+
 ## Scaricare e installare
 
 Dalla pagina [Releases](https://github.com/mbulloni/LinBI/releases) (Linux x64):
@@ -235,6 +246,17 @@ Fabric, PDF, `.lbix` con i dati.
 - Grafica dei file Power BI rispettata: dimensioni e sfondi delle pagine, pagine nascoste, sfondo/bordo/titolo degli oggetti visivi,
   stili di schede, assi, legende, etichette, colori per categoria, tabelle e matrici, testo formattato, pulsanti e forme;
   la formattazione importata viene riscritta all'esportazione (anche gli oggetti visivi non supportati restano nel file)
+- Riquadro **Analisi** dei grafici (linee/aree, istogrammi e barre, combinati, dispersione): linea costante (anche asse X nella
+  dispersione), min, max, media, mediana, percentile e linea di tendenza (minimi quadrati), con nome, serie, colore, trasparenza,
+  stile, larghezza ed etichetta; importate ed esportate nei file Power BI (`y1AxisReferenceLine`, `averageLine`, `trend`…).
+  I grafici in pila hanno solo la linea costante, come in Power BI
+- Pulsanti con tutte le azioni di Power BI: Indietro, Segnalibro, Drill-through (disabilitato finché non si seleziona un punto dati
+  con i campi della pagina di destinazione), Spostamento tra le pagine, Q&A (apre **Esplora Q&A**), URL Web,
+  **Applica tutti i filtri dei dati** (con il pulsante nella pagina le selezioni dei filtri dei dati restano in attesa) e
+  **Cancella tutti i filtri dei dati**; scheda **Azione** nel riquadro Formato (tipo, destinazione, descrizione comando)
+- File › **Ottieni dati** (tutte le origini) e **Opzioni e impostazioni**: rilevamento automatico delle relazioni, interprete
+  Python ed eseguibile Rscript per gli oggetti visivi script, chiave e modello Claude per Q&A, impostazioni origine dati,
+  *Data/ora automatica* del file corrente (tabelle date e gerarchie nelle esportazioni)
 
 ## Roadmap
 

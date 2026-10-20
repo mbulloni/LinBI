@@ -12,6 +12,7 @@ import { uid } from '../format';
 import { decode, pt } from '../visuals/pbistyle';
 import { basicJsonFilter } from '../visuals/custom/objects';
 import { exportCondFormat, importCondFormat } from './condfmt';
+import { exportAnalytics, importAnalytics } from './analytics';
 import { fieldKey } from '../visuals/condfmt';
 
 /** Auto date/time hierarchy written by pbit.ts#buildModelSchema (LocalDateTable_*): hierarchy and level names. */
@@ -266,6 +267,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       }
       if (type === 'slicer' && litText(prop(sv.objects, 'data').mode) === 'Dropdown') format.slicerStyle = 'dropdown';
       importCondFormat(sv.objects, byRef, Object.values(fields).flat(), format, (e) => exprToField(e, from), isChartType(type) || type === 'filledMap' || type === 'map');
+      if (isChartType(type)) { const al = importAnalytics(sv.objects, byRef); if (al.length) format.analytics = al; }
       const axisType = litText(prop(sv.objects, 'categoryAxis').axisType);
       if (axisType === 'Scalar') format.axisType = 'continuous'; else if (axisType === 'Categorical') format.axisType = 'categorical';
 
@@ -452,7 +454,9 @@ export function themeFromLayout(layoutJson: string, resources: Record<string, st
 
 /** Stable Power BI names, so bookmarks and buttons keep pointing at the same pages and visuals. */
 const vname = (v: Visual) => v.pbiName ?? (v.id + '00000000000000000000').slice(0, 20);
-const sname = (p: Page) => p.pbiName ?? 'ReportSection' + p.id;
+export const sname = (p: Page) => p.pbiName ?? 'ReportSection' + p.id;
+/** Bookmark name in the file (target of bookmark buttons). */
+export const bname = (b: { id: string; pbiName?: string }) => b.pbiName ?? 'Bookmark' + b.id;
 const gname = (g: VisualGroup) => g.pbiName ?? ('g' + g.id + '0000000000000000000').slice(0, 20);
 
 /** LinBI bookmarks → Report/Layout config.bookmarks (explorationState). */
@@ -473,7 +477,7 @@ function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
     const visualContainerGroups = Object.fromEntries((page.groups ?? []).map((g) => [gname(g), { isHidden: b.state.hiddenGroups.includes(g.id) }]));
     const byExpr = (fs?: Filter[]) => ({ byExpr: (fs ?? []).filter((f) => f.values.length).map((f) => filterJson(f, hex())) });
     return {
-      displayName: b.name, name: b.pbiName ?? 'Bookmark' + b.id,
+      displayName: b.name, name: bname(b),
       explorationState: {
         version: '1.3', activeSection: sname(page), filters: byExpr(b.state.reportFilters),
         sections: { [sname(page)]: { visualContainers, visualContainerGroups, filters: byExpr(b.state.pageFilters) } },
@@ -599,6 +603,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         }
       }
       exportCondFormat(v, objects, (f) => nameByKey.get(fieldKey(f)), (a) => AGG_OUT[a]?.[0], isChartType(v.type) || v.type === 'filledMap' || v.type === 'map', CF_RANGES.get(v.id));
+      if (isChartType(v.type)) exportAnalytics(v.format.analytics, objects, (k) => nameByKey.get(k));
       const flat = def.wells.flatMap((w) => v.fields[w.key] ?? []);
       const sortField = v.format.sortBy !== undefined ? flat[v.format.sortBy] : undefined;
       const sortSel = sortField ? select.find((s) => (s.Column ?? s.Measure ?? s.Aggregation?.Expression?.Column)?.Property === sortField.column) : undefined;

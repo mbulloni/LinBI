@@ -23,8 +23,10 @@ function useIndex(): QnaIndex | null {
   return idx;
 }
 
-export function QnaVisual({ v, selected }: { v: Visual; selected: boolean }) {
+/** `onChange`: the visual lives outside the report (Esplora Q&A), changes go to its owner. */
+export function QnaVisual({ v, selected, onChange }: { v: Visual; selected: boolean; onChange?: (patch: Partial<Visual>) => void }) {
   const s = useStore();
+  const update = (patch: Partial<Visual>) => (onChange ? onChange(patch) : s.updateVisual(v.id, patch));
   const idx = useIndex();
   const saved = v.qna?.question ?? (typeof sp(v, 'hiddenProperties', 'savedUtterance') === 'string' ? sp(v, 'hiddenProperties', 'savedUtterance') : '');
   const [q, setQ] = useState(saved);
@@ -46,12 +48,12 @@ export function QnaVisual({ v, selected }: { v: Visual; selected: boolean }) {
   const ask = async (question = q) => {
     setError(null);
     if (!question.trim()) return;
-    if (mode === 'local' || !claude?.configured) { s.updateVisual(v.id, { qna: { question, source: 'local' } }); return; }
+    if (mode === 'local' || !claude?.configured) { update({ qna: { question, source: 'local' } }); return; }
     if (!idx) return;
     setBusy(true);
     try {
       const r = await api.claude.ask(question, schemaText(s.tables, s.report.measures, idx));
-      s.updateVisual(v.id, { qna: { question, spec: r.spec, source: 'claude' } });
+      update({ qna: { question, spec: r.spec, source: 'claude' } });
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   };
   const convert = () => {
@@ -88,7 +90,7 @@ export function QnaVisual({ v, selected }: { v: Visual; selected: boolean }) {
       {spec && (
         <div className="qna-restate">
           <span>{spec.answerable ? 'Mostra: ' : ''}{spec.restatement}{v.qna?.source === 'claude' ? ' · Claude' : ''}</span>
-          {answer && selected && <button className="btn" style={{ minWidth: 0 }} onClick={convert}>Trasforma in oggetto visivo</button>}
+          {answer && selected && !onChange && <button className="btn" style={{ minWidth: 0 }} onClick={convert}>Trasforma in oggetto visivo</button>}
         </div>
       )}
       <div className="qna-body">

@@ -138,11 +138,14 @@ function dateTable(name: string, expression: string, local: boolean) {
   };
 }
 
+/** Opzioni › File corrente › Data/ora automatica (on unless turned off). */
+export const autoDateOn = (report: Report) => report.options?.autoDateTime !== false;
+
 /** Date columns that get an automatic date hierarchy (all date/datetime columns, like Power BI's auto date/time). */
 export const autoDateColumns = (tables: TableMeta[]) => tables.flatMap((t) => (t.fieldParam ? [] : t.columns.filter((c) => tomType(c.type).dataType === 'dateTime').map((c) => ({ table: t.name, column: c.name }))));
 
 /** `autoDates`: add the LocalDateTable/DateTableTemplate tables, variations and relationships (date hierarchies of the report). */
-export function buildModelSchema(report: Report, tables: TableMeta[], autoDates = true) {
+export function buildModelSchema(report: Report, tables: TableMeta[], autoDates = autoDateOn(report)) {
   const dates = autoDates ? autoDateColumns(tables).map((d) => ({ ...d, local: `LocalDateTable_${crypto.randomUUID()}`, rel: crypto.randomUUID() })) : [];
   const dateOf = (t: string, c: string) => dates.find((d) => d.table === t && d.column === c);
   const daxTable = (n: string) => `'${n.replace(/'/g, "''")}'`, daxCol = (n: string) => `[${n.replace(/]/g, ']]')}]`;
@@ -223,7 +226,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
 
 /** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report) });
   const j = (o: unknown) => JSON.stringify(o, null, 2);
   const platform = (type: string) => ({
     $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
@@ -257,7 +260,7 @@ function labelParts(report: Report): PbitPart[] {
 }
 
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report) });
   const diagram = {
     version: '1.1.0',
     diagrams: [{
@@ -335,7 +338,7 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
 }
 
 /** Report part of a publication: report.json and images, paths relative to the report item. */
-export function buildReportParts(report: Report, dateHierarchies = true): { path: string; text?: string; dataUrl?: string }[] {
+export function buildReportParts(report: Report, dateHierarchies = autoDateOn(report)): { path: string; text?: string; dataUrl?: string }[] {
   const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies });
   return [
     { path: 'report.json', text: layout },

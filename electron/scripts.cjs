@@ -10,10 +10,25 @@ const { app } = require('electron');
 
 const TIMEOUT = 60_000;
 
+// Opzioni › Script Python / R: interpreters chosen by the user (userData/script-paths.json).
+const cfgFile = () => path.join(app.getPath('userData'), 'script-paths.json');
+function paths() {
+  try { return JSON.parse(fs.readFileSync(cfgFile(), 'utf8')); } catch { return {}; }
+}
+function setPaths(p) {
+  const clean = {};
+  for (const k of ['python', 'r']) if (typeof p?.[k] === 'string' && p[k].trim()) clean[k] = p[k].trim();
+  fs.writeFileSync(cfgFile(), JSON.stringify(clean, null, 2));
+  chosen = null;
+  return clean;
+}
+
 let chosen = null;
 /** First interpreter that has pandas and matplotlib (checked once). */
 function python() {
   if (process.env.LINBI_PYTHON) return process.env.LINBI_PYTHON;
+  const own = paths().python;
+  if (own) return own;
   if (chosen) return chosen;
   const candidates = [path.join(__dirname, '..', '.venv-pbix', 'bin', 'python'), path.join(app.getPath('userData'), 'pbix-venv', 'bin', 'python'), 'python3']
     .filter((p) => p === 'python3' || fs.existsSync(p));
@@ -62,7 +77,7 @@ function run(lang, script, csv, width, height) {
   fs.writeFileSync(files.script, script);
   fs.writeFileSync(files.runner, lang === 'r' ? R : PY);
   const w = String(Math.max(50, Math.round(width))), h = String(Math.max(50, Math.round(height)));
-  const [cmd, args] = lang === 'r' ? ['Rscript', [files.runner]] : [python(), ['-I', files.runner]];
+  const [cmd, args] = lang === 'r' ? [paths().r || 'Rscript', [files.runner]] : [python(), ['-I', files.runner]];
   return new Promise((resolve, reject) => {
     execFile(cmd, [...args, files.data, files.script, w, h, files.out], { cwd: dir, timeout: TIMEOUT, maxBuffer: 8 * 1024 * 1024 }, (err, _stdout, stderr) => {
       try {
@@ -81,4 +96,4 @@ function run(lang, script, csv, width, height) {
   });
 }
 
-module.exports = { run };
+module.exports = { run, paths, setPaths };

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { globalOptions } from './options';
 import { api } from './api';
 import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
@@ -82,6 +83,11 @@ export interface PQState { queries: PQQuery[]; selected: string; step: number | 
 const srcExpr = (source: TableMeta['source']) => api.sourceExpr(resolveSource(source));
 
 /** Steps Power BI folds into the previous step of the same kind instead of adding a new one. */
+/** The page holds an "Applica tutti i filtri dei dati" button: slicer changes wait for it. */
+export function hasApplyAll(p: Page): boolean {
+  return p.visuals.some((v) => v.type === 'button' && JSON.stringify(v.style?.vcObjects?.visualLink ?? '').includes("'ApplyAllSlicers'"));
+}
+
 function mergeStep(prev: Step, next: Step): boolean {
   if (prev.kind === 'renameColumns' && next.kind === 'renameColumns') {
     for (const [a, b] of next.renames) {
@@ -156,7 +162,7 @@ interface State {
   perf: { recording: boolean; entries: PerfEntry[] };
   /** Visuals selected together (Ctrl+click), e.g. to group them. */
   multiSel: string[];
-  vizTab: 'build' | 'format';
+  vizTab: 'build' | 'format' | 'analytics';
   dataVersion: number;
   filePath: string | null;
   dirty: boolean;
@@ -217,6 +223,14 @@ interface State {
   openPowerQuery: (focus?: string, extra?: PQQuery | PQQuery[]) => void;
   dbDialog: boolean;
   publishDialog: boolean;
+  /** Esplora Q&A (button action Q&A): question typed in a modal, answer not part of the report. */
+  qnaExplorer: boolean;
+  optionsDialog: boolean;
+  /** Slicer change: deferred when the slicer's page has an "Applica tutti i filtri dei dati" button. */
+  setSlicer: (id: string, values: string[]) => void;
+  /** Page buttons Applica / Cancella tutti i filtri dei dati. */
+  applyAllSlicers: (pageId: string) => void;
+  clearAllSlicers: (pageId: string) => void;
   loadDbTables: (c: DbConnection, picks: { schema: string; table: string }[], transform: boolean) => Promise<void>;
   pqSet: (fn: (st: PQState) => void) => void;
   pqAddStep: (step: NewStep) => void;
@@ -782,6 +796,24 @@ export const useStore = create<State>((set, get) => {
     },
     dbDialog: false,
     publishDialog: false,
+    qnaExplorer: false,
+    optionsDialog: false,
+    setSlicer: (id, values) => {
+      const page = get().report.pages.find((p) => p.visuals.some((v) => v.id === id));
+      if (page && hasApplyAll(page)) get().updateVisual(id, { pendingSlicer: values }, false);
+      else get().updateVisual(id, { slicerValues: values, pendingSlicer: undefined });
+    },
+    applyAllSlicers: (pageId) => get().mut((r) => {
+      for (const v of r.pages.find((p) => p.id === pageId)?.visuals ?? []) {
+        if (v.pendingSlicer) { v.slicerValues = v.pendingSlicer; delete v.pendingSlicer; }
+      }
+    }),
+    clearAllSlicers: (pageId) => get().mut((r) => {
+      for (const v of r.pages.find((p) => p.id === pageId)?.visuals ?? []) {
+        if (v.type === 'slicer') { v.slicerValues = []; delete v.pendingSlicer; }
+        if (v.jsonFilters) delete v.jsonFilters;
+      }
+    }),
     loadDbTables: async (c, picks, transform) => {
       const taken = new Set(get().tables.map((t) => t.name));
       const defs = picks.map((p) => {
@@ -797,7 +829,7 @@ export const useStore = create<State>((set, get) => {
       try {
         for (const d of defs) { try { await loadTable(d); } catch (e: any) { failed.push(`${d.name}: ${e.message.split('\n')[0]}`); } }
         const loaded = defs.map((d) => d.name).filter((n) => get().tables.some((t) => t.name === n));
-        const n = loaded.length > 0 ? await get().detectRelationships(loaded) : 0;
+        const n = loaded.length > 0 && globalOptions().autoRelationships ? await get().detectRelationships(loaded) : 0;
         get().notify([loaded.length === 1 ? 'Caricata 1 tabella.' : `Caricate ${loaded.length} tabelle.`, n ? `Rilevate ${n} relazioni.` : '', failed.length ? `Errori: ${failed.join(' · ')}` : ''].filter(Boolean).join(' '), failed.length ? 12000 : 6000);
       } finally {
         set({ busy: null });
@@ -850,7 +882,7 @@ export const useStore = create<State>((set, get) => {
         if (failed.length) { get().notify('Caricamento non riuscito — ' + failed.join(' · '), 15000); return; }
         set({ pq: null });
         const fresh = pq.queries.filter((q) => !q.orig).map((q) => q.name);
-        if (fresh.length) {
+        if (fresh.length && globalOptions().autoRelationships) {
           const n = await get().detectRelationships(fresh);
           if (n) get().notify(`Rilevate automaticamente ${n} ${n === 1 ? 'relazione' : 'relazioni'}. Verificarle nella vista modello.`);
         }
@@ -1230,7 +1262,7 @@ export const useStore = create<State>((set, get) => {
         await importTable(nav.path, nav.tableName);
         set({ navigator: null });
         api.addRecentSource(nav.path).catch(() => {});
-        const n = await get().detectRelationships([nav.tableName]);
+        const n = globalOptions().autoRelationships ? await get().detectRelationships([nav.tableName]) : 0;
         if (n) get().notify(`Rilevate automaticamente ${n} ${n === 1 ? 'relazione' : 'relazioni'}. Verificarle nella vista modello.`);
       } catch (e: any) {
         set({ navigator: { ...nav, loading: false, error: e.message } });

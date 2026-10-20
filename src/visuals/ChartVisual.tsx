@@ -7,6 +7,7 @@ import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { cfInput, fieldKey, rangeOf, ruleValue, scaleColor } from './condfmt';
 import { font, pointColors, pt, queryRef, sp, units } from './pbistyle';
+import { applyAnalytics } from './analytics';
 
 /** ECharts axis label/title/grid settings from the visual's categoryAxis/valueAxis objects. */
 function axisLook(v: Visual, obj: 'categoryAxis' | 'valueAxis') {
@@ -477,11 +478,12 @@ function ribbon(v: Visual, d: VisualData, selected: string | null | undefined, w
 export function buildOption(v: Visual, d: VisualData, cross: CrossFilter | null, width = 400): Built {
   const selected = cross && cross.visualId === v.id ? (cross.value === NULL_KEY ? null : cross.value) : undefined;
   if (['pie', 'donut', 'treemap', 'funnel'].includes(v.type)) return pieLike(v, d, selected);
-  if (v.type === 'scatter') return scatter(v, d, selected);
   if (v.type === 'gauge') return gauge(v, d);
   if (v.type === 'waterfall') return waterfall(v, d, selected);
   if (v.type === 'ribbon') return ribbon(v, d, selected, width);
-  return cartesian(v, d, selected, width);
+  const built = v.type === 'scatter' ? scatter(v, d, selected) : cartesian(v, d, selected, width);
+  applyAnalytics(v, d, built.option);
+  return built;
 }
 
 /** Data point events for drill-through (right click) and report-page tooltips (hover). */

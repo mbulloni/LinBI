@@ -51,7 +51,29 @@ export type VisualType =
   | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative'
   | 'pythonVisual' | 'rVisual' | 'qna' | 'pageNavigator' | 'bookmarkNavigator' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'custom' | 'unsupported';
 
+/** Riquadro Analisi: reference line of a chart (Power BI y1AxisReferenceLine, averageLine, trend…). */
+export interface AnalyticsLine {
+  id: string;
+  kind: 'constant' | 'xConstant' | 'min' | 'max' | 'average' | 'median' | 'percentile' | 'trend';
+  name?: string;
+  /** constant lines */
+  value?: number;
+  /** percentile line, 0-100 */
+  percentile?: number;
+  /** fieldKey of the measure the statistic is computed on (default: the first one). */
+  measure?: string;
+  /** scatter: statistic on the x or y measure */
+  axis?: 'x' | 'y';
+  color?: string;
+  style?: 'solid' | 'dashed' | 'dotted';
+  width?: number;
+  /** 0-100 */
+  transparency?: number;
+  label?: boolean;
+}
+
 export interface VisualFormat {
+  analytics?: AnalyticsLine[];
   titleShow: boolean;
   titleText: string;
   titleSize: number;
@@ -115,6 +137,8 @@ export interface Visual {
   fields: Record<string, FieldRef[]>;
   format: VisualFormat;
   slicerValues?: string[];
+  /** Selection not applied yet: the page has an "Applica tutti i filtri dei dati" button. */
+  pendingSlicer?: string[];
   filters?: Filter[];
   /** Hidden (Selection pane / bookmarks): not drawn. */
   hidden?: boolean;
@@ -246,6 +270,13 @@ export interface Report {
   sensitivity?: SensitivityLabel;
   /** Custom visuals (.pbiviz) imported from a file or embedded in a .pbix/.pbip. */
   customVisuals?: CustomVisualPkg[];
+  /** Opzioni › File corrente. */
+  options?: ReportOptions;
+}
+
+export interface ReportOptions {
+  /** Data/ora automatica: LocalDateTable_* + date hierarchies in exports (default on). */
+  autoDateTime?: boolean;
 }
 
 export interface SensitivityLabel { name: string; id?: string; tenant?: string; color?: string; description?: string; }

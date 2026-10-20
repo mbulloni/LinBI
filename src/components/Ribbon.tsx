@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../store';
+import { bname } from '../pbix/layout';
 import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
 import { VISUALS } from '../visuals/catalog';
@@ -235,15 +236,16 @@ export function Ribbon() {
       )}
       {menu?.kind === 'buttons' && (
         <Menu x={menu.x} y={menu.y} onClose={close}>
-          {([['Indietro', 'Back', 'back'], ['Segnalibro', 'Bookmark', 'bookmark'], ['Vuoto', '', 'blank']] as const).map(([label, action, icon]) => (
+          {([['Indietro', 'Back', 'back'], ['Segnalibro', 'Bookmark', 'bookmark'], ['Q&A', 'QnA', 'qna'], ['Drill-through', 'Drillthrough', 'blank'], ['Applica tutti i filtri dei dati', 'ApplyAllSlicers', 'blank'], ['Cancella tutti i filtri dei dati', 'ClearAllSlicers', 'reset'], ['Vuoto', '', 'blank']] as const).map(([label, action, icon]) => (
             <button key={label} onClick={() => {
               close();
               const id = s.addVisual('button');
               const L = (x: string) => ({ expr: { Literal: { Value: x } } });
-              s.updateVisual(id, { w: 120, h: 40, style: {
+              const wide = action === 'ApplyAllSlicers' || action === 'ClearAllSlicers' || action === 'Drillthrough';
+              s.updateVisual(id, { w: wide ? 200 : 120, h: 40, style: {
                 pbiType: 'actionButton',
-                objects: { icon: [{ properties: { shapeType: L(`'${icon}'`) } }], text: [{ properties: { show: L(icon === 'blank' ? 'true' : 'false'), text: L(`'${label}'`) } }], outline: [{ properties: { show: L('true') } }] },
-                vcObjects: action ? { visualLink: [{ properties: { show: L('true'), type: L(`'${action}'`), ...(action === 'Bookmark' && s.report.bookmarks?.[0] ? { bookmark: L(`'${s.report.bookmarks[0].pbiName ?? s.report.bookmarks[0].id}'`) } : {}) } }] } : {},
+                objects: { icon: [{ properties: { shapeType: L(`'${icon}'`) } }], text: [{ properties: { show: L(icon === 'blank' || wide ? 'true' : 'false'), text: L(`'${label}'`) } }], outline: [{ properties: { show: L('true') } }] },
+                vcObjects: action ? { visualLink: [{ properties: { show: L('true'), type: L(`'${action}'`), ...(action === 'Bookmark' && s.report.bookmarks?.[0] ? { bookmark: L(`'${bname(s.report.bookmarks[0])}'`) } : {}) } }] } : {},
               } });
             }}>{label}</button>
           ))}

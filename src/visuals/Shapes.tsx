@@ -3,6 +3,8 @@ import { useState, type CSSProperties } from 'react';
 import type { Visual } from '../types';
 import { useStore } from '../store';
 import { api } from '../api';
+import { NULL_KEY } from '../query';
+import { bname, sname } from '../pbix/layout';
 import { font, pt, sp, withAlpha } from './pbistyle';
 
 const ICON_PATHS: Record<string, string> = {
@@ -19,14 +21,23 @@ const ICON_PATHS: Record<string, string> = {
 const history: string[] = [];
 useStore.subscribe((s, prev) => { if (s.activePageId !== prev.activePageId && prev.activePageId) history.push(prev.activePageId); });
 
-/** Button action (vcObjects.visualLink): page navigation, back, web URL. Bookmarks: not yet. */
+/** Drill-through button: the target page and the current selection (cross-filter) feeding it, if usable. */
+export function drillTarget(v: Visual, s = useStore.getState()) {
+  const target = sp(v, 'visualLink', 'drillthroughSection');
+  const page = s.report.pages.find((x) => sname(x) === target || x.id === target);
+  const c = s.crossFilter;
+  const ok = !!page?.drillthrough && !!c && page.drillthrough.fields.some((f) => f.table === c.table && f.column === c.column && f.datePart === c.datePart);
+  return { page, ok };
+}
+
+/** Button action (vcObjects.visualLink): page navigation, back, web URL, bookmark, drill-through, Q&A, slicers. */
 function runAction(v: Visual) {
   const s = useStore.getState();
   const type = sp(v, 'visualLink', 'type');
   if (sp(v, 'visualLink', 'show') === false || !type) return;
   if (type === 'PageNavigation') {
     const target = sp(v, 'visualLink', 'navigationSection');
-    const p = s.report.pages.find((x) => x.pbiName === target);
+    const p = s.report.pages.find((x) => sname(x) === target || x.id === target);
     if (p) s.set({ activePageId: p.id, selectedVisualId: null });
   } else if (type === 'Back') {
     const prev = history.pop();
@@ -36,16 +47,43 @@ function runAction(v: Visual) {
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) api.openExternal(url);
   } else if (type === 'Bookmark') {
     const name = sp(v, 'visualLink', 'bookmark');
-    const b = s.report.bookmarks?.find((x) => x.pbiName === name || x.id === name);
+    const b = s.report.bookmarks?.find((x) => bname(x) === name || x.id === name);
     if (b) s.applyBookmark(b.id); else s.notify('Segnalibro non trovato.');
+  } else if (type === 'Drillthrough') {
+    const { page, ok } = drillTarget(v, s);
+    if (!page) { s.notify('Destinazione drill-through non impostata.'); return; }
+    if (!ok) { s.notify(`Per eseguire il drill-through a "${page.name}", selezionare un punto dati in un oggetto visivo con ${page.drillthrough?.fields.map((f) => f.column).join(', ') || 'i campi di drill-through'}.`); return; }
+    const c = s.crossFilter!;
+    s.drillThrough(page.id, [{ table: c.table, column: c.column, datePart: c.datePart, value: c.value === NULL_KEY ? null : c.value }]);
+  } else if (type === 'QnA') {
+    s.set({ qnaExplorer: true });
+  } else if (type === 'ClearAllSlicers') {
+    s.clearAllSlicers(s.activePageId);
+  } else if (type === 'ApplyAllSlicers') {
+    s.applyAllSlicers(s.activePageId);
   } else {
-    s.notify('Azione "' + type + '": disponibile in una prossima versione.');
+    s.notify('Azione "' + type + '" non supportata.');
   }
+}
+
+/** Default tooltip of a button, as Power BI shows it. */
+function defaultTip(v: Visual, s: ReturnType<typeof useStore.getState>): string | undefined {
+  const type = sp(v, 'visualLink', 'type');
+  if (type === 'Drillthrough') {
+    const { page, ok } = drillTarget(v, s);
+    if (!page) return undefined;
+    return ok ? `Fare clic per eseguire il drill-through a ${page.name}` : `Per eseguire il drill-through a ${page.name}, fare clic su un punto dati in un oggetto visivo`;
+  }
+  return ({ ApplyAllSlicers: 'Applica tutti i filtri dei dati', ClearAllSlicers: 'Cancella tutti i filtri dei dati', QnA: 'Porre una domanda sui dati' } as Record<string, string>)[String(type)];
 }
 
 export function ButtonVisual({ v }: { v: Visual }) {
   const [hover, setHover] = useState(false);
-  const st = hover ? 'hover' : undefined;
+  const store = useStore();
+  // Drill-through buttons are disabled until a usable data point is selected (state "disabled").
+  const disabled = sp(v, 'visualLink', 'type') === 'Drillthrough' && !drillTarget(v, store).ok;
+  const pending = sp(v, 'visualLink', 'type') === 'ApplyAllSlicers' && store.page().visuals.some((x) => x.pendingSlicer);
+  const st = disabled ? 'disabled' : hover ? 'hover' : undefined;
   const g = (obj: string, prop: string) => sp(v, obj, prop, st);
   const fill = g('fill', 'show') === true ? withAlpha(g('fill', 'fillColor') ?? '#E6E6E6', g('fill', 'transparency')) : 'transparent';
   const outline = g('outline', 'show') !== false;
@@ -65,8 +103,10 @@ export function ButtonVisual({ v }: { v: Visual }) {
     justifyContent: { left: 'flex-start', right: 'flex-end' }[String(g('text', 'horizontalAlignment'))] ?? 'center',
     padding: `${g('text', 'topMargin') ?? 0}px ${g('text', 'rightMargin') ?? 0}px ${g('text', 'bottomMargin') ?? 0}px ${g('text', 'leftMargin') ?? 0}px`,
   };
-  const tip = sp(v, 'visualLink', 'tooltip');
-  const read = useStore((s) => s.readMode);
+  const tip = sp(v, 'visualLink', 'tooltip') ?? defaultTip(v, store);
+  const read = store.readMode;
+  if (disabled && g('fill', 'show') === undefined) box.opacity = 0.55;
+  if (pending) box.boxShadow = 'inset 0 0 0 2px #118DFF';
   return (
     <div style={box} title={typeof tip === 'string' ? tip + (read ? '' : ' (Ctrl+clic)') : undefined}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}

@@ -12,6 +12,8 @@ import { PowerQueryEditor } from './components/PowerQuery';
 import { DaxBar } from './components/DaxBar';
 import { DatabaseDialog } from './components/DatabaseDialog';
 import { PublishDialog } from './components/PublishDialog';
+import { QnaExplorer } from './qna/QnaExplorer';
+import { OptionsDialog } from './components/OptionsDialog';
 import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
 import { SourceDialog } from './components/SourceDialogs';
@@ -118,6 +120,8 @@ export function App() {
       <Navigator />
       <DatabaseDialog />
       <PublishDialog />
+      <QnaExplorer />
+      <OptionsDialog />
       <ScriptEditor />
       <ParameterDialog />
       <SourceDialog />

@@ -253,11 +253,11 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
 }
 
 export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
-  const updateVisual = useStore((s) => s.updateVisual);
+  const setSlicer = useStore((s) => s.setSlicer);
   const it: QueryItem | undefined = data.items[0];
-  const sel = new Set(v.slicerValues ?? []);
+  const sel = new Set(v.pendingSlicer ?? v.slicerValues ?? []);
   const values = it ? data.rows.map((r) => r[it.alias] as string | null) : [];
-  const set = (vals: string[]) => updateVisual(v.id, { slicerValues: vals });
+  const set = (vals: string[]) => setSlicer(v.id, vals);
   const toggle = (k: string, multi: boolean) => {
     if (multi) set(sel.has(k) ? [...sel].filter((x) => x !== k) : [...sel, k]);
     else set(sel.size === 1 && sel.has(k) ? [] : [k]);
