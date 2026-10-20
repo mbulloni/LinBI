@@ -349,7 +349,10 @@ interface State {
   newReport: () => Promise<void>;
   save: (as?: boolean) => Promise<void>;
   open: (file?: string) => Promise<void>;
-  importPowerBI: (path: string) => Promise<void>;
+  /** `model`: already read (semantic model from the Power BI service), `path` is then its display name. */
+  importPowerBI: (path: string, model?: import('./api').PowerBIModel) => Promise<void>;
+  /** Ottieni dati › Power BI (servizio) dialog. */
+  serviceDialog: boolean;
   exportPbit: () => Promise<void>;
   exportPbip: () => Promise<void>;
   sourceName: string | null;
@@ -554,10 +557,11 @@ export const useStore = create<State>((set, get) => {
     focusId: null,
     sourceName: null,
 
-    importPowerBI: async (path) => {
+    serviceDialog: false,
+    importPowerBI: async (path, preloaded) => {
       set({ fileMenu: false, busy: 'Lettura del file Power BI…' });
       try {
-        const model = await api.readPowerBI(path);
+        const model = preloaded ?? await api.readPowerBI(path);
         await get().newReport();
         set({ busy: `Caricamento di ${model.tables.length} tabelle…` });
         const failed: string[] = [];

@@ -18,6 +18,10 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Opzioni e impostazioni** — caricamento dati, script Python/R, Q&A, Data/ora automatica | **Modello e DAX** — IntelliSense nella barra della formula, cartelle di visualizzazione, gerarchie utente, gruppo di calcolo in una matrice |
 | ![Gestisci ruoli](docs/screenshots/roles.png) | ![Visualizza come ruolo](docs/screenshots/view-as.png) |
 | **Gestisci ruoli** — sicurezza a livello di riga con filtri DAX per tabella | **Visualizza come** — il report visto dal ruolo *Europa* (barra gialla, filtro propagato ai fatti) |
+| ![Previsione e barre di errore](docs/screenshots/analytics-forecast.png) | ![Pubblica: scelta dell'area di lavoro](docs/screenshots/publish.png) |
+| **Analisi** — previsione con intervallo di confidenza, area ombreggiata, barre di errore da campi, formato dinamico di un elemento di calcolo | **Pubblica** — accesso con l'account aziendale, ricerca tra tutte le aree di lavoro, scelta della destinazione |
+| ![Ottieni dati › Power BI](docs/screenshots/service.png) | |
+| **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | |
 
 ## Scaricare e installare
 
@@ -174,10 +178,20 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
 - Tutto viene salvato nel `.lbix`, importato da `.pbix`/`.pbit`/`.pbip` (TMSL e TMDL) ed esportato nel modello
   (`hierarchies`, `displayFolder`, `dataCategory: Time` + `isKey`, `calculationGroup`, `roles`).
 
-Limiti noti: un elemento di calcolo trasforma solo il riferimento più esterno alla misura (non le misure richiamate al suo
-interno); la stringa di formato degli elementi viene conservata ma non applicata; i livelli delle gerarchie prendono il nome
-delle colonne; i filtri di sicurezza non si propagano in entrambe le direzioni; *Visualizza come* agisce sugli oggetti visivi
-del report (non sulla Vista tabella né sulla Vista query DAX); i dataset push non supportano ruoli e gruppi di calcolo.
+- Gli elementi di calcolo trasformano anche le misure richiamate dentro altre misure e dentro altri elementi, come in
+  Power BI (una misura non viene ritrasformata dallo stesso gruppo); la *stringa di formato dinamica*
+  (`formatStringDefinition`) si applica cella per cella in tabelle, matrici e schede. Con un gruppo di calcolo le
+  colonne non vengono più aggregate (misure implicite disattivate).
+- Gerarchie: nomi dei livelli modificabili, i campi di una gerarchia negli oggetti visivi sono esportati come
+  `HierarchyLevel`; gerarchie e misure compaiono anche nelle tabelle della vista modello (clic destro › Proprietà).
+- RLS: *Applica filtro di sicurezza in entrambe le direzioni* nella relazione (`securityFilteringBehavior`);
+  *Visualizza come* vale anche per la Vista tabella e la Vista query DAX.
+- Opzioni › **Impostazioni internazionali**: lingua di numeri e date (anche nomi di mesi/giorni e "Trim"/"Qtr" della
+  gerarchia date, cultura del modello esportato) e **separatori DAX locali** (`;` e `,` decimale) nella barra della
+  formula, nella Vista query DAX e nei ruoli (salvati sempre con i separatori standard).
+- IntelliSense suggerisce anche le variabili `VAR` già dichiarate.
+
+Limiti noti: i dataset push non supportano ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI).
 
 ## File Power BI
 
@@ -216,12 +230,27 @@ finiscono mai nel report: sono cifrate con il portachiavi di sistema (Electron `
 ### Pubblica
 
 **Pubblica** invia il report al servizio Power BI con le API REST, senza Power BI Desktop
-(`electron/powerbi.cjs`). Serve un account aziendale con licenza Power BI e, una volta sola, un'app registrata
-in Microsoft Entra ID (client pubblico, autorizzazioni delegate *Power BI Service*: Workspace.Read.All,
-Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create, Item.ReadWrite.All): la finestra spiega i passi.
-L'accesso usa il codice dispositivo (si completa nel browser); il token di aggiornamento è cifrato con
-`safeStorage` in `~/.config/linbi/powerbi.json`. **Profili**: uno per ogni app/tenant (es. tenant di test, tenant
-aziendale), ciascuno con il proprio accesso salvato; si sceglie dal menu *Profilo* della finestra Pubblica.
+(`electron/powerbi.cjs`). Il flusso è quello di Power BI Desktop: **1.** si inserisce l'e-mail aziendale e si
+accede nella pagina Microsoft della propria organizzazione (browser di sistema, codice di autorizzazione + PKCE con
+reindirizzamento su `http://localhost`; il tenant viene ricavato dal dominio dell'e-mail; in alternativa il codice
+dispositivo); **2.** LinBI cerca **tutte** le aree di lavoro dell'account (con casella di ricerca; quelle in sola
+lettura non sono selezionabili); **3.** si sceglie l'area di lavoro e il nome, poi *Pubblica*.
+
+Serve un'app registrata in Microsoft Entra ID (client pubblico, piattaforma *App per dispositivi mobili e desktop*
+con `http://localhost`, autorizzazioni delegate *Power BI Service*: Workspace.Read.All, Dataset.ReadWrite.All,
+Report.ReadWrite.All, Content.Create, Item.ReadWrite.All). Può essere quella dell'IT aziendale (*Impostazioni app*)
+oppure un'app **multi-tenant** distribuita con LinBI (`electron/pbi-app.json` = `{ "clientId": "…" }` o
+`LINBI_PBI_CLIENT_ID`): in quel caso non si configura nulla, ma al primo accesso il tenant chiede il consenso
+(dell'utente o, se l'organizzazione lo richiede, dell'amministratore). Gli errori di Entra più comuni (consenso
+mancante, approvazione dell'amministratore, accesso condizionale, URI di reindirizzamento) vengono spiegati con
+cosa chiedere all'IT. Il token di aggiornamento è cifrato con `safeStorage` in `~/.config/linbi/powerbi.json`.
+**Profili**: uno per ogni app/tenant, ciascuno con il proprio accesso salvato.
+
+**Ottieni dati › Power BI (report e modelli semantici)**: con lo stesso accesso, l'elenco delle aree di lavoro e il
+loro contenuto. Un **report** viene scaricato come `.pbix` (*Export*, se il download è consentito) e aperto come un
+file locale, con pagine, modello e dati; un **modello semantico** viene letto con query DAX (*executeQueries*:
+`INFO.VIEW.TABLES/COLUMNS/MEASURES/RELATIONSHIPS` per lo schema, `EVALUATE 'Tabella'` per i dati, max 100.000
+righe per tabella) e importato con relazioni, misure e cartelle.
 
 - **Dataset push + report** (Power BI Pro, qualsiasi area di lavoro): dataset push con tabelle, relazioni e misure
   DAX, righe lette da DuckDB (10.000 per richiesta); colonne/tabelle calcolate come valori fissi, relazioni inattive e
@@ -234,7 +263,9 @@ aziendale), ciascuno con il proprio accesso salvato; si sceglie dal menu *Profil
   poi aggiornamento dati nel servizio. I dati locali sono incorporati nell'M di ogni tabella (JSON compresso, come
   *Immetti dati*): nessun gateway. Opzione per mantenere le connessioni MySQL/PostgreSQL (server raggiungibile o gateway).
 
-Non verificato su un tenant reale: i flussi sono provati contro un server finto che riproduce le API.
+Non verificato su un tenant reale: i flussi (accesso dal browser, elenco aree di lavoro, pubblicazione, download
+dei report, lettura dei modelli) sono provati contro un server finto che riproduce le API
+(`LINBI_PBI_LOGIN`/`LINBI_PBI_API`, `LINBI_PBI_BROWSER_FETCH=1` segue il reindirizzamento senza aprire il browser).
 Restano anche le alternative su file: `.pbit` per Power BI Desktop, progetto `.pbip` per l'integrazione Git di
 Fabric, PDF, `.lbix` con i dati.
 
@@ -280,7 +311,10 @@ Fabric, PDF, `.lbix` con i dati.
   la formattazione importata viene riscritta all'esportazione (anche gli oggetti visivi non supportati restano nel file)
 - Riquadro **Analisi** dei grafici (linee/aree, istogrammi e barre, combinati, dispersione): linea costante (anche asse X nella
   dispersione), min, max, media, mediana, percentile e linea di tendenza (minimi quadrati), con nome, serie, colore, trasparenza,
-  stile, larghezza ed etichetta; importate ed esportate nei file Power BI (`y1AxisReferenceLine`, `averageLine`, `trend`…).
+  stile, larghezza, etichetta e **area ombreggiata** prima/dopo la linea; **previsione** (grafici a linee su asse continuo:
+  livellamento esponenziale Holt-Winters con stagionalità automatica o indicata, intervallo di confidenza, punti ignorati)
+  e **barre di errore** (limiti da campi, percentuale, deviazione standard). Importate ed esportate nei file Power BI con i
+  nomi dello schema ufficiale (`y1AxisReferenceLine`, `averageLine`, `trend`, `forecast`, `error`, `shadeShow`/`shadeRegion`…).
   I grafici in pila hanno solo la linea costante, come in Power BI
 - Pulsanti con tutte le azioni di Power BI: Indietro, Segnalibro, Drill-through (disabilitato finché non si seleziona un punto dati
   con i campi della pagina di destinazione), Spostamento tra le pagine, Q&A (apre **Esplora Q&A**), URL Web,

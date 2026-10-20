@@ -16,7 +16,8 @@ export function TitleBar() {
   const notify = useStore((s) => s.notify);
   const [pbi, setPbi] = useState<PbiStatus | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => { if (!publishOpen) api.pbi.status().then(setPbi).catch(() => setPbi(null)); }, [publishOpen]);
+  const serviceOpen = useStore((s) => s.serviceDialog);
+  useEffect(() => { if (!publishOpen && !serviceOpen) api.pbi.status().then(setPbi).catch(() => setPbi(null)); }, [publishOpen, serviceOpen]);
   const account = pbi?.account;
   const userClick = (e: React.MouseEvent) => {
     if (!account) { set({ publishDialog: true }); return; }

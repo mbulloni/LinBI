@@ -15,6 +15,7 @@ import { PublishDialog } from './components/PublishDialog';
 import { QnaExplorer } from './qna/QnaExplorer';
 import { OptionsDialog } from './components/OptionsDialog';
 import { ModelProperties } from './components/ModelProperties';
+import { ServiceDialog } from './components/ServiceDialog';
 import { RolesDialog, ViewAsBar, ViewAsDialog } from './components/RolesDialog';
 import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
@@ -126,6 +127,7 @@ export function App() {
       <QnaExplorer />
       <OptionsDialog />
       <ModelProperties />
+      <ServiceDialog />
       <RolesDialog />
       <ViewAsDialog />
       <ScriptEditor />

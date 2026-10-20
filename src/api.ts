@@ -96,6 +96,12 @@ interface Api {
     /** Sign-in in the system browser (authorization code + PKCE, loopback redirect). */
     loginBrowser(email?: string): Promise<PbiStatus>;
     loginBrowserCancel(): Promise<void>;
+    /** Ottieni dati › Power BI: reports and semantic models of a workspace ('' = personal). */
+    items(ws: string): Promise<{ reports: { id: string; name: string; datasetId: string | null }[]; datasets: { id: string; name: string; owner: string | null }[] }>;
+    /** Report downloaded as .pbix (local path). */
+    downloadReport(ws: string, id: string, name: string): Promise<string>;
+    /** Semantic model read with DAX queries (same shape as readPowerBI). */
+    datasetModel(ws: string, id: string, name: string): Promise<PowerBIModel>;
     loginWait(): Promise<PbiStatus>;
     loginCancel(): Promise<void>;
     workspaces(): Promise<PbiWorkspace[]>;

@@ -839,3 +839,9 @@ thead .pq-rn { z-index: 2; }
 .hier-level .hier-name:hover, .hier-level .hier-name:focus { border-color: var(--line2); }
 .hier-level .hint { flex: 0 0 auto; }
 .mtable .mt-b .mt-extra { color: var(--text2); cursor: default; }
+.svc-dlg { width: min(920px, 94vw); height: min(620px, 88vh); }
+.svc-dlg .db { overflow: hidden; }
+.svc-body { display: flex; gap: 12px; flex: 1; min-height: 0; }
+.svc-col { display: flex; flex-direction: column; width: 300px; min-height: 0; gap: 0; }
+.svc-col.wide { flex: 1; gap: 6px; }
+.svc-col .roles-hd { border: 1px solid var(--line2); }

@@ -380,6 +380,116 @@ async function workspaces() {
   return [{ id: '', name: 'Area di lavoro personale', dedicated: false }, ...out];
 }
 
+// ---------- Ottieni dati › Power BI (servizio) ----------
+
+/** Reports and semantic models of a workspace ('' = Area di lavoro personale). */
+async function serviceItems(ws) {
+  const [rep, ds] = await Promise.all([call('pbi', 'GET', `${group(ws)}/reports`), call('pbi', 'GET', `${group(ws)}/datasets`)]);
+  return {
+    reports: (rep.value ?? []).filter((r) => r.reportType !== 'PaginatedReport').map((r) => ({ id: r.id, name: r.name, datasetId: r.datasetId ?? null })),
+    datasets: (ds.value ?? []).map((d) => ({ id: d.id, name: d.name, owner: d.configuredBy ?? null })),
+  };
+}
+
+const safeFile = (n) => String(n).replace(/[^\p{L}\p{N} ._-]+/gu, '_').slice(0, 80) || 'report';
+
+/** Downloads a report as .pbix (Export), like "Scarica questo file" in the service. */
+async function downloadReport(ws, id, name, progress) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id)) || (ws && !/^[0-9a-f-]{36}$/i.test(String(ws)))) throw new Error('Identificativo non valido.');
+  progress?.(`Download di «${name}» dal servizio…`, null);
+  const r = await fetch(`${group(ws)}/reports/${id}/Export?downloadType=IncludeModel`, { headers: { Authorization: `Bearer ${await token('pbi')}` } });
+  if (!r.ok) {
+    const text = await r.text().catch(() => '');
+    const hint = r.status === 403 ? "Il download del file .pbix non è consentito (impostazione del tenant o dell'area di lavoro, oppure etichetta di riservatezza)." :
+      r.status === 404 ? 'Report non trovato.' : /Export.*not supported|PBIX.*not|NotSupported/i.test(text) ? 'Questo report non può essere scaricato come .pbix (creato nel servizio, con aggiornamento incrementale o modello di grandi dimensioni): caricare invece il suo modello semantico.' : '';
+    throw new Error(`${hint ? hint + ' ' : ''}(${r.status} ${text.slice(0, 200)})`);
+  }
+  const dir = path.join(app.getPath('userData'), 'pbi-downloads');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${safeFile(name)}-${String(id).slice(0, 8)}.pbix`);
+  fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+  return file;
+}
+
+/** One DAX query on a semantic model (executeQueries); rows keyed by output column. */
+async function daxRows(ws, id, query) {
+  const r = await call('pbi', 'POST', `${group(ws)}/datasets/${id}/executeQueries`, { queries: [{ query }], serializerSettings: { includeNulls: true } });
+  const res = r.results?.[0];
+  if (res?.error) throw new Error(res.error.message ?? JSON.stringify(res.error));
+  return res?.tables?.[0]?.rows ?? [];
+}
+
+const TOM_TYPE = { text: 'string', string: 'string', int64: 'int64', integer: 'int64', 'whole number': 'int64', double: 'double', decimal: 'decimal', currency: 'decimal', datetime: 'dateTime', date: 'dateTime', boolean: 'boolean', 'true/false': 'boolean' };
+const col = (row, name) => row[`[${name}]`] ?? row[name];
+
+/**
+ * A semantic model as read_pbix.py output: schema from the INFO.VIEW DAX functions, rows of every table
+ * with EVALUATE (the service returns at most 100,000 rows / 1,000,000 values per query).
+ */
+async function datasetModel(ws, id, name, progress) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(id)) || (ws && !/^[0-9a-f-]{36}$/i.test(String(ws)))) throw new Error('Identificativo non valido.');
+  const out = { file: `powerbi://${ws || 'me'}/${id}`, kind: 'pbix', tables: [], relationships: [], measures: [], layout: null, resources: {}, customVisuals: [], parameters: [], warnings: [],
+    model: { hierarchies: [], folders: [], dateTables: {}, calcGroups: [], roles: [] } };
+  progress?.(`Lettura dello schema di «${name}»…`, 0);
+  const tables = (await daxRows(ws, id, 'EVALUATE INFO.VIEW.TABLES()')).filter((t) => !/^(LocalDateTable_|DateTableTemplate_)/.test(col(t, 'Name')) && col(t, 'IsPrivate') !== true);
+  const columns = await daxRows(ws, id, 'EVALUATE INFO.VIEW.COLUMNS()');
+  const measures = await daxRows(ws, id, 'EVALUATE INFO.VIEW.MEASURES()').catch(() => []);
+  const rels = await daxRows(ws, id, 'EVALUATE INFO.VIEW.RELATIONSHIPS()').catch(() => []);
+  const dir = path.join(app.getPath('userData'), 'pbi-downloads', `${String(id).slice(0, 8)}-${Date.now()}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const names = new Set(tables.map((t) => col(t, 'Name')));
+  let i = 0;
+  for (const t of tables) {
+    const tn = col(t, 'Name');
+    const cols = columns.filter((c) => col(c, 'Table') === tn && !/^RowNumber-/.test(col(c, 'Name')));
+    const real = cols.filter((c) => !/rownumber/i.test(String(col(c, 'Type') ?? '')));
+    const isCalcGroup = !!col(t, 'CalculationGroupPrecedence') || col(t, 'CalculationGroup') === true;
+    const onlyMeasures = real.length > 0 && real.every((c) => col(c, 'IsHidden') === true) && measures.some((m) => col(m, 'Table') === tn);
+    progress?.(`Tabella ${tn}…`, i++ / Math.max(1, tables.length));
+    if (onlyMeasures) continue;
+    const meta = {
+      name: tn, parquet: null, rows: 0, m: null,
+      columns: real.map((c) => ({ name: col(c, 'Name'), dataType: TOM_TYPE[String(col(c, 'DataType') ?? 'string').toLowerCase()] ?? 'string' })),
+      sortBy: Object.fromEntries(real.filter((c) => col(c, 'SortByColumn')).map((c) => [col(c, 'Name'), col(c, 'SortByColumn')])),
+      dataCategory: Object.fromEntries(real.filter((c) => col(c, 'DataCategory') && !['Uncategorized', 'Regular'].includes(col(c, 'DataCategory'))).map((c) => [col(c, 'Name'), col(c, 'DataCategory')])),
+    };
+    if (isCalcGroup) { out.tables.push(meta); continue; }
+    let rows;
+    try { rows = await daxRows(ws, id, `EVALUATE '${tn.replace(/'/g, "''")}'`); } catch (e) { out.warnings.push(`Tabella ${tn}: ${e.message}`); out.tables.push(meta); continue; }
+    if (rows.length >= 100000) out.warnings.push(`Tabella ${tn}: caricate le prime ${rows.length.toLocaleString('it-IT')} righe (limite delle query del servizio).`);
+    if (rows.length) {
+      const strip = (k) => { const m = /\[([^\]]*(?:\]\][^\]]*)*)\]$/.exec(k); return m ? m[1].replace(/]]/g, ']') : k; };
+      const json = path.join(dir, `${i}.json`);
+      fs.writeFileSync(json, rows.map((r) => JSON.stringify(Object.fromEntries(Object.entries(r).map(([k, v]) => [strip(k), v])))).join('\n'));
+      const pq = path.join(dir, `${i}.parquet`);
+      await db.query(`COPY (SELECT * FROM read_json_auto('${json.replace(/'/g, "''")}', format = 'newline_delimited')) TO '${pq.replace(/'/g, "''")}' (FORMAT parquet)`);
+      fs.unlinkSync(json);
+      meta.parquet = pq;
+      meta.rows = rows.length;
+    }
+    out.tables.push(meta);
+  }
+  for (const m of measures) {
+    const tn = col(m, 'Table');
+    out.measures.push({ table: tn, name: col(m, 'Name'), expression: col(m, 'Expression') ?? '', formatString: col(m, 'FormatString') ?? '' });
+    if (col(m, 'DisplayFolder')) out.model.folders.push({ table: tn, name: col(m, 'Name'), folder: col(m, 'DisplayFolder') });
+  }
+  for (const r of rels) {
+    const ft = col(r, 'FromTable'), tt = col(r, 'ToTable');
+    if (!names.has(ft) || !names.has(tt)) continue;
+    const fc = String(col(r, 'FromCardinality') ?? 'Many').toLowerCase(), tc = String(col(r, 'ToCardinality') ?? 'One').toLowerCase();
+    out.relationships.push({
+      fromTable: ft, fromColumn: col(r, 'FromColumn'), toTable: tt, toColumn: col(r, 'ToColumn'),
+      cardinality: fc === 'one' && tc === 'one' ? 'oneToOne' : fc === 'many' && tc === 'many' ? 'manyToMany' : fc === 'one' ? 'oneToMany' : 'manyToOne',
+      crossFilter: /both/i.test(String(col(r, 'CrossFilteringBehavior') ?? '')) ? 'both' : 'single',
+      active: col(r, 'IsActive') !== false,
+    });
+  }
+  out.warnings.push('Modello caricato dal servizio Power BI in modalità importazione: per aggiornare i dati ricaricarlo da Ottieni dati › Power BI.');
+  progress?.('Modello letto.', 1);
+  return out;
+}
+
 // ---------- data access ----------
 
 const isInt = (t) => /^(TINYINT|SMALLINT|INTEGER|BIGINT|HUGEINT|UTINYINT|USMALLINT|UINTEGER|UBIGINT)$/i.test(t);
@@ -650,4 +760,4 @@ async function labels() {
 }
 
 module.exports = {
-  loginBrowser, loginBrowserCancel, status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token, labels };
+  loginBrowser, loginBrowserCancel, serviceItems, downloadReport, datasetModel, status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token, labels };

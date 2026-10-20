@@ -20,6 +20,7 @@ export function Backstage() {
     ['getData', 'Cartella', () => s.set({ sourceDialog: 'folder' })],
     ['getData', 'Cartella SharePoint', () => s.set({ sourceDialog: 'sharepoint' })],
     ['getData', 'Elenco SharePoint Online', () => s.set({ sourceDialog: 'splist' })],
+    ['publish', 'Power BI (report e modelli semantici)', () => s.set({ serviceDialog: true })],
     ['enterData', 'Immetti dati', () => s.set({ enterData: true })],
     ['sample', 'Dati di esempio', () => s.loadSample()],
     ['getData', 'Altro…', () => s.openNavigator('any')],

@@ -98,6 +98,9 @@ handle('pbi:loginBrowserCancel', () => powerbi.loginBrowserCancel());
 handle('pbi:loginWait', () => powerbi.loginWait());
 handle('pbi:loginCancel', () => powerbi.loginCancel());
 handle('pbi:workspaces', () => powerbi.workspaces());
+handle('pbi:items', (ws) => powerbi.serviceItems(typeof ws === 'string' ? ws : ''));
+handle('pbi:downloadReport', (ws, id, name) => powerbi.downloadReport(String(ws ?? ''), String(id), String(name ?? 'report'), (msg, frac) => win.webContents.send('pbi:progress', msg, frac ?? null)));
+handle('pbi:datasetModel', (ws, id, name) => powerbi.datasetModel(String(ws ?? ''), String(id), String(name ?? 'modello'), (msg, frac) => win.webContents.send('pbi:progress', msg, frac ?? null)));
 handle('pbi:publish', (mode, spec) => {
   const progress = (msg, frac) => win.webContents.send('pbi:progress', msg, frac ?? null);
   return mode === 'fabric' ? powerbi.publishFabric(spec, progress) : powerbi.publishPush(spec, progress);

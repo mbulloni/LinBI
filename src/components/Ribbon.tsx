@@ -211,6 +211,7 @@ export function Ribbon() {
           <button onClick={() => { close(); s.set({ sourceDialog: 'folder' }); }}><Icon name="getData" size={18} />Cartella</button>
           <button onClick={() => { close(); s.set({ sourceDialog: 'sharepoint' }); }}><Icon name="getData" size={18} />Cartella SharePoint</button>
           <button onClick={() => { close(); s.set({ sourceDialog: 'splist' }); }}><Icon name="getData" size={18} />Elenco SharePoint Online</button>
+          <button onClick={() => { close(); s.set({ serviceDialog: true }); }}><Icon name="publish" size={18} />Power BI (report e modelli semantici)</button>
           <hr />
           <button onClick={() => { close(); s.loadSample(); }}><Icon name="sample" size={18} />Dati di esempio (Financials)</button>
           <button onClick={() => { close(); s.openNavigator('any'); }}>Altro…</button>
