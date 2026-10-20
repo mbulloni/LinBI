@@ -19,7 +19,7 @@ export function PageBackground({ p }: { p: Page }) {
   };
   return <div style={style} />;
 }
-import { VisualContainer, VisualBody, FIELD_MIME, autoTitle } from './VisualContainer';
+import { VisualContainer, VisualBody, VisualStatic, FIELD_MIME, autoTitle } from './VisualContainer';
 import { Icon } from './icons';
 import { Menu } from './Menu';
 
@@ -46,14 +46,14 @@ function PageTabs() {
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   return (
     <div className="pagetabs">
-      {s.report.pages.map((p) => (
+      {s.report.pages.filter((p) => !s.readMode || (!p.hidden && !p.tooltip)).map((p) => (
         <div
           key={p.id}
           className={'pagetab' + (p.id === s.activePageId ? ' active' : '') + (p.hidden ? ' hidden-page' : '')}
           title={p.hidden ? 'Pagina nascosta' : undefined}
           onClick={() => s.setActivePage(p.id)}
-          onDoubleClick={() => setEditing(p.id)}
-          onContextMenu={(e) => { e.preventDefault(); setMenu({ id: p.id, x: e.clientX, y: e.clientY - 150 }); }}
+          onDoubleClick={() => !s.readMode && setEditing(p.id)}
+          onContextMenu={(e) => { e.preventDefault(); if (!s.readMode) setMenu({ id: p.id, x: e.clientX, y: e.clientY - 150 }); }}
         >
           {editing === p.id ? (
             <input type="text" autoFocus defaultValue={p.name}
@@ -62,7 +62,7 @@ function PageTabs() {
           ) : p.name}
         </div>
       ))}
-      <button className="add" title="Nuova pagina" onClick={() => s.addPage()}><Icon name="plus" /></button>
+      {!s.readMode && <button className="add" title="Nuova pagina" onClick={() => s.addPage()}><Icon name="plus" /></button>}
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <button onClick={() => { setEditing(menu.id); setMenu(null); }}>Rinomina pagina</button>
@@ -140,10 +140,10 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
                 width: size.w, height: size.h, transform: `scale(${scale})`, left: (cw - w) / 2, top: (ch - h) / 2, backgroundColor: THEME.background,
               }}
               onMouseDown={() => { s.selectVisual(null); if (s.crossFilter) s.setCross(null); }}
-              onDragOver={(e) => { if (e.dataTransfer.types.includes(FIELD_MIME)) e.preventDefault(); }}
+              onDragOver={(e) => { if (!s.readMode && e.dataTransfer.types.includes(FIELD_MIME)) e.preventDefault(); }}
               onDrop={(e) => {
                 const raw = e.dataTransfer.getData(FIELD_MIME);
-                if (!raw) return;
+                if (!raw || s.readMode) return;
                 e.preventDefault();
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const x = Math.max(0, Math.min(size.w - 440, (e.clientX - r.left) / scale - 40));
@@ -152,7 +152,7 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
               }}
             >
               <PageBackground p={page} />
-              {page.visuals.filter((v) => !isHiddenVisual(page, v)).map((v) => <VisualContainer key={v.id} v={v} scale={scale} />)}
+              {page.visuals.filter((v) => !isHiddenVisual(page, v)).map((v) => (s.readMode ? <VisualStatic key={v.id} v={v} read /> : <VisualContainer key={v.id} v={v} scale={scale} />))}
             </div>
             {!s.tables.length && !page.visuals.length && <EmptyState />}
           </div>

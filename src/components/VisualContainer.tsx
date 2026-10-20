@@ -180,11 +180,11 @@ function TooltipPage({ pageId, filter, x, y }: { pageId: string; filter: Filter;
   );
 }
 
-/** Non-interactive visual at its page position (PDF export). */
-export function VisualStatic({ v }: { v: Visual }) {
+/** Visual at its page position without editing chrome: PDF export, tooltip pages and (read) Modalità lettura. */
+export function VisualStatic({ v, read }: { v: Visual; read?: boolean }) {
   const title = v.format.titleText || autoTitle(v);
   return (
-    <div className="vc-inner print-vc" style={{ left: v.x, top: v.y, width: v.w, height: v.h, zIndex: v.z, ...boxStyle(v) }}>
+    <div className={'vc-inner print-vc' + (read ? ' read-vc' : '')} style={{ left: v.x, top: v.y, width: v.w, height: v.h, zIndex: v.z, ...boxStyle(v) }}>
       <VisualTitle v={v} title={title} />
       <div className="vc-body"><VisualBody v={v} selected={false} /></div>
     </div>

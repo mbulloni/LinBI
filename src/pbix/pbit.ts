@@ -6,7 +6,7 @@
  */
 import type { ColumnMeta, Report, TableMeta } from '../types';
 import { appendSteps, mName, mStr, mText } from '../pq/m';
-import { buildLayout } from './layout';
+import { buildLayout, DATE_HIERARCHY } from './layout';
 
 export interface PbitPart { path: string; utf16?: string; utf8bom?: string; utf8?: string; dataUrl?: string; }
 
@@ -89,7 +89,44 @@ export function queryM(t: Pick<TableMeta, 'source' | 'steps'>, sourceColumns: Co
 
 const mExpression = (t: TableMeta) => queryM(t, t.steps?.length ? t.sourceColumns ?? [] : t.columns);
 
-export function buildModelSchema(report: Report, tables: TableMeta[]) {
+
+/** Hidden date table (template or LocalDateTable of one column), as Power BI Desktop writes it. */
+function dateTable(name: string, expression: string, local: boolean) {
+  const calc = (n: string, expr: string, dataType: string, category: string, template: string, extra: object = {}) => ({
+    type: 'calculated', name: n, dataType, isHidden: true, isDataTypeInferred: true, expression: expr, lineageTag: crypto.randomUUID(),
+    dataCategory: category, summarizeBy: 'none', ...(dataType === 'int64' ? { formatString: '0' } : {}), ...extra,
+    annotations: [{ name: 'SummarizationSetBy', value: 'User' }, { name: 'TemplateId', value: template }],
+  });
+  return {
+    name, isHidden: true, ...(local ? { showAsVariationsOnly: true } : { isPrivate: true }), lineageTag: crypto.randomUUID(),
+    columns: [
+      { type: 'calculatedTableColumn', name: 'Date', dataType: 'dateTime', isHidden: true, isNameInferred: true, isDataTypeInferred: true, sourceColumn: '[Date]', formatString: 'General Date', lineageTag: crypto.randomUUID(), dataCategory: 'PaddedDateTableDates', summarizeBy: 'none', annotations: [{ name: 'SummarizationSetBy', value: 'User' }] },
+      calc('Year', 'YEAR([Date])', 'int64', 'Years', 'Year'),
+      calc('MonthNo', 'MONTH([Date])', 'int64', 'MonthOfYear', 'MonthNumber'),
+      calc('Month', 'FORMAT([Date], "MMMM")', 'string', 'Months', 'Month', { sortByColumn: 'MonthNo' }),
+      calc('QuarterNo', 'INT(([MonthNo] + 2) / 3)', 'int64', 'QuarterOfYear', 'QuarterNumber'),
+      // Labels as LinBI shows them (filters on levels compare these values): "Trim 1", month names in it-IT.
+      calc('Quarter', '"Trim " & [QuarterNo]', 'string', 'Quarters', 'Quarter', { sortByColumn: 'QuarterNo' }),
+      calc('Day', 'DAY([Date])', 'int64', 'DayOfMonth', 'Day'),
+    ],
+    partitions: [{ name: `${name}-${crypto.randomUUID()}`, mode: 'import', source: { type: 'calculated', expression } }],
+    hierarchies: [{
+      name: DATE_HIERARCHY, lineageTag: crypto.randomUUID(),
+      levels: (['Year', 'Quarter', 'Month', 'Day'] as const).map((l, ordinal) => ({ name: l, ordinal, column: l, lineageTag: crypto.randomUUID() })),
+      annotations: [{ name: 'TemplateId', value: 'DateHierarchy' }],
+    }],
+    annotations: [{ name: local ? '__PBI_LocalDateTable' : '__PBI_TemplateDateTable', value: 'true' }, { name: 'DefaultItem', value: 'DateHierarchy' }],
+  };
+}
+
+/** Date columns that get an automatic date hierarchy (all date/datetime columns, like Power BI's auto date/time). */
+export const autoDateColumns = (tables: TableMeta[]) => tables.flatMap((t) => (t.fieldParam ? [] : t.columns.filter((c) => tomType(c.type).dataType === 'dateTime').map((c) => ({ table: t.name, column: c.name }))));
+
+/** `autoDates`: add the LocalDateTable/DateTableTemplate tables, variations and relationships (date hierarchies of the report). */
+export function buildModelSchema(report: Report, tables: TableMeta[], autoDates = true) {
+  const dates = autoDates ? autoDateColumns(tables).map((d) => ({ ...d, local: `LocalDateTable_${crypto.randomUUID()}`, rel: crypto.randomUUID() })) : [];
+  const dateOf = (t: string, c: string) => dates.find((d) => d.table === t && d.column === c);
+  const daxTable = (n: string) => `'${n.replace(/'/g, "''")}'`, daxCol = (n: string) => `[${n.replace(/]/g, ']]')}]`;
   const numeric = (t: string) => ['int64', 'double', 'decimal'].includes(t);
   // Power BI "measure tables": only measures, exported with one hidden placeholder column.
   const measureOnly = [...new Set(report.measures.map((m) => m.table))].filter((n) => !tables.some((t) => t.name === n));
@@ -105,7 +142,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
       dataAccessOptions: { legacyRedirects: true, returnErrorValuesAsNull: true },
       defaultPowerBIDataSourceVersion: 'powerBI_V3',
       sourceQueryCulture: 'it-IT',
-      tables: tables.map((t) => ({
+      tables: tables.map((t): any => ({
         name: t.name,
         lineageTag: crypto.randomUUID(),
         columns: t.columns.map((c) => {
@@ -121,7 +158,8 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
             ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'Short Date' : 'General Date' } : {}),
             ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
             ...(t.dataCategory?.[c.name] ? { dataCategory: t.dataCategory[c.name] } : {}),
-            annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }],
+            ...(dateOf(t.name, c.name) ? { variations: [{ name: 'Variation', relationship: dateOf(t.name, c.name)!.rel, defaultHierarchy: { table: dateOf(t.name, c.name)!.local, hierarchy: DATE_HIERARCHY }, isDefault: true }] } : {}),
+            annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }, ...(dateOf(t.name, c.name) ? [{ name: 'UnderlyingDateTimeDataType', value: tomType(c.type).m === 'type date' ? 'Date' : 'DateTime' }] : [])],
           };
         }),
         partitions: [{
@@ -137,7 +175,8 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
         partitions: [{ name: `${name}-${crypto.randomUUID().slice(0, 8)}`, mode: 'import', source: { type: 'm', expression: ['let', '    Origine = Table.FromRows({}, type table [Colonna1 = text])', 'in', '    Origine'] } }],
         measures: measuresOf(name),
         annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
-      }))),
+      })) as any[]).concat(dates.length ? [dateTable(`DateTableTemplate_${crypto.randomUUID()}`, 'Calendar(Date(2015,1,1), Date(2015,1,1))', false)] : [])
+        .concat(dates.map((d) => dateTable(d.local, `Calendar(Date(Year(MIN(${daxTable(d.table)}${daxCol(d.column)})), 1, 1), Date(Year(MAX(${daxTable(d.table)}${daxCol(d.column)})), 12, 31))`, true))),
       // Power Query parameters: shared M expressions flagged as parameter queries.
       ...(report.pqParams?.length ? {
         expressions: report.pqParams.map((p) => {
@@ -154,10 +193,10 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
         ...(r.crossFilter === 'both' || r.cardinality === 'oneToOne' ? { crossFilteringBehavior: 'bothDirections' } : {}),
         ...(r.cardinality === 'oneToOne' ? { fromCardinality: 'one' } : {}),
         ...(r.cardinality === 'manyToMany' ? { toCardinality: 'many' } : {}),
-      })),
+      })).concat(dates.map((d) => ({ name: d.rel, fromTable: d.table, fromColumn: d.column, toTable: d.local, toColumn: 'Date', joinOnDateBehavior: 'datePartOnly' }) as any)),
       annotations: [
         { name: 'PBI_QueryOrder', value: JSON.stringify(tables.map((t) => t.name)) },
-        { name: '__PBI_TimeIntelligenceEnabled', value: '0' },
+        { name: '__PBI_TimeIntelligenceEnabled', value: dates.length ? '1' : '0' },
       ],
     },
   };
@@ -264,8 +303,8 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
 }
 
 /** Report part of a publication: report.json and images, paths relative to the report item. */
-export function buildReportParts(report: Report): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
+export function buildReportParts(report: Report, dateHierarchies = true): { path: string; text?: string; dataUrl?: string }[] {
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies });
   return [
     { path: 'report.json', text: layout },
     ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),
@@ -276,7 +315,8 @@ export function buildReportParts(report: Report): { path: string; text?: string;
 /** Thin report (.pbix without data model): layout + live connection to a dataset of the service.
  *  __DATASET_ID__ / __REPORT_ID__ / __WORKSPACE_ID__ are filled in once the dataset exists. */
 export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string })[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks);
+  // Push datasets have no automatic date tables: date levels go out as the plain date column.
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: false });
   const contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="json" ContentType="" /><Default Extension="png" ContentType="" /><Default Extension="jpg" ContentType="" /><Default Extension="gif" ContentType="" />' +
     '<Override PartName="/Version" ContentType="" /><Override PartName="/Connections" ContentType="" />' +

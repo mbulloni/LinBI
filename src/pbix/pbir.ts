@@ -2,6 +2,7 @@
  * Power BI enhanced report format (PBIR) → legacy Report/Layout JSON, so parseLayout() reads both.
  * PBIR keeps one JSON file per page (pages/<id>/page.json) and per visual
  * (pages/<id>/visuals/<id>/visual.json); field expressions already use SourceRef.Entity.
+ * Bookmarks: bookmarks/bookmarks.json (order, groups) + bookmarks/<name>.bookmark.json (same state as legacy).
  */
 
 type Files = Record<string, string>;
@@ -30,6 +31,26 @@ function convertQuery(query: any) {
   };
 }
 
+/** PBIR bookmarks → legacy config.bookmarks (groups hold their bookmarks in `children`). */
+function bookmarksOf(files: Files): any[] {
+  const one = (name: string) => { const b = parse(files[`bookmarks/${name}.bookmark.json`]); if (!b) return null; const { $schema: _s, ...rest } = b; return rest; };
+  const meta = parse(files['bookmarks/bookmarks.json']);
+  const out: any[] = [];
+  const used = new Set<string>();
+  for (const it of meta?.items ?? []) {
+    if (Array.isArray(it.children)) {
+      const children = it.children.map((n: string) => { used.add(n); return one(n); }).filter(Boolean);
+      out.push({ name: it.name, displayName: it.displayName ?? it.name, children });
+    } else if (it.name) { used.add(it.name); const b = one(it.name); if (b) out.push(b); }
+  }
+  // Bookmark files not listed in bookmarks.json are kept too.
+  for (const k of Object.keys(files)) {
+    const m = /^bookmarks\/(.+)\.bookmark\.json$/.exec(k);
+    if (m && !used.has(m[1])) { const b = one(m[1]); if (b) out.push(b); }
+  }
+  return out;
+}
+
 export function pbirToLayout(files: Files): string {
   const report = parse(files['report.json']) ?? {};
   const pagesMeta = parse(files['pages/pages.json']) ?? {};
@@ -46,19 +67,27 @@ export function pbirToLayout(files: Files): string {
     const visualContainers = Object.keys(files)
       .filter((k) => k.startsWith(`pages/${id}/visuals/`) && k.endsWith('/visual.json'))
       .map((k) => parse(files[k]))
-      .filter((v) => v?.visual && !v.isHidden)
+      .filter((v) => v?.visual || v?.visualGroup)
       .map((v) => {
         const pos = v.position ?? {};
+        const pos0 = { x: pos.x ?? 0, y: pos.y ?? 0, z: pos.z ?? 0, width: pos.width ?? 200, height: pos.height ?? 150 };
+        const parent = v.parentGroupName ? { parentGroupName: v.parentGroupName } : {};
+        // Groups (Selection pane) and hidden visuals are kept: bookmarks show/hide them.
+        if (!v.visual) {
+          return { ...pos0, config: JSON.stringify({ name: v.name, ...parent, singleVisualGroup: { displayName: v.visualGroup.displayName ?? v.name, groupMode: 0, ...(v.isHidden ? { isHidden: true } : {}) } }), filters: '[]' };
+        }
         const q = convertQuery(v.visual.query);
         return {
-          x: pos.x ?? 0, y: pos.y ?? 0, z: pos.z ?? 0, width: pos.width ?? 200, height: pos.height ?? 150,
+          ...pos0,
           config: JSON.stringify({
             name: v.name,
+            ...parent,
             singleVisual: {
               visualType: v.visual.visualType,
               ...q,
               objects: v.visual.objects ?? {},
               vcObjects: v.visual.visualContainerObjects ?? {},
+              ...(v.isHidden ? { display: { mode: 'hidden' } } : {}),
             },
           }),
           filters: JSON.stringify(v.filterConfig?.filters ?? []),
@@ -66,7 +95,12 @@ export function pbirToLayout(files: Files): string {
       });
     return {
       name: id, displayName: page.displayName ?? id, ordinal, width: page.width ?? 1280, height: page.height ?? 720,
-      config: JSON.stringify({ objects: page.objects ?? {}, ...(page.visibility === 'HiddenInViewMode' ? { visibility: 1 } : {}) }),
+      config: JSON.stringify({
+        objects: page.objects ?? {}, ...(page.visibility === 'HiddenInViewMode' ? { visibility: 1 } : {}),
+        ...(page.type === 'Tooltip' ? { type: 1 } : {}),
+        // Drill-through page: PBIR pageBinding has the legacy shape (parameters with fieldExpr).
+        ...(page.pageBinding ? { pageBinding: { ...page.pageBinding, type: page.pageBinding.type === 'Drillthrough' || page.pageBinding.type === 0 ? 'Drillthrough' : page.pageBinding.type } } : {}),
+      }),
       filters: JSON.stringify(page.filterConfig?.filters ?? []),
       visualContainers,
     };
@@ -74,7 +108,7 @@ export function pbirToLayout(files: Files): string {
   const custom = report.themeCollection?.customTheme?.name;
   return JSON.stringify({
     sections,
-    config: JSON.stringify({ themeCollection: custom ? { customTheme: { name: custom } } : {} }),
+    config: JSON.stringify({ themeCollection: custom ? { customTheme: { name: custom } } : {}, bookmarks: bookmarksOf(files) }),
     filters: JSON.stringify(report.filterConfig?.filters ?? []),
   });
 }

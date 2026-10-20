@@ -156,6 +156,8 @@ interface State {
   dataViewTable: string | null;
   fileMenu: boolean;
   gridlines: boolean;
+  /** Modalità lettura: no editing, buttons and navigators work with a plain click (like the Power BI service). */
+  readMode: boolean;
   snapToGrid: boolean;
   busy: string | null;
   /** Python/R visuals run only after the user enables them in this session (like Power BI Desktop). */
@@ -389,6 +391,7 @@ export const useStore = create<State>((set, get) => {
     dataViewTable: null,
     fileMenu: false,
     gridlines: false,
+    readMode: false,
     snapToGrid: false,
     busy: null,
     scriptsEnabled: false,

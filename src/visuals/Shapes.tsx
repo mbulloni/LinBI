@@ -66,10 +66,11 @@ export function ButtonVisual({ v }: { v: Visual }) {
     padding: `${g('text', 'topMargin') ?? 0}px ${g('text', 'rightMargin') ?? 0}px ${g('text', 'bottomMargin') ?? 0}px ${g('text', 'leftMargin') ?? 0}px`,
   };
   const tip = sp(v, 'visualLink', 'tooltip');
+  const read = useStore((s) => s.readMode);
   return (
-    <div style={box} title={typeof tip === 'string' ? tip + ' (Ctrl+clic)' : undefined}
+    <div style={box} title={typeof tip === 'string' ? tip + (read ? '' : ' (Ctrl+clic)') : undefined}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      onClick={(e) => { if (e.ctrlKey || e.metaKey) runAction(v); }}>
+      onClick={(e) => { if (read || e.ctrlKey || e.metaKey) runAction(v); }}>
       {showIcon && <svg width="40%" height="60%" viewBox="0 0 24 24" style={{ maxWidth: 48 }}><path d={ICON_PATHS[icon]} fill="none" stroke={iconColor} strokeWidth={Number(g('icon', 'weight') ?? 2)} strokeLinecap="round" strokeLinejoin="round" /></svg>}
       {showText && text && <span style={{ color: g('text', 'fontColor') ?? '#252423', fontSize: pt(g('text', 'fontSize'), 13), fontFamily: font(g('text', 'fontFamily')), fontWeight: g('text', 'bold') ? 700 : undefined, whiteSpace: 'pre-wrap', lineHeight: 1.1 }}>{text}</span>}
     </div>
@@ -94,10 +95,10 @@ export function NavigatorVisual({ v }: { v: Visual }) {
         const st = it.active ? 'selected' : hover === it.id ? 'hover' : undefined;
         const fill = g('fill', 'fillColor', st) ?? (it.active ? '#252423' : '#E6E6E6');
         return (
-          <div key={it.id} className="nav-btn" title={`${it.label} (Ctrl+clic)`}
+          <div key={it.id} className="nav-btn" title={s.readMode ? it.label : `${it.label} (Ctrl+clic)`}
             style={{ background: withAlpha(fill, g('fill', 'transparency', st)), color: g('text', 'fontColor', st) ?? (it.active ? '#FFFFFF' : '#252423'), fontSize: pt(g('text', 'fontSize', st), 13), fontFamily: font(g('text', 'fontFamily', st)), borderRadius: Number(g('shape', 'roundEdge', st) ?? 0) }}
             onMouseEnter={() => setHover(it.id)} onMouseLeave={() => setHover(null)}
-            onClick={(e) => { if (e.ctrlKey || e.metaKey) it.go(); }}>{it.label}</div>
+            onClick={(e) => { if (s.readMode || e.ctrlKey || e.metaKey) it.go(); }}>{it.label}</div>
         );
       })}
       {!items.length && <span className="side-empty">{v.type === 'pageNavigator' ? 'Nessuna pagina visibile.' : 'Nessun segnalibro.'}</span>}

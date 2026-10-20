@@ -154,6 +154,9 @@ export function Ribbon() {
             </div>
             <Big icon="themes" label="Temi" dropdown onClick={openMenu('themes')} />
           </Group>
+          <Group label="Lettura">
+            <Big icon="pageView" label={<>Modalità<br />lettura</>} onClick={() => s.set({ readMode: true, view: 'report', selectedVisualId: null })} disabled={!report} />
+          </Group>
           <Group label="Ridimensiona">
             <Big icon="pageView" label={<>Visualizzazione<br />pagina</>} dropdown onClick={openMenu('pageview')} disabled={!report} />
             <Big icon="mobile" label={<>Layout<br />per dispositivi mobili</>} disabled />

@@ -14,6 +14,14 @@ import { basicJsonFilter } from '../visuals/custom/objects';
 import { exportCondFormat, importCondFormat } from './condfmt';
 import { fieldKey } from '../visuals/condfmt';
 
+/** Auto date/time hierarchy written by pbit.ts#buildModelSchema (LocalDateTable_*): hierarchy and level names. */
+export const DATE_HIERARCHY = 'Date Hierarchy';
+export const DATE_LEVEL: Record<'year' | 'quarter' | 'month' | 'day', string> = { year: 'Year', quarter: 'Quarter', month: 'Month', day: 'Day' };
+/** Date hierarchy level of a column (source = alias in From, or an entity). */
+const levelExpr = (src: any, column: string, part: keyof typeof DATE_LEVEL) => ({
+  HierarchyLevel: { Expression: { Hierarchy: { Expression: { PropertyVariationSource: { Expression: src, Name: 'Variation', Property: column } }, Hierarchy: DATE_HIERARCHY } }, Level: DATE_LEVEL[part] },
+});
+
 /** Visible value range per visual and field key, measured before an export (default icon thresholds). */
 let CF_RANGES = new Map<string, Map<string, { min: number; max: number }>>();
 export const setCfExportRanges = (r: typeof CF_RANGES) => { CF_RANGES = r; };
@@ -131,8 +139,8 @@ function parseCondition(f: any, tables: TableMeta[]): Filter | null {
   if (!field || field.agg !== 'none') return null;
   const meta = tables.find((t) => t.name === field.table)?.columns.find((c) => c.name === field.column);
   if (!meta) return null;
-  const values = (cond.Values ?? []).map((row: any[]) => literalValue(row[0]?.Literal?.Value ?? 'null', meta.type === 'DATE'));
-  return { id: uid(), table: field.table, column: field.column, values };
+  const values = (cond.Values ?? []).map((row: any[]) => literalValue(row[0]?.Literal?.Value ?? 'null', meta.type === 'DATE' && !field.datePart));
+  return { id: uid(), table: field.table, column: field.column, values, ...(field.datePart ? { datePart: field.datePart } : {}) };
 }
 
 function parseFilters(raw: unknown, tables: TableMeta[]): Filter[] {
@@ -394,15 +402,20 @@ function parseBookmarks(list: unknown, pages: Page[], tables: TableMeta[]): Book
 const L = (v: string) => ({ expr: { Literal: { Value: v } } });
 const Ls = (s: string) => L(`'${s.replace(/'/g, "''")}'`);
 
+/** Filters on a date level target the level of the automatic date hierarchy (when exported with date tables). */
+let DATE_HIER = true;
 function filterJson(f: Filter, name: string) {
-  const values = f.values.map((v) => [{ Literal: { Value: v === NULL_KEY ? 'null' : `'${v.replace(/'/g, "''")}'` } }]);
+  const level = f.datePart && DATE_HIER ? f.datePart : undefined;
+  const lit = (v: string) => (v === NULL_KEY ? 'null' : level === 'year' || level === 'day' ? `${Number(v)}L` : `'${v.replace(/'/g, "''")}'`);
+  const values = f.values.map((v) => [{ Literal: { Value: lit(v) } }]);
+  const col = (src: any) => (level ? levelExpr(src, f.column, level) : { Column: { Expression: src, Property: f.column } });
   return {
     name,
-    expression: { Column: { Expression: { SourceRef: { Entity: f.table } }, Property: f.column } },
+    expression: col({ SourceRef: { Entity: f.table } }),
     filter: {
       Version: 2,
       From: [{ Name: 't', Entity: f.table, Type: 0 }],
-      Where: [{ Condition: { In: { Expressions: [{ Column: { Expression: { SourceRef: { Source: 't' } }, Property: f.column } }], Values: values } } }],
+      Where: [{ Condition: { In: { Expressions: [col({ SourceRef: { Source: 't' } })], Values: values } } }],
     },
     type: 'Categorical',
     howCreated: 1,
@@ -471,7 +484,9 @@ function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
   return out;
 }
 
-export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = []): { layout: string; resources: Record<string, string> } {
+/** `dateHierarchies`: date levels as HierarchyLevel of the automatic date tables (false: plain date column). */
+export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean } = {}): { layout: string; resources: Record<string, string> } {
+  DATE_HIER = opts.dateHierarchies !== false;
   const resources: Record<string, string> = {};
   const addResource = (dataUrl: string) => {
     const m = /^data:image\/(\w+)/.exec(dataUrl);
@@ -499,11 +514,13 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         const role = roles.find(([, well]) => well === w.key)?.[0];
         if (!role) continue;
         // Date hierarchy levels go out as the plain date column (the .pbit model has no auto date tables).
+        // Without date tables, date hierarchy levels go out once as the plain date column.
         const seenDate = new Set<string>();
-        for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
+        for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || DATE_HIER || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
           const src = { SourceRef: { Source: alias[f.table] } };
           let expr: any, name: string;
           if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
+          else if (f.agg === 'none' && f.datePart && DATE_HIER) { expr = levelExpr(src, f.column, f.datePart); name = `${f.table}.${f.column}.Variation.${DATE_HIERARCHY}.${DATE_LEVEL[f.datePart]}`; }
           else if (f.agg === 'none') { expr = { Column: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
           else {
             const [fn, label] = AGG_OUT[f.agg]!;
@@ -512,7 +529,10 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           }
           if (!select.some((s) => s.Name === name)) select.push({ ...expr, Name: name });
           nameByKey.set(fieldKey(f), name);
-          (projections[role] ??= []).push({ queryRef: name, ...(role === 'Category' || role === 'Rows' ? { active: true } : {}) });
+          // Drill hierarchy: only the current level is active (Power BI's drill state); single fields are active.
+          const list = v.fields[w.key] ?? [];
+          const active = list.length < 2 || !w.hierarchy || (f.datePart && !DATE_HIER) || list.indexOf(f) === Math.min(v.drill?.level ?? 0, list.length - 1);
+          (projections[role] ??= []).push({ queryRef: name, ...((role === 'Category' || role === 'Rows') && active ? { active: true } : {}) });
         }
       }
       // Imported formatting is kept; LinBI's own settings overwrite their properties.

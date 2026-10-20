@@ -40,6 +40,7 @@ function useShortcuts() {
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable;
       const ctrl = e.ctrlKey || e.metaKey;
       if (s.pq) return;
+      if (s.readMode) { if (e.key === 'Escape') s.set({ readMode: false }); return; }
       if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); s.save(e.shiftKey); return; }
       if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); s.open(); return; }
       if (typing) return;
@@ -84,24 +85,26 @@ export function App() {
   return (
     <div className="app">
       <TitleBar />
-      <Ribbon />
-      <DaxBar />
-      <div className="main">
-        <div className="rail">
+      {s.readMode ? (
+        <div className="readbar"><b>Modalità lettura</b><span>I pulsanti e i navigatori rispondono al clic. Esc per tornare alla modifica.</span>
+          <button className="btn" onClick={() => s.set({ readMode: false })}>Modifica</button></div>
+      ) : <><Ribbon /><DaxBar /></>}
+      <div className={'main' + (s.readMode ? ' reading' : '')}>
+        {!s.readMode && <div className="rail">
           {VIEWS.map(([k, icon, label]) => (
             <button key={k} title={label} className={s.view === k ? 'active' : ''} onClick={() => s.setView(k)}><Icon name={icon} size={22} /></button>
           ))}
-        </div>
+        </div>}
         <div className="workspace">
           {s.view === 'report' && <ReportView onFit={onFit} />}
           {s.view === 'data' && <DataView />}
           {s.view === 'model' && <ModelView />}
           {s.view === 'dax' && <DaxQueryView />}
-          {s.view === 'report' && s.panes.bookmarks && <BookmarksPane />}
-          {s.view === 'report' && s.panes.selection && <SelectionPane />}
+          {s.view === 'report' && !s.readMode && s.panes.bookmarks && <BookmarksPane />}
+          {s.view === 'report' && !s.readMode && s.panes.selection && <SelectionPane />}
           {s.view === 'report' && (s.panes.filters ? <FiltersPane /> : <CollapsedPane title="Filtri" onOpen={() => s.set({ panes: { ...s.panes, filters: true } })} />)}
-          {s.view === 'report' && (s.panes.viz ? <VisualizationsPane /> : <CollapsedPane title="Visualizzazioni" onOpen={() => s.set({ panes: { ...s.panes, viz: true } })} />)}
-          {(s.panes.data ? <DataPane /> : <CollapsedPane title="Dati" onOpen={() => s.set({ panes: { ...s.panes, data: true } })} />)}
+          {s.view === 'report' && !s.readMode && (s.panes.viz ? <VisualizationsPane /> : <CollapsedPane title="Visualizzazioni" onOpen={() => s.set({ panes: { ...s.panes, viz: true } })} />)}
+          {!s.readMode && (s.panes.data ? <DataPane /> : <CollapsedPane title="Dati" onOpen={() => s.set({ panes: { ...s.panes, data: true } })} />)}
         </div>
       </div>
       <StatusBar fitScale={fit} />

@@ -96,7 +96,7 @@ export function PublishDialog() {
     if (mode === 'push') {
       const { schema, warnings } = buildPushSchema(report, tables);
       pre.push(...warnings);
-      spec = { workspace: ws, name: name.trim(), schema, thinParts: buildThinPbixParts(report), reportParts: buildReportParts(report) };
+      spec = { workspace: ws, name: name.trim(), schema, thinParts: buildThinPbixParts(report), reportParts: buildReportParts(report, false) };
     } else {
       const { model, embed, warnings } = buildFabricModel(report, tables, keepDb);
       pre.push(...warnings);
