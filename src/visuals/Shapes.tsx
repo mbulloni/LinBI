@@ -26,7 +26,9 @@ export function drillTarget(v: Visual, s = useStore.getState()) {
   const target = sp(v, 'visualLink', 'drillthroughSection');
   const page = s.report.pages.find((x) => sname(x) === target || x.id === target);
   const c = s.crossFilter;
-  const ok = !!page?.drillthrough && !!c && page.drillthrough.fields.some((f) => f.table === c.table && f.column === c.column && f.datePart === c.datePart);
+  // The selection must come from a visual of the current page (page changes drop it, like Power BI).
+  const own = !!c && s.page().visuals.some((v) => v.id === c.visualId);
+  const ok = !!page?.drillthrough && !!c && own && page.drillthrough.fields.some((f) => f.table === c.table && f.column === c.column && f.datePart === c.datePart);
   return { page, ok };
 }
 
@@ -38,10 +40,10 @@ function runAction(v: Visual) {
   if (type === 'PageNavigation') {
     const target = sp(v, 'visualLink', 'navigationSection');
     const p = s.report.pages.find((x) => sname(x) === target || x.id === target);
-    if (p) s.set({ activePageId: p.id, selectedVisualId: null });
+    if (p) s.setActivePage(p.id);
   } else if (type === 'Back') {
     const prev = history.pop();
-    if (prev && s.report.pages.some((p) => p.id === prev)) { s.set({ activePageId: prev, selectedVisualId: null }); history.pop(); }
+    if (prev && s.report.pages.some((p) => p.id === prev)) { s.setActivePage(prev); history.pop(); }
   } else if (type === 'WebUrl') {
     const url = sp(v, 'visualLink', 'webUrl');
     if (typeof url === 'string' && /^https?:\/\//i.test(url)) api.openExternal(url);
@@ -79,7 +81,10 @@ function defaultTip(v: Visual, s: ReturnType<typeof useStore.getState>): string 
 
 export function ButtonVisual({ v }: { v: Visual }) {
   const [hover, setHover] = useState(false);
-  const store = useStore();
+  // Narrow subscription: buttons re-render only on what their state depends on.
+  useStore((x) => x.crossFilter); useStore((x) => x.report); useStore((x) => x.activePageId);
+  const store = useStore.getState();
+  const readMode = useStore((x) => x.readMode);
   // Drill-through buttons are disabled until a usable data point is selected (state "disabled").
   const disabled = sp(v, 'visualLink', 'type') === 'Drillthrough' && !drillTarget(v, store).ok;
   const pending = sp(v, 'visualLink', 'type') === 'ApplyAllSlicers' && store.page().visuals.some((x) => x.pendingSlicer);
@@ -104,7 +109,7 @@ export function ButtonVisual({ v }: { v: Visual }) {
     padding: `${g('text', 'topMargin') ?? 0}px ${g('text', 'rightMargin') ?? 0}px ${g('text', 'bottomMargin') ?? 0}px ${g('text', 'leftMargin') ?? 0}px`,
   };
   const tip = sp(v, 'visualLink', 'tooltip') ?? defaultTip(v, store);
-  const read = store.readMode;
+  const read = readMode;
   if (disabled && g('fill', 'show') === undefined) box.opacity = 0.55;
   if (pending) box.boxShadow = 'inset 0 0 0 2px #118DFF';
   return (

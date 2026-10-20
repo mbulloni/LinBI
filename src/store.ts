@@ -11,6 +11,7 @@ import { inlineFromM } from './pq/mparse';
 import { parseLayout, setCfExportRanges, themeFromLayout } from './pbix/layout';
 import { runVisualQuery } from './visuals/useVisualData';
 import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
+import { sp } from './visuals/pbistyle';
 import { pbirToLayout } from './pbix/pbir';
 import { buildPbipParts, buildPbitParts } from './pbix/pbit';
 import { pendingQueries } from './visuals/useVisualData';
@@ -85,7 +86,7 @@ const srcExpr = (source: TableMeta['source']) => api.sourceExpr(resolveSource(so
 /** Steps Power BI folds into the previous step of the same kind instead of adding a new one. */
 /** The page holds an "Applica tutti i filtri dei dati" button: slicer changes wait for it. */
 export function hasApplyAll(p: Page): boolean {
-  return p.visuals.some((v) => v.type === 'button' && JSON.stringify(v.style?.vcObjects?.visualLink ?? '').includes("'ApplyAllSlicers'"));
+  return p.visuals.some((v) => v.type === 'button' && !isHiddenVisual(p, v) && sp(v, 'visualLink', 'type') === 'ApplyAllSlicers' && sp(v, 'visualLink', 'show') !== false);
 }
 
 function mergeStep(prev: Step, next: Step): boolean {
@@ -1101,7 +1102,7 @@ export const useStore = create<State>((set, get) => {
         if (b.applyData) {
           if (!b.targets && b.state.reportFilters) r.reportFilters = clone(b.state.reportFilters);
           if (!b.targets && b.state.pageFilters && p.id === b.page) p.filters = clone(b.state.pageFilters);
-          for (const v of scope) if (v.type === 'slicer' && b.state.slicers?.[v.id]) v.slicerValues = [...b.state.slicers[v.id]];
+          for (const v of scope) if (v.type === 'slicer' && b.state.slicers?.[v.id]) { v.slicerValues = [...b.state.slicers[v.id]]; delete v.pendingSlicer; }
         }
       });
       set({ activePageId: target, selectedVisualId: null, ...(b.applyData ? { crossFilter: null } : {}) });
@@ -1317,7 +1318,7 @@ export const useStore = create<State>((set, get) => {
         format: 'lbix', version: 2,
         tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, ...(t.dataCategory ? { dataCategory: t.dataCategory } : {}), calcColumns: t.calcColumns, ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}), data: `data/${i}.parquet` })),
         report,
-      }, null, 2);
+      }, (k, v) => (k === 'pendingSlicer' ? undefined : v), 2); // unapplied slicer selections are not saved
       set({ busy: 'Salvataggio…' });
       try {
         const p = await api.saveFile(content, as ? null : filePath, tables.map((t, i) => ({ table: t.name, file: `data/${i}.parquet` })));
