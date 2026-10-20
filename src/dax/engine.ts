@@ -863,11 +863,14 @@ class Compiler {
     const w = this.preds(t.name, a, env.fc);
     const x = `${a}.${qi(g.column)}`;
     const sel = `(SELECT CASE WHEN COUNT(DISTINCT ${x}) = 1 THEN MIN(${x}) END FROM ${qi(t.name)} ${a}${w ? ` WHERE ${w}` : ''})`;
-    this.selected.push({ name: m.name, sql: () => 'NULL' });
+    // SELECTEDMEASURE() in a format string = the measure value (transformed by the other groups, not by this one).
+    const key = `${g.table.toLowerCase()}|${m.name.toLowerCase()}`;
+    this.selected.push({ name: m.name, sql: (e) => this.measureRef(m.name, e) });
+    this.applying.add(key);
     try {
       const branches = g.items.filter((i) => i.formatString?.trim()).map((i) => `WHEN ${ql(i.name)} THEN CAST(${this.scalar(parse(i.formatString!), env)} AS VARCHAR)`);
       return `(CASE ${sel} ${branches.join(' ')} ELSE ${own} END)`;
-    } finally { this.selected.pop(); }
+    } finally { this.selected.pop(); this.applying.delete(key); }
   }
 
   /** WHERE predicate on row alias `alias` of `table` for a DAX boolean row expression (RLS filter). */

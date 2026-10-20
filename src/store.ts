@@ -798,6 +798,15 @@ export const useStore = create<State>((set, get) => {
         delete r.displayFolders[table + '\u0001' + name];
       }
       Object.assign(h, patch);
+      // Fields of visuals on a column that is no longer a level become plain columns.
+      const name2 = h.name;
+      const unlink = (o: any) => {
+        if (!o || typeof o !== 'object') return;
+        if (Array.isArray(o)) { o.forEach(unlink); return; }
+        if (o.table === table && o.hierarchy === name2 && typeof o.column === 'string' && !h.levels.includes(o.column)) delete o.hierarchy;
+        Object.values(o).forEach(unlink);
+      };
+      unlink(r.pages);
       if (!h.levels.length) r.hierarchies = r.hierarchies!.filter((x) => x !== h);
     }),
     removeHierarchy: (table, name) => get().mut((r) => {
@@ -1458,14 +1467,17 @@ export const useStore = create<State>((set, get) => {
       delete v.jsonFilters;
       v.fields = {};
       v.format = { ...defaultFormat(type), titleText: v.format.titleText, background: v.format.background, border: v.format.border };
+      implicitBlocked = false;
       for (const f of all) placeField(v, { table: f.table, column: f.column, measure: f.agg === 'measure' });
+      if (implicitBlocked) setTimeout(() => get().notify('Il modello ha gruppi di calcolo: le colonne numeriche non vengono aggregate e sono state tolte dai valori. Usare misure esplicite.', 9000));
     }),
     addField: (visualId, field, well, at) => {
       let id = visualId;
       if (!id) {
         // Like Power BI: a geographic column (data category) dropped on the canvas makes a map.
         const geo = !field.measure && /^(Address|Place|City|County|StateOrProvince|PostalCode|Country|Continent|Latitude|Longitude)$/.test(get().tables.find((t) => t.name === field.table)?.dataCategory?.[field.column] ?? '');
-        const type: VisualType = field.measure ? 'card' : geo ? 'map' : isNumeric(columnOf(field)) ? 'clusteredColumn' : 'table';
+        // With calculation groups numeric columns are not summarized: a table shows them (like Power BI).
+        const type: VisualType = field.measure ? 'card' : geo ? 'map' : isNumeric(columnOf(field)) && !get().report.calcGroups?.length ? 'clusteredColumn' : 'table';
         id = get().addVisual(type, at);
         // Fold into the creation step so a single undo removes the new visual.
         const past = get().past;

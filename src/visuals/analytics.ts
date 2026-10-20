@@ -92,13 +92,18 @@ export function forecastSeries(ys: number[], h: number, season = 0, confidence =
 /** Next x values of a continuous axis: calendar months/years when the points are month/year starts, else the usual step. */
 function futureX(xs: number[], h: number, time: boolean): number[] {
   const n = xs.length;
+  // Local dates, like ChartVisual's toTime (points at local midnight).
   if (time && n > 1) {
     const ds = xs.map((x) => new Date(x));
-    const monthly = ds.every((d) => d.getUTCDate() === ds[0].getUTCDate()) && xs.slice(1).every((x, i) => (x - xs[i]) / 864e5 >= 27 && (x - xs[i]) / 864e5 <= 31 * 12 + 1);
+    const monthly = ds.every((d) => d.getDate() === ds[0].getDate()) && xs.slice(1).every((x, i) => (x - xs[i]) / 864e5 >= 27 && (x - xs[i]) / 864e5 <= 31 * 12 + 1);
     if (monthly) {
-      const months = Math.round((ds[n - 1].getUTCFullYear() * 12 + ds[n - 1].getUTCMonth() - (ds[0].getUTCFullYear() * 12 + ds[0].getUTCMonth())) / (n - 1)) || 1;
-      return Array.from({ length: h }, (_, k) => Date.UTC(ds[n - 1].getUTCFullYear(), ds[n - 1].getUTCMonth() + months * (k + 1), ds[n - 1].getUTCDate()));
+      const months = Math.round((ds[n - 1].getFullYear() * 12 + ds[n - 1].getMonth() - (ds[0].getFullYear() * 12 + ds[0].getMonth())) / (n - 1)) || 1;
+      return Array.from({ length: h }, (_, k) => new Date(ds[n - 1].getFullYear(), ds[n - 1].getMonth() + months * (k + 1), ds[n - 1].getDate()).getTime());
     }
+    // Daily or weekly points: whole days (DST changes make the median step a few hours off).
+    const steps = xs.slice(1).map((x, i) => Math.round((x - xs[i]) / 864e5)).sort((a, b) => a - b);
+    const days = steps[Math.floor(steps.length / 2)];
+    if (days >= 1) { const l = ds[n - 1]; return Array.from({ length: h }, (_, k) => new Date(l.getFullYear(), l.getMonth(), l.getDate() + days * (k + 1)).getTime()); }
   }
   const steps = xs.slice(1).map((x, i) => x - xs[i]).sort((a, b) => a - b);
   const step = steps[Math.floor(steps.length / 2)] || 1;

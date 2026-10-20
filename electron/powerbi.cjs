@@ -384,6 +384,7 @@ async function workspaces() {
 
 /** Reports and semantic models of a workspace ('' = Area di lavoro personale). */
 async function serviceItems(ws) {
+  if (ws && !/^[0-9a-f-]{36}$/i.test(String(ws))) throw new Error('Identificativo non valido.');
   const [rep, ds] = await Promise.all([call('pbi', 'GET', `${group(ws)}/reports`), call('pbi', 'GET', `${group(ws)}/datasets`)]);
   return {
     reports: (rep.value ?? []).filter((r) => r.reportType !== 'PaginatedReport').map((r) => ({ id: r.id, name: r.name, datasetId: r.datasetId ?? null })),
@@ -456,6 +457,7 @@ async function datasetModel(ws, id, name, progress) {
     if (isCalcGroup) { out.tables.push(meta); continue; }
     let rows;
     try { rows = await daxRows(ws, id, `EVALUATE '${tn.replace(/'/g, "''")}'`); } catch (e) { out.warnings.push(`Tabella ${tn}: ${e.message}`); out.tables.push(meta); continue; }
+    if (rows.length && rows.length < 100000 && rows.length * Object.keys(rows[0]).length >= 1e6) out.warnings.push(`Tabella ${tn}: caricate ${rows.length.toLocaleString('it-IT')} righe (limite di 1.000.000 di valori per query del servizio).`);
     if (rows.length >= 100000) out.warnings.push(`Tabella ${tn}: caricate le prime ${rows.length.toLocaleString('it-IT')} righe (limite delle query del servizio).`);
     if (rows.length) {
       const strip = (k) => { const m = /\[([^\]]*(?:\]\][^\]]*)*)\]$/.exec(k); return m ? m[1].replace(/]]/g, ']') : k; };

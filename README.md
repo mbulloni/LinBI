@@ -191,7 +191,9 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
   formula, nella Vista query DAX e nei ruoli (salvati sempre con i separatori standard).
 - IntelliSense suggerisce anche le variabili `VAR` già dichiarate.
 
-Limiti noti: i dataset push non supportano ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI).
+Limiti noti: i dataset push non supportano ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI); delle barre di
+errore e della previsione i file Power BI conservano solo aspetto e attivazione (tipo, limiti da campi, lunghezza e
+confidenza restano nel `.lbix`), perché i nomi di quelle proprietà non sono documentati nello schema ufficiale.
 
 ## File Power BI
 

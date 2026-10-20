@@ -427,8 +427,8 @@ const mobileLayout = (p: Page, v: Visual) => {
 let DATE_HIER = true;
 /** Tables marked as date table: their date columns have no automatic date hierarchy in the model. */
 let NO_VAR = new Set<string>();
-/** User hierarchies of the model: "table\u0001hierarchy" → level name of a column. */
-let USER_HIER = new Map<string, (column: string) => string>();
+/** User hierarchies of the model by "table\u0001hierarchy" (a field exports as HierarchyLevel only if its column is still a level). */
+let USER_HIER = new Map<string, Hierarchy>();
 const dh = (f: { table: string }) => DATE_HIER && !NO_VAR.has(f.table);
 function filterJson(f: Filter, name: string) {
   const level = f.datePart && dh(f) ? f.datePart : undefined;
@@ -516,7 +516,7 @@ function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
 export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean; dateTables?: string[]; hierarchies?: Hierarchy[] } = {}): { layout: string; resources: Record<string, string> } {
   DATE_HIER = opts.dateHierarchies !== false;
   NO_VAR = new Set(opts.dateTables ?? []);
-  USER_HIER = new Map((opts.hierarchies ?? []).map((h) => [`${h.table}\u0001${h.name}`, (c: string) => levelName(h, c)]));
+  USER_HIER = new Map((opts.hierarchies ?? []).map((h) => [`${h.table}\u0001${h.name}`, h]));
   const resources: Record<string, string> = {};
   const addResource = (dataUrl: string) => {
     const m = /^data:image\/(\w+)/.exec(dataUrl);
@@ -551,9 +551,9 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           let expr: any, name: string;
           if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
           else if (f.agg === 'none' && f.datePart && dh(f)) { expr = levelExpr(src, f.column, f.datePart); name = `${f.table}.${f.column}.Variation.${DATE_HIERARCHY}.${DATE_LEVEL[f.datePart]}`; }
-          else if (f.agg === 'none' && !f.datePart && f.hierarchy && USER_HIER.has(`${f.table}\u0001${f.hierarchy}`)) {
+          else if (f.agg === 'none' && !f.datePart && f.hierarchy && USER_HIER.get(`${f.table}\u0001${f.hierarchy}`)?.levels.includes(f.column)) {
             // Level of a user hierarchy (Power BI keeps the hierarchy in the visual, not the plain column).
-            const level = USER_HIER.get(`${f.table}\u0001${f.hierarchy}`)!(f.column);
+            const level = levelName(USER_HIER.get(`${f.table}\u0001${f.hierarchy}`)!, f.column);
             expr = { HierarchyLevel: { Expression: { Hierarchy: { Expression: src, Hierarchy: f.hierarchy } }, Level: level } };
             name = `${f.table}.${f.hierarchy}.${level}`;
           }
