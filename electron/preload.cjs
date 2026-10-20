@@ -8,6 +8,8 @@ const call = async (channel, ...args) => {
 
 contextBridge.exposeInMainWorld('api', {
   query: (sql) => call('db:query', sql),
+  queryAs: (sql) => call('db:queryAs', sql),
+  setRole: (tables) => call('db:setRole', tables),
   preview: (file, sheet) => call('db:preview', file, sheet),
   importFile: (file, table, sheet) => call('db:import', file, table, sheet),
   dropTable: (table) => call('db:drop', table),

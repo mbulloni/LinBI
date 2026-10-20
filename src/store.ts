@@ -4,11 +4,11 @@ import { api } from './api';
 import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
-import { CF_WELL, connected, NULL_KEY, qi, ql } from './query';
-import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
+import { CF_WELL, connected, modelExtras, NULL_KEY, qi, ql } from './query';
+import { calcColumnSql, calcTableSql, checkCalcItem, checkMeasure, rlsWhere, type Model } from './dax';
 import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
 import { inlineFromM } from './pq/mparse';
-import { parseLayout, setCfExportRanges, themeFromLayout } from './pbix/layout';
+import { parseLayout, setCfExportRanges, setHierarchyLevels, themeFromLayout } from './pbix/layout';
 import { runVisualQuery } from './visuals/useVisualData';
 import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
 import { sp } from './visuals/pbistyle';
@@ -64,7 +64,7 @@ const newPage = (n: number): Page => ({ id: uid(), name: `Pagina ${n}`, visuals:
 const emptyReport = (): Report => ({ pages: [newPage(1)], reportFilters: [], relationships: [], modelLayout: {}, measures: [] });
 
 /** Field dragged/checked from the Data pane; `measure` marks a DAX measure. */
-export type FieldDrop = Omit<FieldRef, 'agg'> & { measure?: boolean };
+export type FieldDrop = Omit<FieldRef, 'agg'> & { measure?: boolean; /** user hierarchy: its level columns, in order */ levels?: string[]; plain?: boolean };
 
 export interface RelEditor { draft: Relationship; isNew: boolean; }
 
@@ -125,8 +125,12 @@ function renameTableInReport(r: Report, from: string, to: string) {
     for (const k of ['table', 'fromTable', 'toTable']) if (o[k] === from) o[k] = to;
     Object.values(o).forEach(walk);
   };
-  walk(r.pages); walk(r.reportFilters); walk(r.relationships); walk(r.measures);
+  walk(r.pages); walk(r.reportFilters); walk(r.relationships); walk(r.measures); walk(r.hierarchies); walk(r.calcGroups); walk(r.roles);
   if (r.modelLayout[from]) { r.modelLayout[to] = r.modelLayout[from]; delete r.modelLayout[from]; }
+  if (r.dateTables?.[from]) { r.dateTables[to] = r.dateTables[from]; delete r.dateTables[from]; }
+  for (const k of Object.keys(r.displayFolders ?? {})) {
+    if (k.startsWith(from + '\u0001')) { r.displayFolders![to + k.slice(from.length)] = r.displayFolders![k]; delete r.displayFolders![k]; }
+  }
   const quoted = (n: string) => `'${n.replace(/'/g, "''")}'`;
   const bare = /^[A-Za-z_]\w*$/.test(from) ? new RegExp(`(^|[^\\w'\\]])${reEscape(from)}\\[`, 'g') : null;
   const target = /^[A-Za-z_]\w*$/.test(to) ? to : quoted(to);
@@ -137,9 +141,9 @@ function renameTableInReport(r: Report, from: string, to: string) {
 }
 
 /** Formula bar edit of a measure, calculated column or calculated table. */
-export interface DaxEdit { kind: 'measure' | 'column' | 'table'; table: string; original: string | null; text: string; formatString?: string; error?: string; }
+export interface DaxEdit { kind: 'measure' | 'column' | 'table' | 'calcItem'; table: string; original: string | null; text: string; formatString?: string; error?: string; }
 
-const DAX_KIND = { measure: 'Misura', column: 'Colonna', table: 'Tabella' } as const;
+const DAX_KIND = { measure: 'Misura', column: 'Colonna', table: 'Tabella', calcItem: 'Elemento di calcolo' } as const;
 
 /** "Name = expression" → parts; names may be written as [Name] or 'Name'. */
 function splitDax(text: string): { name: string; expr: string } | null {
@@ -210,6 +214,28 @@ interface State {
   daxQueryText: string;
 
   model: () => Model;
+  /** Visualizza come: roles (union of their rows) and USERPRINCIPALNAME() of "Altro utente". */
+  viewAs: { roles: string[]; user?: string } | null;
+  setViewAs: (v: { roles: string[]; user?: string } | null) => Promise<void>;
+  rolesDialog: boolean;
+  viewAsDialog: boolean;
+  saveRoles: (roles: import('./types').RoleDef[]) => Promise<void>;
+  /** Proprietà (Data pane / model view): field, hierarchy or table being edited. */
+  propsTarget: { table: string; field?: string; hierarchy?: string } | null;
+  setDisplayFolder: (table: string, field: string, folder: string) => void;
+  createHierarchy: (table: string, column: string) => void;
+  addHierarchyLevel: (table: string, hierarchy: string, column: string) => void;
+  updateHierarchy: (table: string, name: string, patch: Partial<import('./types').Hierarchy>) => void;
+  removeHierarchy: (table: string, name: string) => void;
+  /** Contrassegna come tabella delle date (column null = unmark); returns an error message or null. */
+  setDateTable: (table: string, column: string | null) => Promise<string | null>;
+  createCalcGroup: () => Promise<void>;
+  addCalcItem: (table: string) => void;
+  removeCalcItem: (table: string, item: string) => void;
+  moveCalcItem: (table: string, item: string, dir: 1 | -1) => void;
+  setCalcGroup: (table: string, patch: Partial<import('./types').CalcGroup>) => void;
+  /** Materializes calculation group tables whose items changed (after edits, undo, open). */
+  syncCalcTables: () => Promise<void>;
   startDax: (kind: DaxEdit['kind'], table?: string, original?: string) => void;
   saveDax: () => Promise<boolean>;
   deleteMeasure: (name: string) => void;
@@ -314,6 +340,7 @@ interface State {
 }
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+let calcSync: Promise<void> = Promise.resolve();
 
 function tableNameFor(path: string, existing: TableMeta[]): string {
   const base = path.split('/').pop()!.replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N} _-]/gu, '_') || 'Tabella';
@@ -344,9 +371,16 @@ export const useStore = create<State>((set, get) => {
   const columnOf = (f: Omit<FieldRef, 'agg'>) => get().tables.find((t) => t.name === f.table)?.columns.find((c) => c.name === f.column);
 
   /** Puts a field into the best-fitting well, mimicking Power BI's auto placement. */
-  const placeField = (v: Visual, field: FieldDrop, wellKey?: string) => {
+  const placeField = (v: Visual, field: FieldDrop, wellKey?: string): string | undefined => {
+    if (field.levels?.length) {
+      // User hierarchy: every level in the well chosen for the first one (drill levels).
+      const { levels, ...base } = field;
+      let w = wellKey;
+      for (const column of levels) w = placeField(v, { ...base, column, plain: true }, w) ?? w;
+      return w;
+    }
     const def = visualDef(v.type, v.custom);
-    const { measure, ...f } = field;
+    const { measure, levels: _l, plain, ...f } = field;
     const num = measure || isNumeric(columnOf(f));
     const hasRoom = (k: string) => {
       const w = def.wells.find((x) => x.key === k)!;
@@ -366,14 +400,15 @@ export const useStore = create<State>((set, get) => {
     if (!well) return;
     const agg: FieldRef['agg'] = measure ? 'measure' : ['table', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
     const list = (v.fields[well.key] ??= []);
-    if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg && !x.datePart)) return;
+    if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg && !x.datePart)) return well.key;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
     // A date on a hierarchy axis becomes the automatic date hierarchy, like Power BI.
-    if (well.hierarchy && agg === 'none' && /^(DATE|TIMESTAMP)/i.test(columnOf(f)?.type ?? '') && !list.some((x) => x.table === f.table && x.column === f.column)) {
+    if (!plain && well.hierarchy && agg === 'none' && /^(DATE|TIMESTAMP)/i.test(columnOf(f)?.type ?? '') && !list.some((x) => x.table === f.table && x.column === f.column)) {
       for (const datePart of ['year', 'quarter', 'month', 'day'] as const) list.push({ ...f, agg, datePart });
-      return;
+      return well.key;
     }
     list.push({ ...f, agg });
+    return well.key;
   };
 
   const nextPosition = (p: Page, w: number, h: number) => {
@@ -502,7 +537,11 @@ export const useStore = create<State>((set, get) => {
         const failed: string[] = [];
         // Power Query parameters (Gestisci parametri): kept, and used to locate .pbit sources.
         const pqParams = (model.parameters ?? []).map((p) => paramFromM(p.name, p.expression, p.description));
+        const mx = model.model;
+        const calcNames = new Set((mx?.calcGroups ?? []).map((g) => g.table));
         for (const t of model.tables) {
+          // Calculation group tables are rebuilt from their items (syncCalcTables).
+          if (calcNames.has(t.name)) continue;
           try {
             if (t.dax) {
               // Calculated table: evaluated by finalizeModel() once the other tables are loaded.
@@ -558,13 +597,30 @@ export const useStore = create<State>((set, get) => {
           set({ report: { ...emptyReport(), relationships, measures } });
           await get().finalizeModel();
         }
+        // Hierarchies, display folders, date tables, calculation groups and roles.
+        const known = (t: string) => get().tables.some((x) => x.name === t) || calcNames.has(t) || measures.some((m) => m.table === t);
+        const extrasReport: Partial<Report> = {};
+        const hs = (mx?.hierarchies ?? []).filter((h) => known(h.table) && h.levels.length).map((h) => ({ table: h.table, name: h.name, levels: h.levels.map((l) => l.column) }));
+        if (hs.length) extrasReport.hierarchies = hs;
+        const folders = Object.fromEntries((mx?.folders ?? []).filter((f) => known(f.table)).map((f) => [f.table + '\u0001' + f.name, f.folder]));
+        if (Object.keys(folders).length) extrasReport.displayFolders = folders;
+        const dts = Object.fromEntries(Object.entries(mx?.dateTables ?? {}).filter(([t]) => known(t)));
+        if (Object.keys(dts).length) extrasReport.dateTables = dts;
+        if (mx?.calcGroups.length) extrasReport.calcGroups = mx.calcGroups.map((g) => ({ table: g.table, column: g.column, precedence: g.precedence, items: g.items.map((i) => ({ name: i.name, expression: i.expression, ...(i.formatString ? { formatString: i.formatString } : {}) })) }));
+        const roles = (mx?.roles ?? []).map((r) => ({ name: r.name, filters: r.filters.filter((f) => known(f.table)) }));
+        if (roles.length) extrasReport.roles = roles;
+        if (extrasReport.calcGroups) {
+          set({ report: { ...get().report, calcGroups: extrasReport.calcGroups } });
+          await get().syncCalcTables();
+        }
+        setHierarchyLevels(mx?.hierarchies ?? []);
         const tables = get().tables;
         const layoutJson = model.layout ?? (model.pbir ? pbirToLayout(model.pbir) : null);
         setCustomVisuals(model.customVisuals);
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}) };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}), ...extrasReport };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
@@ -646,7 +702,145 @@ export const useStore = create<State>((set, get) => {
       const p = await api.saveText(themeJson(t), `${t.name}.json`, 'theme');
       if (p) get().notify(`Tema salvato in ${p.split('/').pop()}.`);
     },
-    model: () => ({ tables: get().tables, rels: get().report.relationships, measures: get().report.measures }),
+    model: () => ({ tables: get().tables, rels: get().report.relationships, measures: get().report.measures, ...modelExtras(get().report, get().viewAs?.user) }),
+    viewAs: null,
+    rolesDialog: false,
+    viewAsDialog: false,
+    setViewAs: async (v) => {
+      const roles = (get().report.roles ?? []).filter((r) => v?.roles.includes(r.name));
+      try {
+        if (!v) await api.setRole(null);
+        else {
+          // Several roles: a row is visible when any role allows it; a table a role does not restrict is not filtered.
+          const model = { ...get().model(), user: v.user };
+          const per = roles.map((r) => new Map(rlsWhere(model, r.filters).map((x) => [x.table, x.where])));
+          const tables = get().tables.flatMap((t) => (per.length && per.every((m) => m.has(t.name)) ? [{ table: t.name, where: per.map((m) => `(${m.get(t.name)})`).join(' OR ') }] : []));
+          await api.setRole(tables);
+        }
+        set((st) => ({ viewAs: v, viewAsDialog: false, crossFilter: null, dataVersion: st.dataVersion + 1 }));
+      } catch (e: any) {
+        get().notify('Visualizza come non riuscito: ' + e.message.split('\n')[0], 10000);
+      }
+    },
+    saveRoles: async (roles) => {
+      get().mut((r) => { if (roles.length) r.roles = roles; else delete r.roles; });
+      set({ rolesDialog: false });
+      const va = get().viewAs;
+      if (va) await get().setViewAs({ ...va, roles: va.roles.filter((n) => roles.some((r) => r.name === n)) });
+    },
+    propsTarget: null,
+    setDisplayFolder: (table, field, folder) => get().mut((r) => {
+      const k = table + '\u0001' + field;
+      const f = { ...(r.displayFolders ?? {}) };
+      const clean = folder.split(/[\\/]/).map((x) => x.trim()).filter(Boolean).join('\\');
+      if (clean) f[k] = clean; else delete f[k];
+      if (Object.keys(f).length) r.displayFolders = f; else delete r.displayFolders;
+    }),
+    createHierarchy: (table, column) => {
+      const hs = get().report.hierarchies ?? [];
+      let name = `${column} Gerarchia`, i = 2;
+      while (hs.some((h) => h.table === table && h.name === name)) name = `${column} Gerarchia ${i++}`;
+      get().mut((r) => { (r.hierarchies ??= []).push({ table, name, levels: [column] }); });
+      set({ propsTarget: { table, hierarchy: name } });
+    },
+    addHierarchyLevel: (table, hierarchy, column) => get().mut((r) => {
+      const h = r.hierarchies?.find((x) => x.table === table && x.name === hierarchy);
+      if (h && !h.levels.includes(column)) h.levels.push(column);
+    }),
+    updateHierarchy: (table, name, patch) => get().mut((r) => {
+      const h = r.hierarchies?.find((x) => x.table === table && x.name === name);
+      if (!h) return;
+      if (patch.name && patch.name !== name && r.displayFolders?.[table + '\u0001' + name]) {
+        r.displayFolders[table + '\u0001' + patch.name] = r.displayFolders[table + '\u0001' + name];
+        delete r.displayFolders[table + '\u0001' + name];
+      }
+      Object.assign(h, patch);
+      if (!h.levels.length) r.hierarchies = r.hierarchies!.filter((x) => x !== h);
+    }),
+    removeHierarchy: (table, name) => get().mut((r) => {
+      r.hierarchies = r.hierarchies?.filter((x) => !(x.table === table && x.name === name));
+      if (!r.hierarchies?.length) delete r.hierarchies;
+    }),
+    setDateTable: async (table, column) => {
+      if (column) {
+        // Power BI: the date column must be unique, without blanks; dates contiguous (no gaps).
+        const c = qi(column);
+        const q = await api.query(`SELECT COUNT(*) AS n, COUNT(${c}) AS nn, COUNT(DISTINCT ${c}) AS d, CAST(date_diff('day', CAST(MIN(${c}) AS DATE), CAST(MAX(${c}) AS DATE)) + 1 AS BIGINT) AS span FROM ${qi(table)}`);
+        const r = q.rows[0] ?? {};
+        if (Number(r.nn) !== Number(r.n)) return 'La colonna contiene valori vuoti.';
+        if (Number(r.d) !== Number(r.n)) return 'La colonna contiene valori duplicati.';
+        if (Number(r.span) !== Number(r.d)) return 'Le date non sono contigue: mancano alcuni giorni nell\'intervallo.';
+      }
+      get().mut((r) => {
+        const d = { ...(r.dateTables ?? {}) };
+        if (column) d[table] = column; else delete d[table];
+        if (Object.keys(d).length) r.dateTables = d; else delete r.dateTables;
+      });
+      set((st) => ({ dataVersion: st.dataVersion + 1 }));
+      return null;
+    },
+    createCalcGroup: async () => {
+      const taken = (n: string) => get().tables.some((t) => t.name.toLowerCase() === n.toLowerCase());
+      let name = 'Gruppo di calcolo', i = 2;
+      while (taken(name)) name = `Gruppo di calcolo ${i++}`;
+      const precedence = Math.max(-1, ...(get().report.calcGroups ?? []).map((g) => g.precedence)) + 1;
+      get().mut((r) => { (r.calcGroups ??= []).push({ table: name, column: 'Nome', precedence, items: [{ name: 'Elemento di calcolo', expression: 'SELECTEDMEASURE()' }] }); });
+      await get().syncCalcTables();
+      // Like Power BI: implicit measures are discouraged once a calculation group exists.
+      get().notify('Creato il gruppo di calcolo. Usare misure esplicite: le aggregazioni implicite non vengono trasformate dagli elementi di calcolo.', 9000);
+      get().startDax('calcItem', name, 'Elemento di calcolo');
+    },
+    addCalcItem: (table) => {
+      const g = get().report.calcGroups?.find((x) => x.table === table);
+      if (!g) return;
+      let name = 'Elemento di calcolo', i = 2;
+      while (g.items.some((x) => x.name === name)) name = `Elemento di calcolo ${i++}`;
+      set({ daxEdit: { kind: 'calcItem', table, original: null, text: `${name} = SELECTEDMEASURE()` } });
+    },
+    removeCalcItem: (table, item) => {
+      get().mut((r) => { const g = r.calcGroups?.find((x) => x.table === table); if (g) g.items = g.items.filter((x) => x.name !== item); });
+      void get().syncCalcTables();
+    },
+    moveCalcItem: (table, item, dir) => {
+      get().mut((r) => {
+        const g = r.calcGroups?.find((x) => x.table === table);
+        const i = g ? g.items.findIndex((x) => x.name === item) : -1;
+        if (!g || i < 0 || i + dir < 0 || i + dir >= g.items.length) return;
+        [g.items[i], g.items[i + dir]] = [g.items[i + dir], g.items[i]];
+      });
+      void get().syncCalcTables();
+    },
+    setCalcGroup: (table, patch) => {
+      const g = get().report.calcGroups?.find((x) => x.table === table);
+      if (!g) return;
+      if (patch.column && patch.column !== g.column) {
+        const col = patch.column, old = g.column;
+        get().mut((r) => {
+          // Fields, filters and slicers on the old column follow the rename.
+          const walk = (o: any) => {
+            if (!o || typeof o !== 'object') return;
+            if (Array.isArray(o)) { o.forEach(walk); return; }
+            if (o.table === table && o.column === old) o.column = col;
+            Object.values(o).forEach(walk);
+          };
+          walk(r.pages); walk(r.reportFilters); walk(r.bookmarks);
+        });
+      }
+      get().mut((r) => { Object.assign(r.calcGroups!.find((x) => x.table === table)!, patch); });
+      void get().syncCalcTables();
+    },
+    // Serialized: the store subscription and the editing actions may both ask for a sync.
+    syncCalcTables: () => (calcSync = calcSync.then(async () => {
+      for (const g of get().report.calcGroups ?? []) {
+        const t = get().tables.find((x) => x.name === g.table);
+        const rows = g.items.map((it, i) => [it.name, String(i)]);
+        const inline = t?.source.inline;
+        if (inline && inline.columns[0] === g.column && JSON.stringify(inline.rows) === JSON.stringify(rows)) continue;
+        try {
+          await loadTable({ name: g.table, source: { path: '', inline: { columns: [g.column, 'Ordinal'], rows } }, steps: [{ id: uid(), kind: 'changeType', columns: [['Ordinal', 'int']] }], sortBy: { [g.column]: 'Ordinal' } });
+        } catch (e: any) { get().notify(`Gruppo di calcolo ${g.table}: ${e.message}`); }
+      }
+    })),
     startDax: (kind, table, original) => {
       const { tables, report, dataViewTable } = get();
       const home = table ?? dataViewTable ?? tables[0]?.name ?? '';
@@ -656,6 +850,9 @@ export const useStore = create<State>((set, get) => {
         const m = report.measures.find((x) => x.name === original)!;
         text = `${m.name} = ${m.expression}`;
         formatString = m.formatString;
+      } else if (original && kind === 'calcItem') {
+        text = `${original} = ${report.calcGroups?.find((g) => g.table === home)?.items.find((x) => x.name === original)?.expression ?? ''}`;
+        formatString = report.calcGroups?.find((g) => g.table === home)?.items.find((x) => x.name === original)?.formatString;
       } else if (original && kind === 'column') {
         text = `${original} = ${tables.find((t) => t.name === home)?.calcColumns?.find((c) => c.name === original)?.expression ?? ''}`;
       } else if (original) {
@@ -702,6 +899,29 @@ export const useStore = create<State>((set, get) => {
               walk(r.pages);
             }
           });
+        } else if (ed.kind === 'calcItem') {
+          const g = get().report.calcGroups?.find((x) => x.table === ed.table);
+          if (!g) return fail('Gruppo di calcolo non trovato.');
+          if (g.items.some((x) => x.name.toLowerCase() === name.toLowerCase() && x.name !== ed.original)) return fail(`Esiste già un elemento di calcolo "${name}".`);
+          const err = checkCalcItem(get().model(), expr);
+          if (err) return fail(err);
+          const old = ed.original;
+          get().mut((r) => {
+            const gg = r.calcGroups!.find((x) => x.table === ed.table)!;
+            const item = { name, expression: expr, ...(ed.formatString ? { formatString: ed.formatString } : {}) };
+            const i = gg.items.findIndex((x) => x.name === old);
+            if (i >= 0) gg.items[i] = item; else gg.items.push(item);
+            if (old && old !== name) {
+              // Slicer selections and filters on the renamed item follow it.
+              const fix = (vals?: string[]) => vals?.forEach((v, k) => { if (v === old) vals[k] = name; });
+              for (const p of r.pages) {
+                for (const v of p.visuals) { if (v.fields.category?.[0]?.table === ed.table) fix(v.slicerValues); for (const f of v.filters ?? []) if (f.table === ed.table) fix(f.values); }
+                for (const f of p.filters) if (f.table === ed.table) fix(f.values);
+              }
+              for (const f of r.reportFilters) if (f.table === ed.table) fix(f.values);
+            }
+          });
+          await get().syncCalcTables();
         } else if (ed.kind === 'column') {
           const t = tables.find((x) => x.name === ed.table)!;
           if (t.columns.some((c) => c.name.toLowerCase() === name.toLowerCase() && c.name !== ed.original)) return fail(`La tabella contiene già una colonna "${name}".`);
@@ -759,6 +979,9 @@ export const useStore = create<State>((set, get) => {
       }
       if (errors.length) get().notify('Calcolo DAX non riuscito — ' + errors.join(' · '), 12000);
       set((s) => ({ dataVersion: s.dataVersion + 1 }));
+      // Visualizza come: the role's copies of the tables follow the reloaded data.
+      const va = get().viewAs;
+      if (va) await get().setViewAs(va);
     },
 
     openPowerQuery: (focus, extra) => {
@@ -1290,6 +1513,11 @@ export const useStore = create<State>((set, get) => {
       get().mut((r) => {
         r.relationships = r.relationships.filter((x) => x.fromTable !== name && x.toTable !== name);
         delete r.modelLayout[name];
+        if (r.hierarchies) r.hierarchies = r.hierarchies.filter((h) => h.table !== name);
+        if (r.calcGroups) r.calcGroups = r.calcGroups.filter((g) => g.table !== name);
+        if (r.dateTables) delete r.dateTables[name];
+        for (const k of Object.keys(r.displayFolders ?? {})) if (k.startsWith(name + '\u0001')) delete r.displayFolders![k];
+        for (const role of r.roles ?? []) role.filters = role.filters.filter((f) => f.table !== name);
       });
       set((s) => ({ tables: s.tables.filter((t) => t.name !== name), dataVersion: s.dataVersion + 1, dataViewTable: s.dataViewTable === name ? null : s.dataViewTable, dirty: true }));
     },
@@ -1307,6 +1535,7 @@ export const useStore = create<State>((set, get) => {
     },
 
     newReport: async () => {
+      if (get().viewAs) { await api.setRole(null); set({ viewAs: null }); }
       for (const t of get().tables) await api.dropTable(t.name);
       const r = emptyReport();
       set({ sourceName: null, tables: [], report: r, activePageId: r.pages[0].id, selectedVisualId: null, crossFilter: null, filePath: null, dirty: false, past: [], future: [], fileMenu: false, view: 'report', dataViewTable: null, dataVersion: get().dataVersion + 1 });
@@ -1392,6 +1621,8 @@ export async function prepareCfExport() {
 
 useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) applyTheme(s.report.theme); });
 useStore.subscribe((s, prev) => { if (s.report.customVisuals !== prev.report.customVisuals) setCustomVisuals(s.report.customVisuals); });
+// Calculation group tables follow their items (also after undo/redo).
+useStore.subscribe((s, prev) => { if (s.report.calcGroups !== prev.report.calcGroups && s.report.calcGroups?.length) void s.syncCalcTables(); });
 
 // File passed on the command line (or opened from the file manager).
 api.onOpenArg((file) => useStore.getState().open(file));

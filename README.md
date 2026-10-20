@@ -14,8 +14,10 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Riquadro Analisi** — linee costante, min, max, media, mediana, percentile e di tendenza | **Pulsanti** — Applica / Cancella tutti i filtri dei dati, drill-through, scheda Azione |
 | ![Esplora Q&A](docs/screenshots/qna.png) | ![File › Ottieni dati](docs/screenshots/getdata.png) |
 | **Esplora Q&A** — aperto da un pulsante con azione Q&A | **File › Ottieni dati** — tutte le origini dal menu File |
-| ![Opzioni](docs/screenshots/options.png) | |
-| **Opzioni e impostazioni** — caricamento dati, script Python/R, Q&A, Data/ora automatica | |
+| ![Opzioni](docs/screenshots/options.png) | ![Modello e DAX: cartelle, gerarchie, IntelliSense, gruppo di calcolo](docs/screenshots/model-dax.png) |
+| **Opzioni e impostazioni** — caricamento dati, script Python/R, Q&A, Data/ora automatica | **Modello e DAX** — IntelliSense nella barra della formula, cartelle di visualizzazione, gerarchie utente, gruppo di calcolo in una matrice |
+| ![Gestisci ruoli](docs/screenshots/roles.png) | ![Visualizza come ruolo](docs/screenshots/view-as.png) |
+| **Gestisci ruoli** — sicurezza a livello di riga con filtri DAX per tabella | **Visualizza come** — il report visto dal ruolo *Europa* (barra gialla, filtro propagato ai fatti) |
 
 ## Scaricare e installare
 
@@ -142,10 +144,40 @@ La **Vista query DAX** esegue `DEFINE MEASURE … / VAR …`, `EVALUATE …`, `O
 e l'SQL DuckDB di ogni query. Clic su un campo del riquadro Dati per inserirlo.
 
 Verificato sulle misure dei sample Microsoft *Retail Analysis* (32/32) e *Sales & Returns* (58/58).
-Differenze note: le funzioni di time intelligence considerano "attributi di calendario" le colonne data/anno/mese/…
-della stessa tabella (o tutta la tabella se il nome ricorda un calendario), al posto di "Contrassegna come tabella date";
+Differenze note: senza una tabella contrassegnata come tabella delle date, le funzioni di time intelligence considerano
+"attributi di calendario" le colonne data/anno/mese/… della stessa tabella (o tutta la tabella se il nome ricorda un calendario);
 i confronti di testo distinguono maiuscole/minuscole; `TOPN` non include i pari merito; `SUMMARIZECOLUMNS` con colonne
 di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tutte le espressioni vuote.
+
+### Modello e DAX (fase 10)
+
+- **IntelliSense** nella barra della formula, nella Vista query DAX e in Gestisci ruoli: funzioni (con firma e descrizione),
+  tabelle dopo `'`, colonne e misure dopo `[` (le colonne della tabella scritta prima della parentesi), parole chiave;
+  ↑/↓ per scegliere, Tab o Invio per inserire, Ctrl+Spazio per riaprire. Mentre si scrivono gli argomenti compare la firma
+  della funzione con l'argomento corrente in grassetto.
+- **Gerarchie utente**: clic destro su una colonna › *Crea gerarchia* / *Aggiungi alla gerarchia*; nel riquadro Dati la gerarchia
+  si espande nei livelli e trascinata su un asse inserisce tutti i livelli (drill-down). *Proprietà* rinomina, riordina e
+  rimuove i livelli.
+- **Cartelle di visualizzazione** per misure, colonne e gerarchie (*Proprietà › Cartella di visualizzazione*, `\` per le
+  sottocartelle).
+- **Contrassegna come tabella delle date** (menu della tabella): verifica che la colonna abbia date univoche, senza vuoti e
+  contigue; le funzioni di time intelligence sostituiscono i filtri su tutta la tabella delle date, che non riceve la
+  gerarchia automatica di Data/ora automatica.
+- **Gruppi di calcolo** (Modellazione › Gruppo di calcolo): elementi con `SELECTEDMEASURE()`, `SELECTEDMEASURENAME()`,
+  `ISSELECTEDMEASURE()`, precedenza tra gruppi; l'elemento filtrato (filtro dei dati, righe/colonne di una matrice,
+  CALCULATE) sostituisce la misura. La colonna del gruppo si incrocia con i campi delle altre tabelle come in
+  `SUMMARIZECOLUMNS`.
+- **Sicurezza a livello di riga** (Modellazione › Gestisci ruoli): un filtro DAX per tabella, verifica della sintassi; il
+  filtro si propaga dal lato uno al lato molti. **Visualizza come**: uno o più ruoli (unione delle righe) e *Altro utente* per
+  `USERPRINCIPALNAME()`. Le tabelle filtrate vengono copiate in uno schema DuckDB separato letto da una seconda connessione,
+  così nessuna misura (nemmeno con `ALL`) vede righe escluse dal ruolo.
+- Tutto viene salvato nel `.lbix`, importato da `.pbix`/`.pbit`/`.pbip` (TMSL e TMDL) ed esportato nel modello
+  (`hierarchies`, `displayFolder`, `dataCategory: Time` + `isKey`, `calculationGroup`, `roles`).
+
+Limiti noti: un elemento di calcolo trasforma solo il riferimento più esterno alla misura (non le misure richiamate al suo
+interno); la stringa di formato degli elementi viene conservata ma non applicata; i livelli delle gerarchie prendono il nome
+delle colonne; i filtri di sicurezza non si propagano in entrambe le direzioni; *Visualizza come* agisce sugli oggetti visivi
+del report (non sulla Vista tabella né sulla Vista query DAX); i dataset push non supportano ruoli e gruppi di calcolo.
 
 ## File Power BI
 
@@ -261,13 +293,15 @@ Fabric, PDF, `.lbix` con i dati.
 ## Roadmap
 
 4. ~~**Power Query**~~ ✔ — modifica dei passaggi (ingranaggio), colonna condizionale, *Usa la prima riga come intestazione*, qualità/distribuzione/profilo colonne, Editor avanzato e barra della formula modificabili (parser M → passaggi), colonna da esempi, parametri (`#[Nome]` in origini e filtri, esportati come parametri Power BI), origini Web, Feed OData e Cartella (file combinati con `Source.Name`)
-5. ~~**DAX completo**~~ ✔ — prossimi passi: misure rapide, IntelliSense nella barra della formula, gerarchie di date automatiche
+5. ~~**DAX completo**~~ ✔ — misure rapide, IntelliSense, gerarchie di date automatiche fatti
+10. ~~**Modello**~~ ✔ — gerarchie utente, cartelle di visualizzazione, tabelle delle date, gruppi di calcolo, RLS con *Visualizza come*
 6. ~~**File**~~ ✔ — prossimi passi: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint
 
 ## Test di fumo
 
 `LINBI_SHOT=out.png LINBI_SCRIPT=passi.js npx electron . --no-sandbox` esegue `passi.js`
-nella pagina (lo store è esposto come `window.__linbi`, il query builder come `window.__linbiQuery`),
+nella pagina (lo store è esposto come `window.__linbi`, il query builder come `window.__linbiQuery`, la query di un visual
+con i filtri e il ruolo correnti come `window.__linbiRun(visual)`),
 stampa il valore restituito dallo script (`SCRIPT_RESULT {...}`), cattura uno screenshot ed esce.
 `LINBI_PBIT_OUT=out.pbit` salva l'esportazione `.pbit` senza finestra di dialogo. File `.pbix` di prova: cartella `data/`
 del repository di pbixray (sample Microsoft).

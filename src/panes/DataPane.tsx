@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useStore } from '../store';
 import type { TableMeta } from '../types';
 import { isDate, isNumeric } from '../format';
@@ -7,11 +7,15 @@ import { Menu } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
 import { insertDax } from '../components/DaxQueryView';
 
+/** A Data pane entry of a table: measure, column or user hierarchy, with its display folder. */
+interface Item { kind: 'measure' | 'column' | 'hierarchy'; name: string; folder: string; }
+type MenuState = { x: number; y: number; table: string; column?: string; measure?: string; hierarchy?: string; level?: string; item?: string };
+
 export function DataPane() {
   const s = useStore();
   const [q, setQ] = useState('');
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [menu, setMenu] = useState<{ x: number; y: number; table: string; column?: string; measure?: string } | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   if (!s.panes.data) return null;
 
   const report = s.view === 'report';
@@ -21,7 +25,11 @@ export function DataPane() {
   const measureOnly: TableMeta[] = [...new Set(s.report.measures.map((m) => m.table))]
     .filter((n) => !s.tables.some((t) => t.name === n))
     .map((name) => ({ name, rowCount: 0, columns: [], source: { path: '' } }));
-  const isOpen = (t: string) => open[t] ?? (q !== '' || s.tables.length === 1);
+  const isOpen = (k: string, def = false) => open[k] ?? (q !== '' || def);
+  const toggle = (k: string, def = false) => setOpen({ ...open, [k]: !isOpen(k, def) });
+  const folders = s.report.displayFolders ?? {};
+  const hierarchies = s.report.hierarchies ?? [];
+  const calcGroup = (t: string) => s.report.calcGroups?.find((g) => g.table === t);
 
   const daxRef = (table: string, column: string, measure: boolean) => (measure ? `[${column}]` : `'${table.replace(/'/g, "''")}'[${column}]`);
   const toggleField = (table: string, column: string, measure = false) => {
@@ -35,6 +43,90 @@ export function DataPane() {
       }
     } else s.addField(v && !['textbox', 'image', 'unsupported'].includes(v.type) ? v.id : null, { table, column, measure });
   };
+  const target = () => (v && !['textbox', 'image', 'unsupported'].includes(v.type) ? v.id : null);
+  const drag = (payload: object) => (e: React.DragEvent) => { e.dataTransfer.setData(FIELD_MIME, JSON.stringify(payload)); e.dataTransfer.effectAllowed = 'copy'; };
+  const ctx = (m: Omit<MenuState, 'x' | 'y'>) => (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, ...m }); };
+
+  const columnNode = (t: TableMeta, name: string, depth: number, level?: string) => {
+    const c = t.columns.find((x) => x.name === name);
+    const checked = used.has(t.name + '\u0001' + name);
+    return (
+      <div key={(level ? 'l:' + level + ':' : 'c:') + name} className="tnode field" draggable={report} style={{ paddingLeft: 4 + depth * 14 }}
+        onDragStart={drag({ table: t.name, column: name })}
+        onClick={() => toggleField(t.name, name)}
+        onContextMenu={ctx(level ? { table: t.name, hierarchy: level, level: name } : { table: t.name, column: name })}>
+        {report && <input type="checkbox" checked={checked} readOnly />}
+        <span className="ty">{t.calcColumns?.some((x) => x.name === name) ? <i className="fx-ico">fx</i> : isNumeric(c) ? <Icon name="sigma" size={13} /> : isDate(c) ? <Icon name="calendar" size={13} /> : null}</span>
+        <span className="nm" title={c ? `${name} (${c.type})` : name}>{name}</span>
+      </div>
+    );
+  };
+
+  const itemNode = (t: TableMeta, it: Item, depth: number): ReactNode => {
+    if (it.kind === 'measure') {
+      const m = s.report.measures.find((x) => x.table === t.name && x.name === it.name)!;
+      const checked = used.has(t.name + '\u0001' + m.name);
+      return (
+        <div key={'m:' + m.name} className="tnode field" draggable={report} style={{ paddingLeft: 4 + depth * 14 }}
+          onDragStart={drag({ table: t.name, column: m.name, measure: true })}
+          onClick={() => toggleField(t.name, m.name, true)}
+          onDoubleClick={() => s.startDax('measure', m.table, m.name)}
+          onContextMenu={ctx({ table: t.name, measure: m.name })}>
+          {report && <input type="checkbox" checked={checked} readOnly />}
+          <span className="ty"><Icon name="calc" size={13} /></span>
+          <span className="nm" title={`${m.name} = ${m.expression}`}>{m.name}</span>
+        </div>
+      );
+    }
+    if (it.kind === 'column') return columnNode(t, it.name, depth);
+    const h = hierarchies.find((x) => x.table === t.name && x.name === it.name)!;
+    const k = `h\u0002${t.name}\u0002${h.name}`;
+    const all = h.levels.every((l) => used.has(t.name + '\u0001' + l));
+    return (
+      <div key={'h:' + h.name}>
+        <div className="tnode field" draggable={report} style={{ paddingLeft: 4 + depth * 14 }}
+          onDragStart={drag({ table: t.name, column: h.levels[0], levels: h.levels })}
+          onClick={() => { if (report && !all) s.addField(target(), { table: t.name, column: h.levels[0], levels: h.levels }); }}
+          onContextMenu={ctx({ table: t.name, hierarchy: h.name })}>
+          <span className="chev" onClick={(e) => { e.stopPropagation(); toggle(k); }}><Icon name={isOpen(k) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
+          {report && <input type="checkbox" checked={all} readOnly />}
+          <span className="ty"><Icon name="hierarchy" size={13} /></span>
+          <span className="nm" title={`${h.name}: ${h.levels.join(' › ')}`}>{h.name}</span>
+        </div>
+        {isOpen(k) && h.levels.map((l) => columnNode(t, l, depth + 1, h.name))}
+      </div>
+    );
+  };
+
+  /** Items of one folder level: subfolders first, then measures, columns, hierarchies. */
+  const folderTree = (t: TableMeta, items: Item[], depth: number, path: string): ReactNode[] => {
+    const here = items.filter((i) => i.folder === path);
+    const below = new Map<string, Item[]>();
+    for (const i of items) {
+      if (path && !i.folder.startsWith(path + '\\')) continue;
+      if (i.folder === path) continue;
+      const rest = path ? i.folder.slice(path.length + 1) : i.folder;
+      const head = rest.split('\\')[0];
+      below.set(head, [...(below.get(head) ?? []), i]);
+    }
+    const out: ReactNode[] = [];
+    for (const [name, list] of [...below].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const full = path ? `${path}\\${name}` : name;
+      const k = `f\u0002${t.name}\u0002${full}`;
+      out.push(
+        <div key={'f:' + full}>
+          <div className="tnode field folder" style={{ paddingLeft: 4 + depth * 14 }} onClick={() => toggle(k)}>
+            <span className="chev"><Icon name={isOpen(k) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
+            <span className="ty"><Icon name="folder" size={13} /></span>
+            <span className="nm">{name}</span>
+          </div>
+          {isOpen(k) && folderTree(t, list, depth + 1, full)}
+        </div>,
+      );
+    }
+    for (const kind of ['measure', 'column', 'hierarchy'] as const) for (const i of here.filter((x) => x.kind === kind)) out.push(itemNode(t, i, depth));
+    return out;
+  };
 
   return (
     <div className="pane">
@@ -47,82 +139,126 @@ export function DataPane() {
         {!s.tables.length && <div style={{ color: 'var(--text2)', padding: '6px 4px' }}>Nessun dato caricato. Usare <b>Ottieni dati</b> nella barra multifunzione.</div>}
         {[...s.tables, ...measureOnly].map((t) => {
           const match = (n: string) => !q || n.toLowerCase().includes(q.toLowerCase()) || t.name.toLowerCase().includes(q.toLowerCase());
-          const cols = t.columns.filter((c) => match(c.name));
-          const measures = s.report.measures.filter((m) => m.table === t.name && match(m.name));
-          if (q && !cols.length && !measures.length) return null;
+          const folderOf = (n: string) => folders[t.name + '\u0001' + n] ?? '';
+          const g = calcGroup(t.name);
+          const items: Item[] = [
+            ...s.report.measures.filter((m) => m.table === t.name && match(m.name)).map((m): Item => ({ kind: 'measure', name: m.name, folder: folderOf(m.name) })),
+            // The Ordinal column of a calculation group is hidden, like in Power BI.
+            ...t.columns.filter((c) => match(c.name) && !(g && c.name === 'Ordinal')).map((c): Item => ({ kind: 'column', name: c.name, folder: folderOf(c.name) })),
+            ...hierarchies.filter((h) => h.table === t.name && (match(h.name) || h.levels.some(match))).map((h): Item => ({ kind: 'hierarchy', name: h.name, folder: folderOf(h.name) })),
+          ];
+          const calcItems = g ? g.items.filter((i) => match(i.name)) : [];
+          if (q && !items.length && !calcItems.length) return null;
+          const tk = 't\u0002' + t.name;
+          const dateCol = s.report.dateTables?.[t.name];
           return (
             <div key={t.name}>
               <div className={'tnode table' + (!report && s.dataViewTable === t.name ? ' active' : '')}
-                onClick={() => (report ? setOpen({ ...open, [t.name]: !isOpen(t.name) }) : s.set({ dataViewTable: t.name }))}
-                onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name }); }}>
-                <span onClick={(e) => { e.stopPropagation(); setOpen({ ...open, [t.name]: !isOpen(t.name) }); }}><Icon name={isOpen(t.name) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
-                {t.source.dax ? <i className="fx-ico" title="Tabella calcolata">fx</i> : <Icon name="tableSmall" />}
-                <span className="nm" title={t.source.dax ? `${t.name} = ${t.source.dax}` : t.name}>{t.name}</span>
-                <button className="more" onClick={(e) => { e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, table: t.name }); }}><Icon name="more" size={14} /></button>
+                onClick={() => (report ? toggle(tk, s.tables.length === 1) : s.set({ dataViewTable: t.name }))}
+                onContextMenu={ctx({ table: t.name })}>
+                <span onClick={(e) => { e.stopPropagation(); toggle(tk, s.tables.length === 1); }}><Icon name={isOpen(tk, s.tables.length === 1) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
+                {g ? <Icon name="calcGroup" /> : t.source.dax ? <i className="fx-ico" title="Tabella calcolata">fx</i> : dateCol ? <Icon name="calendar" /> : <Icon name="tableSmall" />}
+                <span className="nm" title={g ? `Gruppo di calcolo (precedenza ${g.precedence})` : t.source.dax ? `${t.name} = ${t.source.dax}` : dateCol ? `${t.name} — tabella delle date (${dateCol})` : t.name}>{t.name}</span>
+                <button className="more" onClick={ctx({ table: t.name })}><Icon name="more" size={14} /></button>
               </div>
-              {isOpen(t.name) && (
+              {isOpen(tk, s.tables.length === 1) && (
                 <div className="cols">
-                  {measures.map((m) => {
-                    const checked = used.has(t.name + '\u0001' + m.name);
-                    return (
-                      <div key={'m:' + m.name} className="tnode field" draggable={report}
-                        onDragStart={(e) => { e.dataTransfer.setData(FIELD_MIME, JSON.stringify({ table: t.name, column: m.name, measure: true })); e.dataTransfer.effectAllowed = 'copy'; }}
-                        onClick={() => toggleField(t.name, m.name, true)}
-                        onDoubleClick={() => s.startDax('measure', m.table, m.name)}
-                        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name, measure: m.name }); }}>
-                        {report && <input type="checkbox" checked={checked} readOnly />}
-                        <span className="ty"><Icon name="calc" size={13} /></span>
-                        <span className="nm" title={`${m.name} = ${m.expression}`}>{m.name}</span>
+                  {folderTree(t, items, 0, '')}
+                  {g && (
+                    <div>
+                      <div className="tnode field folder" onClick={() => toggle('ci\u0002' + t.name, true)}>
+                        <span className="chev"><Icon name={isOpen('ci\u0002' + t.name, true) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
+                        <span className="nm"><i>Elementi di calcolo</i></span>
                       </div>
-                    );
-                  })}
-                  {cols.map((c) => {
-                    const checked = used.has(t.name + '\u0001' + c.name);
-                    return (
-                      <div key={c.name} className="tnode field" draggable={report}
-                        onDragStart={(e) => { e.dataTransfer.setData(FIELD_MIME, JSON.stringify({ table: t.name, column: c.name })); e.dataTransfer.effectAllowed = 'copy'; }}
-                        onClick={() => toggleField(t.name, c.name)}
-                        onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, table: t.name, column: c.name }); }}>
-                        {report && <input type="checkbox" checked={checked} readOnly />}
-                        <span className="ty">{t.calcColumns?.some((x) => x.name === c.name) ? <i className="fx-ico">fx</i> : isNumeric(c) ? <Icon name="sigma" size={13} /> : isDate(c) ? <Icon name="calendar" size={13} /> : null}</span>
-                        <span className="nm" title={`${c.name} (${c.type})`}>{c.name}</span>
-                      </div>
-                    );
-                  })}
+                      {isOpen('ci\u0002' + t.name, true) && calcItems.map((it) => (
+                        <div key={'ci:' + it.name} className="tnode field" style={{ paddingLeft: 18 }}
+                          onClick={() => s.startDax('calcItem', t.name, it.name)}
+                          onContextMenu={ctx({ table: t.name, item: it.name })}>
+                          <span className="ty"><i className="fx-ico">fx</i></span>
+                          <span className="nm" title={`${it.name} = ${it.expression}`}>{it.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           );
         })}
       </div>
-      {menu && (
-        <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          {menu.measure ? <>
-            <button onClick={() => { s.startDax('measure', menu.table, menu.measure); setMenu(null); }}><Icon name="calc" />Modifica misura</button>
-            <button onClick={() => { s.deleteMeasure(menu.measure!); setMenu(null); }}><Icon name="trash" />Elimina misura</button>
-          </> : menu.column ? <>
-            {s.tables.find((t) => t.name === menu.table)?.calcColumns?.some((c) => c.name === menu.column) && <>
-              <button onClick={() => { s.startDax('column', menu.table, menu.column); setMenu(null); }}><Icon name="calc" />Modifica colonna calcolata</button>
-              <button onClick={() => { s.deleteCalcColumn(menu.table, menu.column!); setMenu(null); }}><Icon name="trash" />Elimina colonna</button>
-              <hr />
-            </>}
-            <button disabled={!report} onClick={() => { s.addFilter('page', { table: menu.table, column: menu.column! }); setMenu(null); }}>Aggiungi a filtri › Livello di pagina</button>
-            <button disabled={!report} onClick={() => { s.addFilter('report', { table: menu.table, column: menu.column! }); setMenu(null); }}>Aggiungi a filtri › Livello di report</button>
-            <button disabled={!report} onClick={() => { const id = s.addVisual('slicer'); s.addField(id, { table: menu.table, column: menu.column! }); setMenu(null); }}>Crea filtro dei dati</button>
-          </> : <>
-            <button onClick={() => { s.startDax('measure', menu.table); setMenu(null); }}><Icon name="calc" />Nuova misura</button>
-            <button disabled={!s.tables.some((t) => t.name === menu.table)} onClick={() => { s.startDax('column', menu.table); setMenu(null); }}><Icon name="calc" />Nuova colonna</button>
-            {s.tables.find((t) => t.name === menu.table)?.source.dax && <button onClick={() => { s.startDax('table', menu.table, menu.table); setMenu(null); }}><Icon name="calc" />Modifica tabella calcolata</button>}
-            <hr />
-            <button onClick={() => { s.set({ view: 'data', dataViewTable: menu.table }); setMenu(null); }}>Visualizza in vista tabella</button>
-            <button onClick={() => { setOpen({ ...open, [menu.table]: !isOpen(menu.table) }); setMenu(null); }}>{isOpen(menu.table) ? 'Comprimi' : 'Espandi'}</button>
-            <button disabled={!s.tables.some((t) => t.name === menu.table && !t.source.dax)} onClick={() => { s.openPowerQuery(menu.table); setMenu(null); }}><Icon name="transform" size={16} box={32} />Modifica query</button>
-            <button onClick={() => { s.refresh(); setMenu(null); }}>Aggiorna dati</button>
-            <hr />
-            <button onClick={() => { s.removeTable(menu.table); setMenu(null); }}><Icon name="trash" />Elimina dal modello</button>
-          </>}
-        </Menu>
-      )}
+      {menu && <DataMenu menu={menu} close={() => setMenu(null)} report={report} toggleOpen={(k) => { toggle(k); }} isOpen={isOpen} />}
     </div>
   );
+}
+
+function DataMenu({ menu, close, report, toggleOpen, isOpen }: { menu: MenuState; close: () => void; report: boolean; toggleOpen: (k: string) => void; isOpen: (k: string, def?: boolean) => boolean }) {
+  const s = useStore();
+  const t = s.tables.find((x) => x.name === menu.table);
+  const g = s.report.calcGroups?.find((x) => x.table === menu.table);
+  const hs = (s.report.hierarchies ?? []).filter((h) => h.table === menu.table);
+  const run = (fn: () => void) => () => { fn(); close(); };
+  const props = (p: Omit<NonNullable<typeof s.propsTarget>, 'table'>) => run(() => s.set({ propsTarget: { table: menu.table, ...p } }));
+  let body: ReactNode;
+  if (menu.item) {
+    const i = g?.items.findIndex((x) => x.name === menu.item) ?? -1;
+    body = <>
+      <button onClick={run(() => s.startDax('calcItem', menu.table, menu.item))}><Icon name="calc" />Modifica elemento di calcolo</button>
+      <button disabled={i <= 0} onClick={run(() => s.moveCalcItem(menu.table, menu.item!, -1))}>Sposta su</button>
+      <button disabled={!g || i >= g.items.length - 1} onClick={run(() => s.moveCalcItem(menu.table, menu.item!, 1))}>Sposta giù</button>
+      <hr />
+      <button disabled={(g?.items.length ?? 0) <= 1} onClick={run(() => s.removeCalcItem(menu.table, menu.item!))}><Icon name="trash" />Elimina</button>
+    </>;
+  } else if (menu.level) {
+    const h = hs.find((x) => x.name === menu.hierarchy);
+    body = <>
+      <button onClick={run(() => h && s.updateHierarchy(menu.table, h.name, { levels: h.levels.filter((l) => l !== menu.level) }))}><Icon name="trash" />Rimuovi dalla gerarchia</button>
+      <button onClick={props({ hierarchy: menu.hierarchy })}>Proprietà gerarchia</button>
+    </>;
+  } else if (menu.hierarchy) {
+    body = <>
+      <button onClick={props({ hierarchy: menu.hierarchy })}><Icon name="gear" />Proprietà</button>
+      <button onClick={run(() => s.removeHierarchy(menu.table, menu.hierarchy!))}><Icon name="trash" />Elimina gerarchia</button>
+    </>;
+  } else if (menu.measure) {
+    body = <>
+      <button onClick={run(() => s.startDax('measure', menu.table, menu.measure))}><Icon name="calc" />Modifica misura</button>
+      <button onClick={props({ field: menu.measure })}><Icon name="gear" />Proprietà</button>
+      <button onClick={run(() => s.deleteMeasure(menu.measure!))}><Icon name="trash" />Elimina misura</button>
+    </>;
+  } else if (menu.column) {
+    body = <>
+      {t?.calcColumns?.some((c) => c.name === menu.column) && <>
+        <button onClick={run(() => s.startDax('column', menu.table, menu.column))}><Icon name="calc" />Modifica colonna calcolata</button>
+        <button onClick={run(() => void s.deleteCalcColumn(menu.table, menu.column!))}><Icon name="trash" />Elimina colonna</button>
+        <hr />
+      </>}
+      <button onClick={run(() => s.createHierarchy(menu.table, menu.column!))}><Icon name="hierarchy" />Crea gerarchia</button>
+      {hs.filter((h) => !h.levels.includes(menu.column!)).map((h) => (
+        <button key={h.name} onClick={run(() => s.addHierarchyLevel(menu.table, h.name, menu.column!))}>Aggiungi alla gerarchia › {h.name}</button>
+      ))}
+      <button onClick={props({ field: menu.column })}><Icon name="gear" />Proprietà</button>
+      <hr />
+      <button disabled={!report} onClick={run(() => s.addFilter('page', { table: menu.table, column: menu.column! }))}>Aggiungi a filtri › Livello di pagina</button>
+      <button disabled={!report} onClick={run(() => s.addFilter('report', { table: menu.table, column: menu.column! }))}>Aggiungi a filtri › Livello di report</button>
+      <button disabled={!report} onClick={run(() => { const id = s.addVisual('slicer'); s.addField(id, { table: menu.table, column: menu.column! }); })}>Crea filtro dei dati</button>
+    </>;
+  } else {
+    const tk = 't\u0002' + menu.table;
+    body = <>
+      <button onClick={run(() => s.startDax('measure', menu.table))}><Icon name="calc" />Nuova misura</button>
+      {g ? <button onClick={run(() => s.addCalcItem(menu.table))}><Icon name="calc" />Nuovo elemento di calcolo</button>
+        : <button disabled={!t} onClick={run(() => s.startDax('column', menu.table))}><Icon name="calc" />Nuova colonna</button>}
+      {t?.source.dax && <button onClick={run(() => s.startDax('table', menu.table, menu.table))}><Icon name="calc" />Modifica tabella calcolata</button>}
+      <hr />
+      {t && !g && <button onClick={props({})}><Icon name="calendar" />{s.report.dateTables?.[menu.table] ? 'Tabella delle date…' : 'Contrassegna come tabella delle date'}</button>}
+      <button disabled={!t} onClick={props({})}><Icon name="gear" />Proprietà</button>
+      <button onClick={run(() => s.set({ view: 'data', dataViewTable: menu.table }))}>Visualizza in vista tabella</button>
+      <button onClick={run(() => toggleOpen(tk))}>{isOpen(tk) ? 'Comprimi' : 'Espandi'}</button>
+      <button disabled={!t || !!t.source.dax || !!g} onClick={run(() => s.openPowerQuery(menu.table))}><Icon name="transform" size={16} box={32} />Modifica query</button>
+      <button onClick={run(() => void s.refresh())}>Aggiorna dati</button>
+      <hr />
+      <button onClick={run(() => void s.removeTable(menu.table))}><Icon name="trash" />Elimina dal modello</button>
+    </>;
+  }
+  return <Menu x={menu.x} y={menu.y} onClose={close}>{body}</Menu>;
 }

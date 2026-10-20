@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { recordPerf, useStore } from '../store';
 import { useExtraFilters } from './filterContext';
-import { buildVisualQuery, CF_WELL, type QueryItem } from '../query';
+import { buildVisualQuery, CF_WELL, modelExtras, type QueryItem } from '../query';
 import type { Visual } from '../types';
 
 export interface VisualData {
@@ -34,6 +34,7 @@ export function useVisualData(v: Visual): VisualData {
   const cross = useStore((s) => s.crossFilter);
   const dataVersion = useStore((s) => s.dataVersion);
   const extra = useExtraFilters();
+  const viewAs = useStore((s) => s.viewAs);
   const paused = useStore((s) => s.paused);
   const pauseTick = useStore((s) => s.pauseTick);
   // Sospendi oggetti visivi: after the first load, queries wait for Aggiorna (pauseTick) or resume.
@@ -42,8 +43,8 @@ export function useVisualData(v: Visual): VisualData {
   const page = report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? report.pages.find((p) => p.id === pageId) ?? report.pages[0];
 
   const q = useMemo(
-    () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters, ...extra], page.visuals, cross, report.measures),
-    [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures, extra],
+    () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters, ...extra], page.visuals, cross, report.measures, modelExtras(report, viewAs?.user)),
+    [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures, extra, report.dateTables, report.calcGroups, viewAs?.user],
   );
   const key = q && 'sql' in q ? [q.sql, q.totalsSql, q.colTotalsSql, q.rowTotalsSql].join('|') : JSON.stringify(q);
   const [state, setState] = useState<Omit<VisualData, 'percent' | 'cfItems'>>({ loading: false, empty: true, items: [], rows: [] });
@@ -60,10 +61,10 @@ export function useVisualData(v: Visual): VisualData {
     pending++;
     const t0 = performance.now();
     Promise.all([
-      api.query(q.sql),
-      q.totalsSql ? api.query(q.totalsSql) : Promise.resolve(null),
-      q.colTotalsSql ? api.query(q.colTotalsSql) : Promise.resolve(null),
-      q.rowTotalsSql ? api.query(q.rowTotalsSql) : Promise.resolve(null),
+      api.queryAs(q.sql),
+      q.totalsSql ? api.queryAs(q.totalsSql) : Promise.resolve(null),
+      q.colTotalsSql ? api.queryAs(q.colTotalsSql) : Promise.resolve(null),
+      q.rowTotalsSql ? api.queryAs(q.rowTotalsSql) : Promise.resolve(null),
     ]).then(([res, tot, ctot, rtot]) => {
       if (!live) return;
       const t1 = performance.now();
@@ -89,9 +90,9 @@ export async function runVisualQuery(v: Visual, extra: import('../types').Filter
   const s = useStore.getState();
   const page = s.report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? s.page();
   const q = buildVisualQuery({ ...v, filters: [...(v.filters ?? []), ...extra] }, s.tables, s.report.relationships,
-    [...s.report.reportFilters, ...page.filters], page.visuals, s.crossFilter, s.report.measures);
+    [...s.report.reportFilters, ...page.filters], page.visuals, s.crossFilter, s.report.measures, modelExtras(s.report, s.viewAs?.user));
   if (!q) return { items: [], rows: [] };
   if ('error' in q) throw new Error(q.error);
-  const res = await api.query(q.sql);
+  const res = await api.queryAs(q.sql);
   return { items: q.items, rows: res.rows };
 }

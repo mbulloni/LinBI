@@ -93,7 +93,7 @@ export function CustomVisual({ v, data }: { v: Visual; data: VisualData }) {
           for (const f of list) {
             const t = Array.isArray(f?.target) ? f.target[0] : f?.target;
             if (!f?.conditions || !t?.table || !t?.column) continue;
-            const res = await api.query(`SELECT DISTINCT CAST(${qi(t.column)} AS VARCHAR) AS v FROM ${qi(t.table)} WHERE ${qi(t.column)} IS NOT NULL`);
+            const res = await api.queryAs(`SELECT DISTINCT CAST(${qi(t.column)} AS VARCHAR) AS v FROM ${qi(t.table)} WHERE ${qi(t.column)} IS NOT NULL`);
             distinct[t.table + '\u0001' + t.column] = res.rows.map((r) => String(r.v));
           }
           all[m.key] = { filter: m.filter, resolved: jsonFilterToFilters(m.filter, live.current.tables, (t, c) => distinct[t + '\u0001' + c]) };

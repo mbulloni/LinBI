@@ -114,9 +114,17 @@ function exprToField(e: any, from: FromMap): FieldRef | null {
       const part = ({ Year: 'year', Anno: 'year', Quarter: 'quarter', Trimestre: 'quarter', Month: 'month', Mese: 'month', Day: 'day', Giorno: 'day' } as const)[e.HierarchyLevel.Level as string];
       return { table: entity(pvs.Expression), column: pvs.Property, agg: 'none', ...(part ? { datePart: part } : {}) };
     }
-    return { table: entity(h?.Expression), column: e.HierarchyLevel.Level, agg: 'none' };
+    // User hierarchy: the level's column (level names may differ from column names).
+    const table = entity(h?.Expression);
+    return { table, column: levelColumns.get(`${table}\u0001${h?.Hierarchy}\u0001${e.HierarchyLevel.Level}`) ?? e.HierarchyLevel.Level, agg: 'none' };
   }
   return null;
+}
+
+let levelColumns = new Map<string, string>();
+/** Before parseLayout: columns of the model's user hierarchy levels. */
+export function setHierarchyLevels(hs: { table: string; name: string; levels: { name: string; column: string }[] }[]) {
+  levelColumns = new Map(hs.flatMap((h) => h.levels.map((l) => [`${h.table}\u0001${h.name}\u0001${l.name}`, l.column] as [string, string])));
 }
 
 /** Literal from a filter ("'abc'", "12L", "1.5D", "datetime'…'", "null") → LinBI filter value. */

@@ -97,6 +97,10 @@ def from_pbixray(path, outdir, out):
                 fmt[(r["T"], r["M"])] = r["F"]
     except Exception as e:  # noqa: BLE001 - metadata is optional
         out["warnings"].append(f"Metadati del modello parziali: {e}")
+    try:
+        model_extras_sqlite(model._metadata.source._db, out)
+    except Exception as e:  # noqa: BLE001 - metadata is optional
+        out["warnings"].append(f"Gerarchie, gruppi di calcolo o ruoli non letti: {e}")
     for t in out["tables"]:
         t["sortBy"] = sort_by.get(t["name"], {})
         t["dataCategory"] = category.get(t["name"], {})
@@ -126,9 +130,92 @@ def from_pbixray(path, outdir, out):
         })
 
 
+def text_of(v):
+    return "\n".join(v) if isinstance(v, list) else (v or "")
+
+
+def model_extras_sqlite(db, out):
+    """User hierarchies, display folders, date tables, calculation groups and roles from metadata.sqlitedb."""
+    mx = out["model"]
+
+    def q(sql):
+        try:
+            return list(db.query(sql).iterrows())
+        except Exception:  # noqa: BLE001 - older models lack some tables
+            return []
+    levels = {}
+    for _, r in q("SELECT h.ID AS H, t.Name AS T, h.Name AS N, l.Name AS L, c.ExplicitName AS C, l.Ordinal AS O FROM [Hierarchy] h "
+                  "JOIN [Table] t ON h.TableID = t.ID JOIN [Level] l ON l.HierarchyID = h.ID JOIN [Column] c ON l.ColumnID = c.ID"):
+        levels.setdefault((r["H"], r["T"], r["N"]), []).append((int(r["O"]), r["L"], r["C"]))
+    for (_, t, n), lv in levels.items():
+        mx["hierarchies"].append({"table": t, "name": n, "levels": [{"name": l, "column": c} for _, l, c in sorted(lv)]})
+    for sql in ("SELECT t.Name AS T, c.ExplicitName AS N, c.DisplayFolder AS F FROM [Column] c JOIN [Table] t ON c.TableID = t.ID",
+                "SELECT t.Name AS T, m.Name AS N, m.DisplayFolder AS F FROM [Measure] m JOIN [Table] t ON m.TableID = t.ID",
+                "SELECT t.Name AS T, h.Name AS N, h.DisplayFolder AS F FROM [Hierarchy] h JOIN [Table] t ON h.TableID = t.ID"):
+        for _, r in q(sql):
+            if isinstance(r["F"], str) and r["F"].strip():
+                mx["folders"].append({"table": r["T"], "name": r["N"], "folder": r["F"]})
+    for _, r in q("SELECT t.Name AS T, c.ExplicitName AS C FROM [Table] t JOIN [Column] c ON c.TableID = t.ID WHERE t.DataCategory = 'Time' AND c.IsKey = 1"):
+        mx["dateTables"][r["T"]] = r["C"]
+    groups = {}
+    for _, r in q("SELECT g.ID AS G, t.Name AS T, g.Precedence AS P FROM [CalculationGroup] g JOIN [Table] t ON g.TableID = t.ID"):
+        cols = [c["C"] for _, c in q(f"SELECT c.ExplicitName AS C FROM [Column] c JOIN [Table] t ON c.TableID = t.ID WHERE t.Name = '{str(r['T']).replace(chr(39), chr(39) * 2)}'")]
+        col = next((c for c in cols if isinstance(c, str) and c != "Ordinal" and not c.startswith("RowNumber-")), "Name")
+        groups[r["G"]] = {"table": r["T"], "column": col, "precedence": int(r["P"] or 0), "items": []}
+    fmt = {r["I"]: r["E"] for _, r in q("SELECT ID AS I, Expression AS E FROM [FormatStringDefinition]")}
+    for _, r in q("SELECT CalculationGroupID AS G, Name AS N, Expression AS E, Ordinal AS O, FormatStringDefinitionID AS F FROM [CalculationItem]"):
+        g = groups.get(r["G"])
+        if g is not None:
+            item = {"name": r["N"], "expression": r["E"] if isinstance(r["E"], str) else "", "ordinal": int(r["O"] or 0)}
+            if isinstance(fmt.get(r["F"]), str):
+                item["formatString"] = fmt[r["F"]]
+            g["items"].append(item)
+    for g in groups.values():
+        g["items"].sort(key=lambda i: i["ordinal"])
+        mx["calcGroups"].append(g)
+    roles = {}
+    for _, r in q("SELECT ID AS I, Name AS N FROM [Role]"):
+        roles[r["I"]] = {"name": r["N"], "filters": []}
+    for _, r in q("SELECT p.RoleID AS R, t.Name AS T, p.FilterExpression AS E FROM [TablePermission] p JOIN [Table] t ON p.TableID = t.ID"):
+        if r["R"] in roles and isinstance(r["E"], str) and r["E"].strip():
+            roles[r["R"]]["filters"].append({"table": r["T"], "expression": r["E"]})
+    mx["roles"].extend(roles.values())
+
+
+def model_extras_tmsl(model, out):
+    """Same as model_extras_sqlite, from TMSL (DataModelSchema / model.bim)."""
+    mx = out["model"]
+    for t in model.get("tables", []):
+        name = t["name"]
+        for h in t.get("hierarchies", []):
+            lv = sorted(h.get("levels", []), key=lambda l: l.get("ordinal", 0))
+            mx["hierarchies"].append({"table": name, "name": h["name"], "levels": [{"name": l["name"], "column": l["column"]} for l in lv]})
+            if h.get("displayFolder"):
+                mx["folders"].append({"table": name, "name": h["name"], "folder": h["displayFolder"]})
+        for c in t.get("columns", []) + t.get("measures", []):
+            if c.get("displayFolder"):
+                mx["folders"].append({"table": name, "name": c["name"], "folder": c["displayFolder"]})
+        if t.get("dataCategory") == "Time":
+            key = next((c["name"] for c in t.get("columns", []) if c.get("isKey")), None)
+            if key:
+                mx["dateTables"][name] = key
+        cg = t.get("calculationGroup")
+        if cg is not None:
+            col = next((c["name"] for c in t.get("columns", []) if c["name"] != "Ordinal" and c.get("type") != "rowNumber"), "Name")
+            items = sorted(cg.get("calculationItems", []), key=lambda i: i.get("ordinal", 0))
+            mx["calcGroups"].append({"table": name, "column": col, "precedence": int(cg.get("precedence", 0)), "items": [
+                {"name": i["name"], "expression": text_of(i.get("expression")),
+                 **({"formatString": text_of(i["formatStringDefinition"].get("expression"))} if i.get("formatStringDefinition") else {})}
+                for i in items]})
+    for r in model.get("roles", []):
+        mx["roles"].append({"name": r["name"], "filters": [{"table": p["name"], "expression": text_of(p.get("filterExpression"))}
+                                                          for p in r.get("tablePermissions", []) if text_of(p.get("filterExpression")).strip()]})
+
+
 def from_schema(z, out):
     schema = json.loads(utf16(z, "DataModelSchema"))
     model = schema.get("model", {})
+    model_extras_tmsl(model, out)
     for t in model.get("tables", []):
         name = t["name"]
         if SKIP_TABLE.match(name):
@@ -209,7 +296,8 @@ def main():
     path, outdir = sys.argv[1], sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
     out = {"file": path, "kind": None, "tables": [], "relationships": [], "measures": [],
-           "layout": None, "resources": {}, "customVisuals": [], "parameters": [], "warnings": []}
+           "layout": None, "resources": {}, "customVisuals": [], "parameters": [], "warnings": [],
+           "model": {"hierarchies": [], "folders": [], "dateTables": {}, "calcGroups": [], "roles": []}}
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         if "Report/Layout" in names:

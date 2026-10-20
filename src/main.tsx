@@ -18,3 +18,5 @@ import { TPL as QM_TPL } from './components/QuickMeasure';
 (window as any).__linbiPQ = { compileQuery, mToSql, queryM, mToSteps, mToQuery, inlineFromM };
 import * as dax from './dax';
 (window as any).__linbiDax = dax;
+import { runVisualQuery } from './visuals/useVisualData';
+(window as any).__linbiRun = runVisualQuery;

@@ -146,7 +146,14 @@ export const autoDateColumns = (tables: TableMeta[]) => tables.flatMap((t) => (t
 
 /** `autoDates`: add the LocalDateTable/DateTableTemplate tables, variations and relationships (date hierarchies of the report). */
 export function buildModelSchema(report: Report, tables: TableMeta[], autoDates = autoDateOn(report)) {
-  const dates = autoDates ? autoDateColumns(tables).map((d) => ({ ...d, local: `LocalDateTable_${crypto.randomUUID()}`, rel: crypto.randomUUID() })) : [];
+  const calcOf = (t: string) => report.calcGroups?.find((g) => g.table === t);
+  // Tables marked as date table and calculation groups get no automatic date hierarchy (like Power BI).
+  const dates = autoDates ? autoDateColumns(tables.filter((t) => !report.dateTables?.[t.name] && !calcOf(t.name))).map((d) => ({ ...d, local: `LocalDateTable_${crypto.randomUUID()}`, rel: crypto.randomUUID() })) : [];
+  const folderOf = (t: string, f: string) => report.displayFolders?.[t + '\u0001' + f];
+  const hierarchiesOf = (t: string) => (report.hierarchies ?? []).filter((h) => h.table === t).map((h) => ({
+    name: h.name, lineageTag: crypto.randomUUID(), ...(folderOf(t, h.name) ? { displayFolder: folderOf(t, h.name) } : {}),
+    levels: h.levels.map((c, ordinal) => ({ name: c, ordinal, column: c, lineageTag: crypto.randomUUID() })),
+  }));
   const dateOf = (t: string, c: string) => dates.find((d) => d.table === t && d.column === c);
   const daxTable = (n: string) => `'${n.replace(/'/g, "''")}'`, daxCol = (n: string) => `[${n.replace(/]/g, ']]')}]`;
   const numeric = (t: string) => ['int64', 'double', 'decimal'].includes(t);
@@ -155,7 +162,22 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
   const measuresOf = (table: string) => report.measures.filter((m) => m.table === table).map((m) => ({
     name: m.name, expression: m.expression.split('\n'), lineageTag: crypto.randomUUID(),
     ...(m.formatString ? { formatString: m.formatString } : {}),
+    ...(folderOf(table, m.name) ? { displayFolder: folderOf(table, m.name) } : {}),
   }));
+  /** Calculation group table: Power BI rebuilds its rows from the items. */
+  const calcTable = (t: TableMeta, g: NonNullable<ReturnType<typeof calcOf>>) => ({
+    name: t.name, lineageTag: crypto.randomUUID(),
+    calculationGroup: {
+      precedence: g.precedence,
+      calculationItems: g.items.map((it, ordinal) => ({ name: it.name, expression: it.expression.split('\n'), ordinal, ...(it.formatString ? { formatStringDefinition: { expression: it.formatString } } : {}) })),
+    },
+    columns: [
+      { name: g.column, dataType: 'string', sourceColumn: 'Name', sortByColumn: 'Ordinal', summarizeBy: 'none', lineageTag: crypto.randomUUID(), ...(folderOf(t.name, g.column) ? { displayFolder: folderOf(t.name, g.column) } : {}) },
+      { name: 'Ordinal', dataType: 'int64', sourceColumn: 'Ordinal', isHidden: true, formatString: '0', summarizeBy: 'sum', lineageTag: crypto.randomUUID() },
+    ],
+    partitions: [{ name: `Partizione-${crypto.randomUUID().slice(0, 8)}`, mode: 'import', source: { type: 'calculationGroup' } }],
+    measures: measuresOf(t.name),
+  });
   return {
     name: crypto.randomUUID(),
     compatibilityLevel: 1550,
@@ -164,9 +186,11 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
       dataAccessOptions: { legacyRedirects: true, returnErrorValuesAsNull: true },
       defaultPowerBIDataSourceVersion: 'powerBI_V3',
       sourceQueryCulture: 'it-IT',
-      tables: tables.map((t): any => ({
+      ...(report.calcGroups?.length ? { discourageImplicitMeasures: true } : {}),
+      tables: tables.map((t): any => (calcOf(t.name) ? calcTable(t, calcOf(t.name)!) : {
         name: t.name,
         lineageTag: crypto.randomUUID(),
+        ...(report.dateTables?.[t.name] ? { dataCategory: 'Time' } : {}),
         columns: t.columns.map((c) => {
           const tt = tomType(c.type);
           const calc = t.calcColumns?.find((x) => x.name === c.name);
@@ -180,6 +204,8 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
             ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'Short Date' : 'General Date' } : {}),
             ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
             ...(t.dataCategory?.[c.name] ? { dataCategory: t.dataCategory[c.name] } : {}),
+            ...(report.dateTables?.[t.name] === c.name ? { isKey: true } : {}),
+            ...(folderOf(t.name, c.name) ? { displayFolder: folderOf(t.name, c.name) } : {}),
             ...(dateOf(t.name, c.name) ? { variations: [{ name: 'Variation', relationship: dateOf(t.name, c.name)!.rel, defaultHierarchy: { table: dateOf(t.name, c.name)!.local, hierarchy: DATE_HIERARCHY }, isDefault: true }] } : {}),
             annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }, ...(dateOf(t.name, c.name) ? [{ name: 'UnderlyingDateTimeDataType', value: tomType(c.type).m === 'type date' ? 'Date' : 'DateTime' }] : [])],
           };
@@ -189,6 +215,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
           source: t.source.dax ? { type: 'calculated', expression: t.source.dax.split('\n') } : { type: 'm', expression: mExpression(t).split('\n') },
         }],
         measures: measuresOf(t.name),
+        ...(hierarchiesOf(t.name).length ? { hierarchies: hierarchiesOf(t.name) } : {}),
         annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
       })).concat(measureOnly.map((name) => ({
         name,
@@ -216,8 +243,15 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
         ...(r.cardinality === 'oneToOne' ? { fromCardinality: 'one' } : {}),
         ...(r.cardinality === 'manyToMany' ? { toCardinality: 'many' } : {}),
       })).concat(dates.map((d) => ({ name: d.rel, fromTable: d.table, fromColumn: d.column, toTable: d.local, toColumn: 'Date', joinOnDateBehavior: 'datePartOnly' }) as any)),
+      // Sicurezza a livello di riga.
+      ...(report.roles?.length ? {
+        roles: report.roles.map((r) => ({
+          name: r.name, modelPermission: 'read',
+          tablePermissions: r.filters.filter((f) => f.expression.trim()).map((f) => ({ name: f.table, filterExpression: f.expression.split('\n') })),
+        })),
+      } : {}),
       annotations: [
-        { name: 'PBI_QueryOrder', value: JSON.stringify(tables.map((t) => t.name)) },
+        { name: 'PBI_QueryOrder', value: JSON.stringify(tables.filter((t) => !calcOf(t.name)).map((t) => t.name)) },
         { name: '__PBI_TimeIntelligenceEnabled', value: dates.length ? '1' : '0' },
       ],
     },
@@ -304,6 +338,8 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
     .map((m) => ({ name: m.name, expression: m.expression, ...(m.formatString ? { formatString: m.formatString } : {}) }));
   const measureOnly = [...new Set(report.measures.map((m) => m.table))].filter((n) => !tables.some((t) => t.name === n));
   const calc = tables.filter((t) => t.calcColumns?.length || t.source.dax).map((t) => t.name);
+  if (report.calcGroups?.length) warnings.push(`Gruppi di calcolo (${report.calcGroups.map((g) => g.table).join(', ')}) non supportati dai dataset push: pubblicati come tabelle semplici, senza trasformare le misure.`);
+  if (report.roles?.length) warnings.push('Ruoli di sicurezza a livello di riga non supportati dai dataset push: omessi (usare la pubblicazione Fabric).');
   if (calc.length) warnings.push(`Colonne e tabelle calcolate pubblicate come valori fissi (${calc.join(', ')}): vengono ricalcolate a ogni nuova pubblicazione.`);
   const relationships = report.relationships.filter((r) => {
     if (!r.active) { warnings.push(`Relazione inattiva ${r.fromTable}[${r.fromColumn}] → ${r.toTable}[${r.toColumn}] non supportata dai dataset push: omessa.`); return false; }
@@ -386,7 +422,7 @@ export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string 
 export function buildFabricModel(report: Report, tables: TableMeta[], keepDb: boolean) {
   const model = buildModelSchema(report, tables);
   const warnings: string[] = [];
-  const embed = tables.filter((t) => !t.source.dax && !(keepDb && t.source.db && t.source.db.kind !== 'sqlite')).map((t) => ({
+  const embed = tables.filter((t) => !t.source.dax && !report.calcGroups?.some((g) => g.table === t.name) && !(keepDb && t.source.db && t.source.db.kind !== 'sqlite')).map((t) => ({
     table: t.name,
     columns: t.columns.filter((c) => !t.calcColumns?.some((x) => x.name === c.name)).map((c) => ({ name: c.name, m: tomType(c.type).m })),
   }));

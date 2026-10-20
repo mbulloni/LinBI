@@ -146,6 +146,10 @@ const UI: Record<string, ReactNode> = {
   sortDesc: <>{P('M4 2 V14 M1.5 11.5 L4 14 L6.5 11.5', K, 1)}<text x="12" y="7" fontSize="6" textAnchor="middle" fill={K}>Z</text><text x="12" y="14" fontSize="6" textAnchor="middle" fill={K}>A</text></>,
   gear: <><circle cx="8" cy="8" r="2.2" fill="none" stroke={K} />{P('M8 1.5 V3.5 M8 12.5 V14.5 M1.5 8 H3.5 M12.5 8 H14.5 M3.4 3.4 L4.8 4.8 M11.2 11.2 L12.6 12.6 M3.4 12.6 L4.8 11.2 M11.2 4.8 L12.6 3.4', K, 1.1)}</>,
   warning: <><path d="M8 1.5 L15 14 H1 Z" fill="#F2C811" stroke="#8A6D00" strokeWidth=".8" />{P('M8 6 V10', K, 1.4)}<circle cx="8" cy="12" r=".8" fill={K} /></>,
+  hierarchy: <>{P('M3 3 H7 M5 3 V12.5 H9 M5 8 H9', K, 1)}<rect x="9" y="6.5" width="5" height="3" fill="none" stroke={K} /><rect x="9" y="11" width="5" height="3" fill="none" stroke={K} /></>,
+  folder: P('M1.5 4 H6 L7.5 5.5 H14.5 V13.5 H1.5 Z', K, 1),
+  shield: P('M8 1.5 L13.5 3.5 V7.5 C13.5 11 11 13.5 8 14.5 C5 13.5 2.5 11 2.5 7.5 V3.5 Z', K, 1),
+  calcGroup: <><rect x="1.5" y="2.5" width="13" height="11" fill="none" stroke={K} /><text x="8" y="11.5" fontSize="8" textAnchor="middle" fill={K} fontWeight="600">fx</text></>,
   pin: P('M10 2 L14 6 L11 7 L8 10 L8.5 13 L3 7.5 L6 8 L9 5 Z M5.5 10.5 L2 14', K, 1),
 };
 

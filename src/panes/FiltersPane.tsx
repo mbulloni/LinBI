@@ -14,7 +14,7 @@ function FilterCard({ f, scope, removable }: { f: Filter; scope: FilterScope; re
 
   useEffect(() => {
     if (!open) return;
-    api.query(`SELECT CAST(${qi(f.column)} AS VARCHAR) AS v, COUNT(*) AS n FROM ${qi(f.table)} GROUP BY 1 ORDER BY 1 NULLS LAST LIMIT 2000`)
+    api.queryAs(`SELECT CAST(${qi(f.column)} AS VARCHAR) AS v, COUNT(*) AS n FROM ${qi(f.table)} GROUP BY 1 ORDER BY 1 NULLS LAST LIMIT 2000`)
       .then((r) => setValues(r.rows.map((x) => ({ v: x.v, n: Number(x.n) }))))
       .catch(() => setValues([]));
   }, [open, f.table, f.column, s.dataVersion]);

@@ -1,5 +1,5 @@
-import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, TableMeta, Visual } from './types';
-import { measureSql } from './dax';
+import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, Report, TableMeta, Visual } from './types';
+import { measureSql, type Model } from './dax';
 import { isNumeric } from './format';
 import { visualDef } from './visuals/catalog';
 import { cfInput, fieldKey } from './visuals/condfmt';
@@ -175,6 +175,11 @@ export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[]
   return out;
 }
 
+/** Model properties the DAX compiler needs besides tables/relationships/measures. */
+export function modelExtras(r: Report, user?: string): Omit<Model, 'tables' | 'rels' | 'measures'> {
+  return { dateTables: r.dateTables, calcGroups: r.calcGroups, ...(user ? { user } : {}) };
+}
+
 /* ------------------------------------------------------------------ */
 /* Query construction                                                  */
 /* ------------------------------------------------------------------ */
@@ -208,7 +213,7 @@ function missingError(ctx: Ctx, base: string, missing: string): string {
  * Measures are evaluated on their own table ("base") with dims/filters joined in, mirroring
  * how Power BI evaluates a measure in the filter context of each group.
  */
-function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx): Core {
+function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx, crossJoin = false): Core {
   const dimTables = uniq(dims.map((d) => d.field.table));
   const filterTables = uniq(ctx.filters.map((f) => f.table));
 
@@ -218,6 +223,24 @@ function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx): Core {
     for (const base of candidates) {
       const t = joinTree(ctx.rels, base, dimTables, filterTables);
       if (!('missing' in t)) { tree = t; break; }
+    }
+    // DAX measures only (SUMMARIZECOLUMNS): fields of unrelated tables (e.g. a calculation group)
+    // are cross joined; groups where every measure is blank are dropped afterwards.
+    if (!tree && crossJoin) {
+      const comps: string[][] = [];
+      for (const t of dimTables) {
+        const c = comps.find((x) => x.some((y) => connected(ctx.rels, y, t)));
+        if (c) c.push(t); else comps.push([t]);
+      }
+      if (comps.length > 1) {
+        const parts: string[] = [];
+        for (const c of comps) {
+          const p = core(dims.filter((d) => c.includes(d.field.table)), [], ctx);
+          if ('error' in p) return p;
+          parts.push(`(${p.sql}) AS x${parts.length}`);
+        }
+        return { sql: `SELECT * FROM ${parts.join(' CROSS JOIN ')}` };
+      }
     }
     if (!tree) return { error: missingError(ctx, dimTables[0], dimTables[1] ?? dimTables[0]) };
     const a = (d: QueryItem) => tree!.alias.get(d.field.table);
@@ -278,6 +301,7 @@ function finalize(c: { sql: string }, dims: QueryItem[], measures: QueryItem[], 
 export function buildVisualQuery(
   v: Visual, tables: TableMeta[], rels: Relationship[], filters: Filter[], visuals: Visual[], cross: CrossFilter | null,
   daxMeasures: Measure[] = [],
+  modelExtras: Omit<Model, 'tables' | 'rels' | 'measures'> = {},
 ): VisualQuery | { error: string } | null {
   // These visuals run their own queries (visuals/AiVisuals.tsx).
   if (v.type === 'decompositionTree' || v.type === 'keyInfluencers' || v.type === 'smartNarrative' || v.type === 'qna') return null;
@@ -354,11 +378,11 @@ export function buildVisualQuery(
   }
   // DAX measures run as correlated subqueries over the groups produced by core():
   // each one sees the visual's filters plus "dim = this group's value".
-  const model = { tables, rels, measures: daxMeasures };
+  const model: Model = { tables, rels, measures: daxMeasures, ...modelExtras };
   const build = (ds: QueryItem[], ms: QueryItem[]): Core => {
     const plain = ms.filter((m) => m.field.agg !== 'measure');
     const dax = ms.filter((m) => m.field.agg === 'measure');
-    const c: Core = !ds.length && !plain.length ? { sql: 'SELECT 1 AS __one' } : core(ds, plain, ctx);
+    const c: Core = !ds.length && !plain.length ? { sql: 'SELECT 1 AS __one' } : core(ds, plain, ctx, !plain.length && dax.length > 0);
     if ('error' in c || !dax.length) return c;
     try {
       const groups = ds.map((d) => ({ table: d.field.table, column: d.field.column, ref: `g.${k(d)}`, ...(d.field.datePart ? { expr: (x: string) => partExpr(d.field.datePart, x) } : {}) }));

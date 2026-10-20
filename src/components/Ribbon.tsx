@@ -146,6 +146,11 @@ export function Ribbon() {
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} disabled={!s.tables.length} />
             <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', s.tables.find((t) => t.name === s.dataViewTable)?.name ?? s.tables[0]?.name)} disabled={!s.tables.length} />
             <Big icon="newTable" label={<>Nuova<br />tabella</>} onClick={() => s.startDax('table')} />
+            <Big icon="calcGroup" label={<>Gruppo di<br />calcolo</>} onClick={() => void s.createCalcGroup()} disabled={!s.report.measures.length} title={s.report.measures.length ? undefined : 'Serve almeno una misura esplicita'} />
+          </Group>
+          <Group label="Sicurezza">
+            <Big icon="shield" label={<>Gestisci<br />ruoli</>} onClick={() => s.set({ rolesDialog: true })} disabled={!s.tables.length} />
+            <Big icon="user" label={<>Visualizza<br />come</>} onClick={() => s.set({ viewAsDialog: true })} disabled={!s.tables.length} />
           </Group>
           <Group label="Dati"><Big icon="refresh" label="Aggiorna" onClick={() => s.refresh()} disabled={!s.tables.length} /></Group>
         </>}

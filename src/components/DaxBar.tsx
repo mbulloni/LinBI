@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { Icon } from './icons';
+import { DaxInput } from './DaxInput';
 
 const FORMATS: [string, string][] = [['', 'Generale'], ['0', 'Numero intero'], ['#,0.00', 'Numero decimale'], ['0.00%', 'Percentuale'], ['€ #,0.00', 'Valuta (€)']];
-const KIND_LABEL = { measure: 'Strumenti misura', column: 'Strumenti colonna', table: 'Strumenti tabella' } as const;
+const KIND_LABEL = { measure: 'Strumenti misura', column: 'Strumenti colonna', table: 'Strumenti tabella', calcItem: 'Elemento di calcolo' } as const;
 
 /** Power BI's formula bar for DAX: "Nome = espressione", ✓ to commit, ✗ (or Esc) to cancel. */
 export function DaxBar() {
@@ -31,13 +32,14 @@ export function DaxBar() {
           </>
         )}
         {ed.kind === 'column' && <span>Tabella: {ed.table}</span>}
-        <span className="hint">Invio per confermare · Maiusc+Invio per andare a capo · Esc per annullare</span>
+        {ed.kind === 'calcItem' && <span>Gruppo di calcolo: {ed.table} · usare SELECTEDMEASURE() per la misura nel contesto</span>}
+        <span className="hint">Invio per confermare · Maiusc+Invio per andare a capo · Ctrl+Spazio suggerimenti · Esc per annullare</span>
       </div>
       <div className="daxbar-row">
         <button title="Annulla" onClick={() => s.set({ daxEdit: null })}><Icon name="close" size={14} /></button>
         <button title="Conferma" className="ok" onClick={() => s.saveDax()}>✓</button>
-        <textarea ref={ref} rows={lines} spellCheck={false} value={ed.text}
-          onChange={(e) => set({ text: e.target.value })}
+        <DaxInput ref={ref} rows={lines} value={ed.text} home={ed.kind === 'measure' || ed.kind === 'column' ? ed.table : ''}
+          onChange={(text) => set({ text })}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); s.saveDax(); }
             if (e.key === 'Escape') s.set({ daxEdit: null });

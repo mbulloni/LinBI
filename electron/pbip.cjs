@@ -29,6 +29,32 @@ function fromTmsl(schema, out) {
   }
   for (const r of model.relationships ?? []) pushRel(out, r);
   pushParams(out, (model.expressions ?? []).map((e) => ({ name: e.name, expression: joinExpr(e.expression), description: e.description })));
+  const mx = extras(out);
+  for (const t of model.tables ?? []) {
+    for (const h of t.hierarchies ?? []) {
+      mx.hierarchies.push({ table: t.name, name: h.name, levels: [...(h.levels ?? [])].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map((l) => ({ name: l.name, column: l.column })) });
+      if (h.displayFolder) mx.folders.push({ table: t.name, name: h.name, folder: h.displayFolder });
+    }
+    for (const c of [...(t.columns ?? []), ...(t.measures ?? [])]) if (c.displayFolder) mx.folders.push({ table: t.name, name: c.name, folder: c.displayFolder });
+    const key = (t.columns ?? []).find((c) => c.isKey === true);
+    if (t.dataCategory === 'Time' && key) mx.dateTables[t.name] = key.name;
+    if (t.calculationGroup) {
+      const col = (t.columns ?? []).find((c) => c.name !== 'Ordinal' && c.type !== 'rowNumber')?.name ?? 'Name';
+      mx.calcGroups.push({
+        table: t.name, column: col, precedence: Number(t.calculationGroup.precedence ?? 0),
+        items: [...(t.calculationGroup.calculationItems ?? [])].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0)).map((i) => ({
+          name: i.name, expression: joinExpr(i.expression), ...(i.formatStringDefinition ? { formatString: joinExpr(i.formatStringDefinition.expression) } : {}),
+        })),
+      });
+    }
+  }
+  for (const r of model.roles ?? []) mx.roles.push({ name: r.name, filters: (r.tablePermissions ?? []).filter((p) => joinExpr(p.filterExpression).trim()).map((p) => ({ table: p.name, expression: joinExpr(p.filterExpression) })) });
+}
+
+/** Model properties besides tables/relationships/measures (same shape as read_pbix.py). */
+function extras(out) {
+  out.model ??= { hierarchies: [], folders: [], dateTables: {}, calcGroups: [], roles: [] };
+  return out.model;
 }
 
 function pushTable(out, name, m, dax, columns, measures, kindOf) {
@@ -121,7 +147,7 @@ function parseTmdl(text) {
     const ind = indentOf(line);
     while (stack.length > 1 && stack[stack.length - 1].indent >= ind) stack.pop();
     const parent = stack[stack.length - 1];
-    const kw = /^(table|column|measure|partition|relationship|hierarchy|level|annotation|expression|model|database|role|culture|calculationGroup|calculationItem|perspective|dataSource|ref|cultureInfo|linguisticMetadata|variation|changedProperty|extendedProperty|queryGroup|function)\b(?!\s*:)\s*(.*)$/.exec(t);
+    const kw = /^(table|column|measure|partition|relationship|hierarchy|level|annotation|expression|model|database|role|tablePermission|culture|calculationGroup|calculationItem|perspective|dataSource|ref|cultureInfo|linguisticMetadata|variation|changedProperty|extendedProperty|queryGroup|function)\b(?!\s*:)\s*(.*)$/.exec(t);
     if (kw) {
       const [name, rest] = takeName(kw[2]);
       const obj = { kind: kw[1], name, props: {}, children: [], indent: ind };
@@ -178,6 +204,27 @@ function fromTmdl(dir, out) {
     pushTable(out, t.name, m, dax, columns, measures, (c) => c.type);
   }
   pushParams(out, objs.filter((o) => o.kind === 'expression').map((e) => ({ name: e.name, expression: e.value ?? '', description: e.props.description })));
+  const mx = extras(out);
+  for (const t of objs.filter((o) => o.kind === 'table')) {
+    for (const h of t.children.filter((c) => c.kind === 'hierarchy')) {
+      mx.hierarchies.push({ table: t.name, name: h.name, levels: h.children.filter((l) => l.kind === 'level').map((l) => ({ name: l.name, column: unquote(l.props.column) ?? l.name })) });
+      if (h.props.displayFolder) mx.folders.push({ table: t.name, name: h.name, folder: unquote(h.props.displayFolder) });
+    }
+    for (const c of t.children.filter((x) => x.kind === 'column' || x.kind === 'measure')) if (c.props.displayFolder) mx.folders.push({ table: t.name, name: c.name, folder: unquote(c.props.displayFolder) });
+    const key = t.children.find((c) => c.kind === 'column' && c.props.isKey === 'true');
+    if (unquote(t.props.dataCategory) === 'Time' && key) mx.dateTables[t.name] = key.name;
+    const cg = t.children.find((c) => c.kind === 'calculationGroup');
+    if (cg) {
+      const col = t.children.find((c) => c.kind === 'column' && c.name !== 'Ordinal')?.name ?? 'Name';
+      mx.calcGroups.push({
+        table: t.name, column: col, precedence: Number(cg.props.precedence ?? 0),
+        items: cg.children.filter((i) => i.kind === 'calculationItem').map((i) => ({ name: i.name, expression: i.value ?? '', ...(i.props.formatStringDefinition ? { formatString: i.props.formatStringDefinition } : {}) })),
+      });
+    }
+  }
+  for (const r of objs.filter((o) => o.kind === 'role')) {
+    mx.roles.push({ name: r.name, filters: r.children.filter((p) => p.kind === 'tablePermission' && (p.value ?? '').trim()).map((p) => ({ table: p.name, expression: p.value })) });
+  }
   for (const r of objs.filter((o) => o.kind === 'relationship')) {
     const [ft, fc] = tableColumn(r.props.fromColumn ?? '');
     const [tt, tc] = tableColumn(r.props.toColumn ?? '');

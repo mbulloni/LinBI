@@ -14,6 +14,8 @@ import { DatabaseDialog } from './components/DatabaseDialog';
 import { PublishDialog } from './components/PublishDialog';
 import { QnaExplorer } from './qna/QnaExplorer';
 import { OptionsDialog } from './components/OptionsDialog';
+import { ModelProperties } from './components/ModelProperties';
+import { RolesDialog, ViewAsBar, ViewAsDialog } from './components/RolesDialog';
 import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
 import { SourceDialog } from './components/SourceDialogs';
@@ -96,6 +98,7 @@ export function App() {
         <div className="readbar"><b>Modalità lettura</b><span>I pulsanti e i navigatori rispondono al clic. Esc per tornare alla modifica.</span>
           <button className="btn" onClick={() => s.set({ readMode: false })}>Modifica</button></div>
       ) : <><Ribbon /><DaxBar /></>}
+      <ViewAsBar />
       <div className={'main' + (s.readMode ? ' reading' : '')}>
         {!s.readMode && <div className="rail">
           {VIEWS.map(([k, icon, label]) => (
@@ -122,6 +125,9 @@ export function App() {
       <PublishDialog />
       <QnaExplorer />
       <OptionsDialog />
+      <ModelProperties />
+      <RolesDialog />
+      <ViewAsDialog />
       <ScriptEditor />
       <ParameterDialog />
       <SourceDialog />

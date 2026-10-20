@@ -272,7 +272,22 @@ export interface Report {
   customVisuals?: CustomVisualPkg[];
   /** Opzioni › File corrente. */
   options?: ReportOptions;
+  /** Gerarchie utente (Data pane: table › hierarchy › levels). */
+  hierarchies?: Hierarchy[];
+  /** Cartelle di visualizzazione: "table\u0001field" (column or measure) → folder ("A\\B" = subfolder). */
+  displayFolders?: Record<string, string>;
+  /** Contrassegna come tabella delle date: table → its date column. */
+  dateTables?: Record<string, string>;
+  /** Gruppi di calcolo: the table (one text column + Ordinal) is materialized from the items. */
+  calcGroups?: CalcGroup[];
+  /** Sicurezza a livello di riga: Gestisci ruoli (DAX row filters per table). */
+  roles?: RoleDef[];
 }
+
+export interface Hierarchy { table: string; name: string; levels: string[]; }
+export interface CalcItem { name: string; expression: string; formatString?: string; }
+export interface CalcGroup { table: string; column: string; precedence: number; items: CalcItem[]; }
+export interface RoleDef { name: string; filters: { table: string; expression: string }[]; }
 
 export interface ReportOptions {
   /** Data/ora automatica: LocalDateTable_* + date hierarchies in exports (default on). */

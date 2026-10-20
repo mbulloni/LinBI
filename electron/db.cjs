@@ -3,11 +3,16 @@ const path = require('path');
 const { DuckDBInstance } = require('@duckdb/node-api');
 
 let conn = null;
+let instance = null;
+
+async function instanceOf() {
+  if (!instance) instance = await DuckDBInstance.create(':memory:');
+  return instance;
+}
 
 async function connection() {
   if (!conn) {
-    const instance = await DuckDBInstance.create(':memory:');
-    conn = await instance.connect();
+    conn = await (await instanceOf()).connect();
     // Nested DAX measures compile to deeply nested SQL.
     await conn.run('SET max_expression_depth TO 20000');
   }
@@ -39,6 +44,33 @@ async function sourceExpr(file, sheet) {
 async function query(sql) {
   const c = await connection();
   const reader = await c.runAndReadAll(sql);
+  return { columns: reader.columnNames(), rows: reader.getRowObjectsJson() };
+}
+
+// Visualizza come ruolo (RLS): the restricted tables are copied to schema "rls" and report queries run
+// on a second connection whose search_path puts rls before main (DAX ALL() cannot remove the filter).
+let roleConn = null;
+let roleOn = false;
+
+async function setRole(tables) {
+  const c = await connection();
+  await c.run('DROP SCHEMA IF EXISTS rls CASCADE');
+  roleOn = Array.isArray(tables) && tables.length > 0;
+  if (!roleOn) return;
+  await c.run('CREATE SCHEMA rls');
+  for (const t of tables) {
+    await c.run(`CREATE TABLE rls.${qi(t.table)} AS SELECT r.* FROM main.${qi(t.table)} r WHERE ${t.where}`);
+  }
+  if (!roleConn) {
+    roleConn = await (await instanceOf()).connect();
+    await roleConn.run('SET max_expression_depth TO 20000');
+  }
+  await roleConn.run("SET search_path = 'rls,main'");
+}
+
+async function queryAs(sql) {
+  if (!roleOn || !roleConn) return query(sql);
+  const reader = await roleConn.runAndReadAll(sql);
   return { columns: reader.columnNames(), rows: reader.getRowObjectsJson() };
 }
 
@@ -114,4 +146,4 @@ function inlineExpr(inline) {
   return `(SELECT * FROM (VALUES ${inline.rows.map((r) => `(${inline.columns.map((_, i) => val(r[i])).join(', ')})`).join(', ')}) AS t(${cols.join(', ')}))`;
 }
 
-module.exports = { query, preview, importFile, materialize, sourceExpr, inlineExpr, addCalcColumn, dropColumn, describe, exportParquet, dropTable, createEmpty, kindOf };
+module.exports = { query, queryAs, setRole, preview, importFile, materialize, sourceExpr, inlineExpr, addCalcColumn, dropColumn, describe, exportParquet, dropTable, createEmpty, kindOf };

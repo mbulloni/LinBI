@@ -5,6 +5,7 @@ import { daxQuerySql, type DaxQueryResult } from '../dax';
 import { fmtFull, isDate, isNumeric } from '../format';
 import { Icon } from './icons';
 import { Menu } from './Menu';
+import { DaxInput } from './DaxInput';
 
 let inserter: ((text: string) => void) | null = null;
 /** Inserts text at the cursor of the DAX query editor (fields clicked in the Data pane). */
@@ -39,6 +40,7 @@ function examples(s: ReturnType<typeof useStore.getState>): [string, string][] {
 export function DaxQueryView() {
   const s = useStore();
   const ta = useRef<HTMLTextAreaElement>(null);
+  const gutter = useRef<HTMLDivElement>(null);
   const [results, setResults] = useState<Result[]>([]);
   const [tab, setTab] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -92,9 +94,9 @@ export function DaxQueryView() {
         <span className="hint">Ctrl+Invio per eseguire · clic su un campo nel riquadro Dati per inserirlo</span>
       </div>
       <div className="daxview-editor">
-        <div className="gutter">{Array.from({ length: lines }, (_, i) => <div key={i}>{i + 1}</div>)}</div>
-        <textarea ref={ta} spellCheck={false} value={text} onChange={(e) => setText(e.target.value)}
-          onScroll={(e) => { const g = e.currentTarget.previousElementSibling as HTMLElement; g.scrollTop = e.currentTarget.scrollTop; }}
+        <div className="gutter" ref={gutter}>{Array.from({ length: lines }, (_, i) => <div key={i}>{i + 1}</div>)}</div>
+        <DaxInput ref={ta} value={text} onChange={setText}
+          onScroll={(e) => { if (gutter.current) gutter.current.scrollTop = e.currentTarget.scrollTop; }}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
             if (e.key === 'F5') { e.preventDefault(); run(); }

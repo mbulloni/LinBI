@@ -16,6 +16,14 @@ export interface PowerBIModel {
   sensitivity?: { id: string; name: string; tenant?: string };
   /** Power Query parameters (expressions with IsParameterQuery=true). */
   parameters?: { name: string; expression: string; description?: string }[];
+  /** User hierarchies (level name + column), display folders, date tables (table → key column), calculation groups, roles. */
+  model?: {
+    hierarchies: { table: string; name: string; levels: { name: string; column: string }[] }[];
+    folders: { table: string; name: string; folder: string }[];
+    dateTables: Record<string, string>;
+    calcGroups: { table: string; column: string; precedence: number; items: { name: string; expression: string; formatString?: string }[] }[];
+    roles: { name: string; filters: { table: string; expression: string }[] }[];
+  };
   warnings: string[];
 }
 export type WebCredKind = 'basic' | 'apikey' | 'header' | 'oauth';
@@ -40,6 +48,10 @@ type TableInfo = { name: string; rowCount: number; columns: ColumnMeta[] };
 
 interface Api {
   query(sql: string): Promise<QueryResult>;
+  /** Report queries: under Visualizza come ruolo they see only the role's rows. */
+  queryAs(sql: string): Promise<QueryResult>;
+  /** Restricted tables of the roles viewed as (null = stop viewing as a role). */
+  setRole(tables: { table: string; where: string }[] | null): Promise<void>;
   preview(file: string, sheet?: string): Promise<QueryResult>;
   importFile(file: string, table: string, sheet?: string): Promise<TableInfo>;
   dropTable(table: string): Promise<void>;

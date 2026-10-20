@@ -55,6 +55,8 @@ function handle(channel, fn) {
 }
 
 handle('db:query', (sql) => db.query(sql));
+handle('db:queryAs', (sql) => db.queryAs(sql));
+handle('db:setRole', (tables) => db.setRole(tables));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
