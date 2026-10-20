@@ -341,6 +341,8 @@ interface State {
 
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 let calcSync: Promise<void> = Promise.resolve();
+/** Tables materialized for calculation groups (dropped when their group goes away, e.g. undo). */
+const calcTables = new Set<string>();
 
 function tableNameFor(path: string, existing: TableMeta[]): string {
   const base = path.split('/').pop()!.replace(/\.[^.]+$/, '').replace(/[^\p{L}\p{N} _-]/gu, '_') || 'Tabella';
@@ -403,7 +405,7 @@ export const useStore = create<State>((set, get) => {
     if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg && !x.datePart)) return well.key;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
     // A date on a hierarchy axis becomes the automatic date hierarchy, like Power BI.
-    if (!plain && well.hierarchy && agg === 'none' && /^(DATE|TIMESTAMP)/i.test(columnOf(f)?.type ?? '') && !list.some((x) => x.table === f.table && x.column === f.column)) {
+    if (!plain && !get().report.dateTables?.[f.table] && well.hierarchy && agg === 'none' && /^(DATE|TIMESTAMP)/i.test(columnOf(f)?.type ?? '') && !list.some((x) => x.table === f.table && x.column === f.column)) {
       for (const datePart of ['year', 'quarter', 'month', 'day'] as const) list.push({ ...f, agg, datePart });
       return well.key;
     }
@@ -813,10 +815,11 @@ export const useStore = create<State>((set, get) => {
     setCalcGroup: (table, patch) => {
       const g = get().report.calcGroups?.find((x) => x.table === table);
       if (!g) return;
-      if (patch.column && patch.column !== g.column) {
-        const col = patch.column, old = g.column;
-        get().mut((r) => {
-          // Fields, filters and slicers on the old column follow the rename.
+      const old = g.column;
+      // One undo step: fields, filters and slicers on the old column follow the rename.
+      get().mut((r) => {
+        if (patch.column && patch.column !== old) {
+          const col = patch.column;
           const walk = (o: any) => {
             if (!o || typeof o !== 'object') return;
             if (Array.isArray(o)) { o.forEach(walk); return; }
@@ -824,14 +827,22 @@ export const useStore = create<State>((set, get) => {
             Object.values(o).forEach(walk);
           };
           walk(r.pages); walk(r.reportFilters); walk(r.bookmarks);
-        });
-      }
-      get().mut((r) => { Object.assign(r.calcGroups!.find((x) => x.table === table)!, patch); });
+        }
+        Object.assign(r.calcGroups!.find((x) => x.table === table)!, patch);
+      });
       void get().syncCalcTables();
     },
     // Serialized: the store subscription and the editing actions may both ask for a sync.
     syncCalcTables: () => (calcSync = calcSync.then(async () => {
+      // Undo of "Gruppo di calcolo": its table (inline, sorted by Ordinal) goes away too.
+      for (const name of [...calcTables].filter((n) => !get().report.calcGroups?.some((g) => g.table === n))) {
+        calcTables.delete(name);
+        if (!get().tables.some((x) => x.name === name)) continue;
+        await api.dropTable(name);
+        set((st) => ({ tables: st.tables.filter((x) => x.name !== name), dataVersion: st.dataVersion + 1 }));
+      }
       for (const g of get().report.calcGroups ?? []) {
+        calcTables.add(g.table);
         const t = get().tables.find((x) => x.name === g.table);
         const rows = g.items.map((it, i) => [it.name, String(i)]);
         const inline = t?.source.inline;
@@ -1622,7 +1633,7 @@ export async function prepareCfExport() {
 useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) applyTheme(s.report.theme); });
 useStore.subscribe((s, prev) => { if (s.report.customVisuals !== prev.report.customVisuals) setCustomVisuals(s.report.customVisuals); });
 // Calculation group tables follow their items (also after undo/redo).
-useStore.subscribe((s, prev) => { if (s.report.calcGroups !== prev.report.calcGroups && s.report.calcGroups?.length) void s.syncCalcTables(); });
+useStore.subscribe((s, prev) => { if (s.report.calcGroups !== prev.report.calcGroups) void s.syncCalcTables(); });
 
 // File passed on the command line (or opened from the file manager).
 api.onOpenArg((file) => useStore.getState().open(file));

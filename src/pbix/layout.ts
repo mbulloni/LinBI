@@ -425,8 +425,11 @@ const mobileLayout = (p: Page, v: Visual) => {
 
 /** Filters on a date level target the level of the automatic date hierarchy (when exported with date tables). */
 let DATE_HIER = true;
+/** Tables marked as date table: their date columns have no automatic date hierarchy in the model. */
+let NO_VAR = new Set<string>();
+const dh = (f: { table: string }) => DATE_HIER && !NO_VAR.has(f.table);
 function filterJson(f: Filter, name: string) {
-  const level = f.datePart && DATE_HIER ? f.datePart : undefined;
+  const level = f.datePart && dh(f) ? f.datePart : undefined;
   const lit = (v: string) => (v === NULL_KEY ? 'null' : level === 'year' || level === 'day' ? `${Number(v)}L` : `'${v.replace(/'/g, "''")}'`);
   const values = f.values.map((v) => [{ Literal: { Value: lit(v) } }]);
   const col = (src: any) => (level ? levelExpr(src, f.column, level) : { Column: { Expression: src, Property: f.column } });
@@ -508,8 +511,9 @@ function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
 }
 
 /** `dateHierarchies`: date levels as HierarchyLevel of the automatic date tables (false: plain date column). */
-export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean } = {}): { layout: string; resources: Record<string, string> } {
+export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean; dateTables?: string[] } = {}): { layout: string; resources: Record<string, string> } {
   DATE_HIER = opts.dateHierarchies !== false;
+  NO_VAR = new Set(opts.dateTables ?? []);
   const resources: Record<string, string> = {};
   const addResource = (dataUrl: string) => {
     const m = /^data:image\/(\w+)/.exec(dataUrl);
@@ -539,11 +543,11 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         // Date hierarchy levels go out as the plain date column (the .pbit model has no auto date tables).
         // Without date tables, date hierarchy levels go out once as the plain date column.
         const seenDate = new Set<string>();
-        for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || DATE_HIER || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
+        for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || dh(x) || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
           const src = { SourceRef: { Source: alias[f.table] } };
           let expr: any, name: string;
           if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
-          else if (f.agg === 'none' && f.datePart && DATE_HIER) { expr = levelExpr(src, f.column, f.datePart); name = `${f.table}.${f.column}.Variation.${DATE_HIERARCHY}.${DATE_LEVEL[f.datePart]}`; }
+          else if (f.agg === 'none' && f.datePart && dh(f)) { expr = levelExpr(src, f.column, f.datePart); name = `${f.table}.${f.column}.Variation.${DATE_HIERARCHY}.${DATE_LEVEL[f.datePart]}`; }
           else if (f.agg === 'none') { expr = { Column: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
           else {
             const [fn, label] = AGG_OUT[f.agg]!;
@@ -554,7 +558,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           nameByKey.set(fieldKey(f), name);
           // Drill hierarchy: only the current level is active (Power BI's drill state); single fields are active.
           const list = v.fields[w.key] ?? [];
-          const active = list.length < 2 || !w.hierarchy || (f.datePart && !DATE_HIER) || list.indexOf(f) === Math.min(v.drill?.level ?? 0, list.length - 1);
+          const active = list.length < 2 || !w.hierarchy || (f.datePart && !dh(f)) || list.indexOf(f) === Math.min(v.drill?.level ?? 0, list.length - 1);
           (projections[role] ??= []).push({ queryRef: name, ...((role === 'Category' || role === 'Rows') && active ? { active: true } : {}) });
         }
       }

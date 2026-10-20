@@ -32,7 +32,9 @@ function context(text: string, pos: number, model: { tables: { name: string; col
     return items.length ? { from: pos - br[3].length, to: pos, items } : null;
   }
   // Inside ' … : table names.
-  const q = /'((?:[^']|'')*)$/.exec(before);
+  // Only after an opening quote: an odd number of quotes outside "strings" before the caret.
+  const quotes = before.replace(/"[^"]*"?/g, '').match(/'/g)?.length ?? 0;
+  const q = quotes % 2 === 1 ? /'((?:[^']|'')*)$/.exec(before) : null;
   if (q && (before.slice(0, q.index).match(/"/g)?.length ?? 0) % 2 === 0) {
     const prefix = q[1].toLowerCase();
     const items = model.tables.filter((t) => t.name.toLowerCase().includes(prefix)).map((t): Suggestion => ({ label: t.name, kind: 'table', insert: `'${t.name.replace(/'/g, "''")}'` }));
@@ -132,7 +134,7 @@ export const DaxInput = forwardRef<HTMLTextAreaElement | null, DaxInputProps>(fu
           if (ctx) {
             if (e.key === 'ArrowDown') { e.preventDefault(); setSel((sel + 1) % ctx.items.length); return; }
             if (e.key === 'ArrowUp') { e.preventDefault(); setSel((sel - 1 + ctx.items.length) % ctx.items.length); return; }
-            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); accept(ctx.items[Math.min(sel, ctx.items.length - 1)]); return; }
+            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey)) { e.preventDefault(); accept(ctx.items[Math.min(sel, ctx.items.length - 1)]); return; }
             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setHidden(true); return; }
           }
           if (e.ctrlKey && e.key === ' ') { e.preventDefault(); setHidden(false); track(); return; }

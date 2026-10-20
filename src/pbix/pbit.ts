@@ -260,7 +260,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
 
 /** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report) });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}) });
   const j = (o: unknown) => JSON.stringify(o, null, 2);
   const platform = (type: string) => ({
     $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
@@ -294,7 +294,7 @@ function labelParts(report: Report): PbitPart[] {
 }
 
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report) });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}) });
   const diagram = {
     version: '1.1.0',
     diagrams: [{
@@ -375,7 +375,7 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
 
 /** Report part of a publication: report.json and images, paths relative to the report item. */
 export function buildReportParts(report: Report, dateHierarchies = autoDateOn(report)): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies, dateTables: Object.keys(report.dateTables ?? {}) });
   return [
     { path: 'report.json', text: layout },
     ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),

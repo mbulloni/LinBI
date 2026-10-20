@@ -52,20 +52,36 @@ async function query(sql) {
 let roleConn = null;
 let roleOn = false;
 
-async function setRole(tables) {
+let roleChain = Promise.resolve();
+
+/** Serialized: a role change and the re-apply after a data reload must not interleave their DROP/CREATE. */
+function setRole(tables) {
+  const run = roleChain.then(() => applyRole(tables));
+  roleChain = run.catch(() => {});
+  return run;
+}
+
+async function applyRole(tables) {
   const c = await connection();
+  roleOn = false;
   await c.run('DROP SCHEMA IF EXISTS rls CASCADE');
-  roleOn = Array.isArray(tables) && tables.length > 0;
-  if (!roleOn) return;
-  await c.run('CREATE SCHEMA rls');
-  for (const t of tables) {
-    await c.run(`CREATE TABLE rls.${qi(t.table)} AS SELECT r.* FROM main.${qi(t.table)} r WHERE ${t.where}`);
+  if (!Array.isArray(tables) || !tables.length) return;
+  try {
+    await c.run('CREATE SCHEMA rls');
+    for (const t of tables) {
+      await c.run(`CREATE TABLE rls.${qi(t.table)} AS SELECT r.* FROM main.${qi(t.table)} r WHERE ${t.where}`);
+    }
+    if (!roleConn) {
+      roleConn = await (await instanceOf()).connect();
+      await roleConn.run('SET max_expression_depth TO 20000');
+    }
+    await roleConn.run("SET search_path = 'rls,main'");
+    roleOn = true;
+  } catch (e) {
+    // Never leave a half-built role active: queries go back to the full data.
+    await c.run('DROP SCHEMA IF EXISTS rls CASCADE').catch(() => {});
+    throw e;
   }
-  if (!roleConn) {
-    roleConn = await (await instanceOf()).connect();
-    await roleConn.run('SET max_expression_depth TO 20000');
-  }
-  await roleConn.run("SET search_path = 'rls,main'");
 }
 
 async function queryAs(sql) {
