@@ -44,6 +44,7 @@ const VIS: Record<VisualType, ReactNode> = {
   shape: <><rect x="2" y="4" width="10" height="10" fill={B} opacity=".6" /><circle cx="13" cy="12" r="5" fill={D} opacity=".7" /></>,
   textbox: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} /><text x="10" y="14" fontSize="9" textAnchor="middle" fill={K} fontWeight="700">A</text></>,
   image: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} /><circle cx="7" cy="8" r="1.8" fill={O} /><path d="M3 16 L8 11 L11 14 L14 10 L18 15 V16 Z" fill={B} /></>,
+  custom: <><rect x="2" y="3" width="16" height="14" rx="1" fill="none" stroke={G} /><path d="M5 14 V9 M8.5 14 V6 M12 14 V10" stroke={B} strokeWidth="2" /><path d="M14 4.5 L17.5 8 M17.5 4.5 L14 8" stroke={O} strokeWidth="1.3" /></>,
   unsupported: <><rect x="2" y="3" width="16" height="14" fill="none" stroke={G} strokeDasharray="2 2" /><text x="10" y="14" fontSize="9" textAnchor="middle" fill={G} fontWeight="700">?</text></>,
 };
 

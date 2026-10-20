@@ -121,7 +121,7 @@ export function MapVisual({ v, data, cross, onSelect }: { v: Visual; data: Visua
         const byFeature = new Map<string, Pt>();
         for (const p of pts) if (p.feature && !byFeature.has(p.feature)) byFeature.set(p.feature, p);
         const range = vals.length ? { min: Math.min(...vals), max: Math.max(...vals) } : null;
-        const fill = (p: Pt) => (leg ? colorOf(p.legend) : val && range && p.value !== null ? scaleColor({ min: '#DEEFFF', max: base }, range, p.value) : base);
+        const fill = (p: Pt) => (leg ? colorOf(p.legend) : val && range && p.value !== null ? scaleColor(v.format.colorScale ?? { min: '#DEEFFF', max: base }, range, p.value) : base);
         const regions = [...byFeature.values()].map((p) => ({
           name: p.feature, itemStyle: { areaColor: fill(p), opacity: dim(p.idx) ? 0.35 : 1 }, emphasis: { itemStyle: { areaColor: fill(p), opacity: 0.8 } },
         }));

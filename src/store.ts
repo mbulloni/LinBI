@@ -2,11 +2,13 @@ import { create } from 'zustand';
 import { api } from './api';
 import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { isNumeric, uid } from './format';
-import { visualDef } from './visuals/catalog';
-import { connected, NULL_KEY, qi, ql } from './query';
+import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
+import { CF_WELL, connected, NULL_KEY, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
 import { resolveSource, setParams } from './pq/params';
-import { parseLayout, themeFromLayout } from './pbix/layout';
+import { parseLayout, setCfExportRanges, themeFromLayout } from './pbix/layout';
+import { runVisualQuery } from './visuals/useVisualData';
+import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
 import { pbirToLayout } from './pbix/pbir';
 import { buildPbipParts, buildPbitParts } from './pbix/pbit';
 import { pendingQueries } from './visuals/useVisualData';
@@ -214,7 +216,10 @@ interface State {
   deletePage: (id: string) => void;
   duplicatePage: (id: string) => void;
 
-  addVisual: (type: VisualType, at?: { x: number; y: number }) => string;
+  addVisual: (type: VisualType, at?: { x: number; y: number }, custom?: string) => string;
+  /** Visualizzazioni › … › Importa un oggetto visivo da un file (.pbiviz). */
+  importCustomVisual: () => Promise<void>;
+  removeCustomVisual: (guid: string) => void;
   // Selection pane and bookmarks
   setVisualHidden: (id: string, hidden: boolean) => void;
   setGroupHidden: (groupId: string, hidden: boolean) => void;
@@ -236,10 +241,12 @@ interface State {
   updateFormat: (id: string, patch: Partial<VisualFormat>) => void;
   removeVisual: (id: string) => void;
   duplicateVisual: (id: string) => void;
-  changeVisualType: (id: string, type: VisualType) => void;
+  changeVisualType: (id: string, type: VisualType, custom?: string) => void;
   addField: (visualId: string | null, field: FieldDrop, well?: string, at?: { x: number; y: number }) => void;
   removeField: (visualId: string, well: string, idx: number) => void;
   setFieldAgg: (visualId: string, well: string, idx: number, agg: FieldRef['agg']) => void;
+  /** Date field in a hierarchy well: plain date ("Data") or automatic date hierarchy ("Gerarchia date"). */
+  setDateHierarchy: (visualId: string, well: string, idx: number, on: boolean) => void;
   selectVisual: (id: string | null) => void;
   setCross: (c: CrossFilter | null) => void;
 
@@ -294,7 +301,7 @@ export const useStore = create<State>((set, get) => {
 
   /** Puts a field into the best-fitting well, mimicking Power BI's auto placement. */
   const placeField = (v: Visual, field: FieldDrop, wellKey?: string) => {
-    const def = visualDef(v.type);
+    const def = visualDef(v.type, v.custom);
     const { measure, ...f } = field;
     const num = measure || isNumeric(columnOf(f));
     const hasRoom = (k: string) => {
@@ -437,10 +444,11 @@ export const useStore = create<State>((set, get) => {
         }
         const tables = get().tables;
         const layoutJson = model.layout ?? (model.pbir ? pbirToLayout(model.pbir) : null);
+        setCustomVisuals(model.customVisuals);
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}) };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}) };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
@@ -463,6 +471,7 @@ export const useStore = create<State>((set, get) => {
       const { report, tables, filePath, sourceName } = get();
       const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit)$/i, '');
       try {
+        await prepareCfExport();
         const out = await api.savePbit(buildPbitParts(report, tables), base + '.pbit');
         if (out) get().notify(`Esportato ${out.split('/').pop()}. Aprirlo in Power BI Desktop: i dati vengono ricaricati dalle origini (percorsi Linux da aggiornare in Trasforma dati › Impostazioni origine dati).`, 12000);
       } catch (e: any) {
@@ -474,6 +483,7 @@ export const useStore = create<State>((set, get) => {
       const { report, tables, filePath, sourceName } = get();
       const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
       try {
+        await prepareCfExport();
         const out = await api.savePbip(buildPbipParts(report, tables), base + '.pbip');
         if (out) get().notify(`Progetto salvato: ${out.split('/').pop()} con le cartelle .Report e .SemanticModel (file di testo, adatti a git).`, 9000);
       } catch (e: any) {
@@ -971,14 +981,29 @@ export const useStore = create<State>((set, get) => {
       if (i < 0 || j < 0 || j >= list.length) return;
       [list[i], list[j]] = [list[j], list[i]];
     }),
-    addVisual: (type, at) => {
+    importCustomVisual: async () => {
+      try {
+        const pkg = await api.importPbiviz();
+        if (!pkg) return;
+        get().mut((r) => { r.customVisuals = [...(r.customVisuals ?? []).filter((p) => p.guid !== pkg.guid), pkg]; });
+        get().notify(`Oggetto visivo «${customName(pkg)}» importato: si trova nel riquadro Visualizzazioni.`);
+      } catch (e: any) {
+        get().notify('Importazione non riuscita: ' + e.message, 10000);
+      }
+    },
+    removeCustomVisual: (guid) => {
+      const used = get().report.pages.some((p) => p.visuals.some((v) => v.custom === guid));
+      if (used) { get().notify("L'oggetto visivo è usato nel report: eliminare prima gli oggetti visivi che lo usano."); return; }
+      get().mut((r) => { r.customVisuals = r.customVisuals?.filter((p) => p.guid !== guid); });
+    },
+    addVisual: (type, at, custom) => {
       const id = uid();
       const page = get().page();
       const size = defaultSize(type);
       const pos = at ? { ...at, ...size } : nextPosition(page, size.w, size.h);
       const z = Math.max(0, ...page.visuals.map((v) => v.z)) + 1;
       get().mut((r) => {
-        r.pages.find((p) => p.id === page.id)!.visuals.push({ id, type, ...pos, z, fields: {}, format: defaultFormat(type), text: type === 'textbox' ? '' : undefined });
+        r.pages.find((p) => p.id === page.id)!.visuals.push({ id, type, ...pos, z, fields: {}, format: defaultFormat(type), text: type === 'textbox' ? '' : undefined, ...(custom ? { custom } : {}) });
       });
       set({ selectedVisualId: id, vizTab: 'build' });
       return id;
@@ -1006,11 +1031,13 @@ export const useStore = create<State>((set, get) => {
       });
       set({ selectedVisualId: nid });
     },
-    changeVisualType: (id, type) => get().mut((r) => {
+    changeVisualType: (id, type, custom) => get().mut((r) => {
       const v = findVisual(r, id);
-      if (!v || v.type === type) return;
+      if (!v || (v.type === type && v.custom === custom)) return;
       const all = Object.values(v.fields).flat();
       v.type = type;
+      if (custom) v.custom = custom; else delete v.custom;
+      delete v.jsonFilters;
       v.fields = {};
       v.format = { ...defaultFormat(type), titleText: v.format.titleText, background: v.format.background, border: v.format.border };
       for (const f of all) placeField(v, { table: f.table, column: f.column, measure: f.agg === 'measure' });
@@ -1030,6 +1057,20 @@ export const useStore = create<State>((set, get) => {
     },
     removeField: (visualId, well, idx) => get().mut((r) => { const v = findVisual(r, visualId); v?.fields[well]?.splice(idx, 1); }),
     setFieldAgg: (visualId, well, idx, agg) => get().mut((r) => { const f = findVisual(r, visualId)?.fields[well]?.[idx]; if (f) f.agg = agg; }),
+    setDateHierarchy: (visualId, well, idx, on) => get().mut((r) => {
+      const v = findVisual(r, visualId);
+      const list = v?.fields[well];
+      const f = list?.[idx];
+      if (!v || !list || !f) return;
+      const same = (x: FieldRef) => x.table === f.table && x.column === f.column && x.agg === 'none';
+      const first = list.findIndex(same);
+      const rest = list.filter((x) => !same(x));
+      const base = { table: f.table, column: f.column, agg: 'none' as const };
+      const repl: FieldRef[] = on ? (['year', 'quarter', 'month', 'day'] as const).map((datePart) => ({ ...base, datePart })) : [base];
+      rest.splice(Math.min(first, rest.length), 0, ...repl);
+      v.fields[well] = rest;
+      delete v.drill;
+    }),
     selectVisual: (id) => set({ selectedVisualId: id }),
     setCross: (c) => set({ crossFilter: c }),
 
@@ -1176,7 +1217,28 @@ export const useStore = create<State>((set, get) => {
 });
 
 // Charts and backgrounds read the theme from shared state: keep it in sync with the report.
+/** Before writing Power BI files: visible range of fields with default icons (thresholds become numbers). */
+export async function prepareCfExport() {
+  const ranges = new Map<string, Map<string, { min: number; max: number }>>();
+  for (const p of useStore.getState().report.pages) for (const v of p.visuals) {
+    const keys = Object.entries(v.format.cf ?? {}).filter(([, c]) => c.icons && !c.iconRules?.length);
+    if (!keys.length) continue;
+    try {
+      const { items, rows } = await runVisualQuery(v);
+      const m = new Map<string, { min: number; max: number }>();
+      for (const [key, c] of keys) {
+        const drv = c.input ? items.find((i) => i.well === CF_WELL && fieldKey(i.field) === fieldKey(cfInput(c.input!))) : items.find((i) => fieldKey(i.field) === key);
+        const r = drv ? rangeOf(rows.map((x) => x[drv.alias])) : null;
+        if (r) m.set(key, r);
+      }
+      ranges.set(v.id, m);
+    } catch { /* visual with errors: icons exported without thresholds */ }
+  }
+  setCfExportRanges(ranges);
+}
+
 useStore.subscribe((s, prev) => { if (s.report.theme !== prev.report.theme) applyTheme(s.report.theme); });
+useStore.subscribe((s, prev) => { if (s.report.customVisuals !== prev.report.customVisuals) setCustomVisuals(s.report.customVisuals); });
 
 // File passed on the command line (or opened from the file manager).
 api.onOpenArg((file) => useStore.getState().open(file));

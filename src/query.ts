@@ -2,8 +2,12 @@ import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, Ta
 import { measureSql } from './dax';
 import { isNumeric } from './format';
 import { visualDef } from './visuals/catalog';
+import { cfInput, fieldKey } from './visuals/condfmt';
+
 
 export const NULL_KEY = '__NULL__';
+/** Well of the hidden query items that drive conditional formatting (not shown by renderers). */
+export const CF_WELL = '__cf';
 export const qi = (s: string) => '"' + s.replace(/"/g, '""') + '"';
 export const ql = (s: string) => "'" + s.replace(/'/g, "''") + "'";
 
@@ -162,6 +166,11 @@ export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[]
     const field = s.fields.category?.[0];
     if (field) out.push({ table: field.table, column: field.column, values: s.slicerValues, datePart: field.datePart });
   }
+  // Custom visuals acting as slicers (host.applyJsonFilter).
+  for (const s of visuals) {
+    if (s.id === v.id || !s.jsonFilters) continue;
+    for (const x of Object.values<any>(s.jsonFilters)) for (const f of x?.resolved ?? []) if (f.values?.length) out.push({ table: f.table, column: f.column, values: f.values });
+  }
   if (cross && cross.visualId !== v.id) out.push({ table: cross.table, column: cross.column, values: [cross.value], datePart: cross.datePart });
   return out;
 }
@@ -289,13 +298,13 @@ export function buildVisualQuery(
         const t = tables.find((x) => x.name === f.table && x.fieldParam?.column === f.column);
         if (!t) return [f];
         changed = true;
-        const measureWell = visualDef(v.type).wells.find((w) => w.key === well)?.measure;
+        const measureWell = visualDef(v.type, v.custom).wells.find((w) => w.key === well)?.measure;
         return selectedFor(t).map((p): FieldRef => (p.measure ? { table: p.table, column: p.column, agg: 'measure' } : { table: p.table, column: p.column, agg: measureWell ? 'sum' : 'none' }));
       });
     }
     if (changed) v = { ...v, fields };
   }
-  const def = visualDef(v.type);
+  const def = visualDef(v.type, v.custom);
   const items: QueryItem[] = [];
   // Hierarchy axis: only the current drill level (or, with "expand all", every level down to it);
   // the values drilled into become filters on the upper levels.
@@ -311,6 +320,12 @@ export function buildVisualQuery(
   }
   if (extra.length) v = { ...v, filters: [...(v.filters ?? []), ...extra] };
   if (!items.length) return null;
+  // Conditional formatting "In base al campo": the driving fields as extra (hidden) measures.
+  const cfFields = [...Object.values(v.format.cf ?? {}).map((c) => c.input), v.format.colorRule?.field].filter((f): f is FieldRef => !!f).map(cfInput);
+  for (const f of cfFields) {
+    if (items.some((i) => i.well === CF_WELL && fieldKey(i.field) === fieldKey(f))) continue;
+    items.push({ alias: 'c' + items.length, field: f, well: CF_WELL, measure: true });
+  }
   // Every measure item compiles to (base table, columns, SQL template): plain aggregations
   // run on their column's table, DAX measures on the table their columns come from.
   const compiled = new Map<string, CompiledMeasure>();
@@ -370,7 +385,7 @@ export function buildVisualQuery(
   } else if (fmt.sortBy !== undefined && items[fmt.sortBy]) {
     const it = items[fmt.sortBy];
     order = `${it.measure ? it.alias : key(it)} ${fmt.sortDir === 'asc' ? 'ASC' : 'DESC'} NULLS LAST`;
-  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) || !measures.length || dims.some((d) => d.field.datePart)) {
+  } else if (['line', 'area', 'stackedArea', 'table', 'matrix', 'slicer', 'kpi', 'waterfall', 'multiRowCard', 'pythonVisual', 'rVisual', 'custom'].includes(v.type) || !measures.length || dims.some((d) => d.field.datePart)) {
     order = dims.map(dimKey).join(', ');
   } else if (v.fields.legend?.length && dims.length > 1) {
     // Stacked/clustered with legend: rank categories by their total, like Power BI.
@@ -381,7 +396,7 @@ export function buildVisualQuery(
     order = `${measures[0].alias} DESC NULLS LAST`;
   }
   // Python/R visuals get up to 150,000 rows, like Power BI.
-  const limit = v.topN ? v.topN : v.type === 'table' || v.type === 'matrix' ? 5000 : v.type === 'map' || v.type === 'filledMap' ? 10000 : v.type === 'pythonVisual' || v.type === 'rVisual' ? 150000 : 1000;
+  const limit = v.topN ? v.topN : v.type === 'table' || v.type === 'matrix' ? 5000 : v.type === 'map' || v.type === 'filledMap' ? 10000 : v.type === 'pythonVisual' || v.type === 'rVisual' ? 150000 : v.type === 'custom' ? 30000 : 1000;
   const out: VisualQuery = { sql: finalize(main, dims, measures, order, limit), items };
 
   // Combo chart with a column legend: the lines are per category only (rowTotalsSql, keyed by category).

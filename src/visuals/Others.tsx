@@ -5,7 +5,7 @@ import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
-import { cellFormat, fieldKey, rangeOf, type Range } from './condfmt';
+import { cellFormat, cfInput, fieldKey, rangeOf, type Range } from './condfmt';
 import { font, pt, sp, units } from './pbistyle';
 
 const cell = (v: unknown, measure: boolean) => (measure ? fmtFull(v) : v === null || v === undefined ? '' : String(v));
@@ -32,17 +32,25 @@ function tableVars(v: Visual): CSSProperties {
   return Object.fromEntries(Object.entries(vars).filter(([, x]) => x !== undefined)) as CSSProperties;
 }
 
-/** Value cell with the visual's conditional formatting for that field. */
-function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, raw: unknown, text: string, key: string, bold = false) {
-  const { style, icon } = cellFormat(v.format.cf?.[fieldKey(it.field)], ranges.get(it.alias) ?? null, raw);
+/** Column of the row holding the value that drives `it`'s formatting (itself, or its "In base al campo" field). */
+function driverAlias(v: Visual, it: QueryItem, cfItems: QueryItem[]): string {
+  const input = v.format.cf?.[fieldKey(it.field)]?.input;
+  if (!input) return it.alias;
+  const k = fieldKey(cfInput(input));
+  return cfItems.find((c) => fieldKey(c.field) === k)?.alias ?? it.alias;
+}
+
+/** Cell with the visual's conditional formatting for that field (`src` = the row the cell comes from). */
+function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, src: Record<string, any>, cfItems: QueryItem[], text: string, key: string, bold = false) {
+  const { style, icon } = cellFormat(v.format.cf?.[fieldKey(it.field)], ranges.get(it.alias) ?? null, src[driverAlias(v, it, cfItems)]);
   return (
-    <td key={key} className="num" style={{ ...(bold ? { fontWeight: 600 } : {}), ...style }}>
+    <td key={key} className={it.measure ? 'num' : ''} style={{ ...(bold ? { fontWeight: 600 } : {}), ...style }}>
       {icon && <span style={{ color: icon.color, marginRight: 4, fontSize: 10 }}>{icon.ch}</span>}{text}
     </td>
   );
 }
-const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[]) =>
-  new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => [i.alias, rangeOf(rows.map((r) => r[i.alias]))]));
+const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[], cfItems: QueryItem[]) =>
+  new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => { const a = driverAlias(v, i, cfItems); return [i.alias, rangeOf(rows.map((r) => r[a]))]; }));
 
 /** Number with the visual's display units/precision (Power BI labels), else LinBI's automatic format. */
 export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unknown, precision: unknown): string {
@@ -131,7 +139,7 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
     updateFormat(v.id, { sortBy: idx, sortDir: same && v.format.sortDir === 'desc' ? 'asc' : 'desc' });
   };
   const tot = data.totals?.[0];
-  const ranges = rangesFor(v, data.items.filter((i) => i.measure), data.rows);
+  const ranges = rangesFor(v, data.items, data.rows, data.cfItems);
   return (
     <div className="tbl" style={tableVars(v)}>
       <table>
@@ -146,7 +154,7 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
             <tr key={k} className={selected !== undefined && selected === key ? 'sel' : ''} onClick={() => firstDim && onSelect(r[firstDim.alias])}>
               {data.items.map((it) => {
                 const text = data.percent.has(it.alias) ? fmtPct(r[it.alias]) : cell(r[it.alias], it.measure);
-                return it.measure ? decorated(v, it, ranges, r[it.alias], text, it.alias) : <td key={it.alias}>{text}</td>;
+                return v.format.cf?.[fieldKey(it.field)] ? decorated(v, it, ranges, r, data.cfItems, text, it.alias) : <td key={it.alias} className={it.measure ? 'num' : ''}>{text}</td>;
               })}
             </tr>
           );
@@ -187,12 +195,12 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
   const colTot = new Map((data.colTotals ?? []).map((r) => [r[col.alias], r]));
   const grand = data.totals?.[0];
   const span = Math.max(1, vals.length);
-  const ranges = rangesFor(v, vals, data.rows);
+  const ranges = rangesFor(v, vals, data.rows, data.cfItems);
   // Conditional formatting applies to the value cells, not to totals (Power BI default).
   const valCells = (src: Record<string, any> | undefined, k: string, bold = false) =>
     (vals.length ? vals : [null]).map((m, i) => {
       const text = m && src ? (data.percent.has(m.alias) ? fmtPct(src[m.alias]) : fmtFull(src[m.alias])) : '';
-      return m && src && !bold && k !== 'g' && !k.startsWith('ct') ? decorated(v, m, ranges, src[m.alias], text, k + i)
+      return m && src && !bold && k !== 'g' && !k.startsWith('ct') ? decorated(v, m, ranges, src, data.cfItems, text, k + i)
         : <td key={k + i} className="num" style={bold ? { fontWeight: 600 } : undefined}>{text}</td>;
     });
 

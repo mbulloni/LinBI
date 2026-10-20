@@ -6,10 +6,17 @@
 import type { Agg, Bookmark, FieldRef, Filter, Page, TableMeta, Theme, Visual, VisualGroup, VisualType } from '../types';
 import { parseTheme, themeJson } from '../themes';
 import { defaultFormat, PAGE_H, PAGE_W } from '../store';
-import { isChart as isChartType, visualDef } from '../visuals/catalog';
+import { customPkg, isChart as isChartType, visualDef } from '../visuals/catalog';
 import { NULL_KEY } from '../query';
 import { uid } from '../format';
 import { decode, pt } from '../visuals/pbistyle';
+import { basicJsonFilter } from '../visuals/custom/objects';
+import { exportCondFormat, importCondFormat } from './condfmt';
+import { fieldKey } from '../visuals/condfmt';
+
+/** Visible value range per visual and field key, measured before an export (default icon thresholds). */
+let CF_RANGES = new Map<string, Map<string, { min: number; max: number }>>();
+export const setCfExportRanges = (r: typeof CF_RANGES) => { CF_RANGES = r; };
 
 /* ------------------------------- mappings ------------------------------- */
 
@@ -177,7 +184,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       }
       const pbiType: string = sv.visualType;
       if (SKIP.has(pbiType)) continue;
-      let type: VisualType = TYPE_IN[pbiType] ?? 'unsupported';
+      // Custom visuals embedded in the file (Report/CustomVisuals) are run by visuals/CustomVisual.tsx.
+      let type: VisualType = TYPE_IN[pbiType] ?? (customPkg(pbiType) ? 'custom' : 'unsupported');
+      const custom = type === 'custom' ? pbiType : undefined;
       if (type === 'unsupported') skipped[pbiType] = (skipped[pbiType] ?? 0) + 1;
 
       const from: FromMap = Object.fromEntries((sv.prototypeQuery?.From ?? []).map((x: any) => [x.Name, x.Entity]));
@@ -187,8 +196,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         if (f) byRef[sel.Name] = f;
       }
 
-      const def = visualDef(type);
-      const roles = roleMap(type);
+      const def = visualDef(type, custom);
+      // Custom visuals: projection roles are the package's dataRoles, used as well keys.
+      const roles = custom ? Object.fromEntries(def.wells.map((w) => [w.key, w.key])) : roleMap(type);
       const fields: Record<string, FieldRef[]> = {};
       for (const [role, projs] of Object.entries<any[]>(sv.projections ?? {})) {
         const well = roles[role];
@@ -203,7 +213,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
           const list = (fields[well] ??= []);
           if (w.max && list.length >= w.max) continue;
           if (!list.some((x) => x.table === f.table && x.column === f.column && x.agg === f.agg && x.datePart === f.datePart)) {
-            list.push(type === 'table' && f.agg === 'none' ? f : f.agg === 'none' && w.measure ? { ...f, agg: 'count' } : f);
+            list.push(type === 'table' || custom ? f : f.agg === 'none' && w.measure ? { ...f, agg: 'count' } : f);
           }
         }
       }
@@ -245,6 +255,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         if (typeof r === 'number') format.borderRadius = r;
       }
       if (type === 'slicer' && litText(prop(sv.objects, 'data').mode) === 'Dropdown') format.slicerStyle = 'dropdown';
+      importCondFormat(sv.objects, byRef, Object.values(fields).flat(), format, (e) => exprToField(e, from), isChartType(type) || type === 'filledMap' || type === 'map');
+      const axisType = litText(prop(sv.objects, 'categoryAxis').axisType);
+      if (axisType === 'Scalar') format.axisType = 'continuous'; else if (axisType === 'Categorical') format.axisType = 'categorical';
 
       // Explicit sort (OrderBy) → index into LinBI's item order (wells in catalog order).
       const ob = sv.prototypeQuery?.OrderBy?.[0];
@@ -264,6 +277,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         filters: parseFilters(vc.filters, tables),
         style: { pbiType, ...(sv.objects ? { objects: sv.objects } : {}), ...(sv.vcObjects ? { vcObjects: sv.vcObjects } : {}) },
         ...(cfg.name ? { pbiName: cfg.name } : {}),
+        ...(custom ? { custom } : {}),
         // Hidden visuals stay in the report (Selection pane, bookmarks), just not drawn.
         ...(sv.display?.mode === 'hidden' ? { hidden: true } : {}),
       };
@@ -288,6 +302,17 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       if (type === 'slicer') {
         const sel = parseCondition(prop(sv.objects, 'general').filter?.filter, tables);
         if (sel) v.slicerValues = sel.values;
+      }
+      if (custom) {
+        // Selections of custom slicers: filter-typed properties hold a semantic-query filter.
+        for (const [obj, d] of Object.entries<any>(customPkg(custom)!.pbiviz?.capabilities?.objects ?? {})) {
+          for (const [pn, pd] of Object.entries<any>(d.properties ?? {})) {
+            if (!pd?.type?.filter) continue;
+            const f = parseCondition(prop(sv.objects, obj)[pn]?.filter, tables);
+            const col = f && tables.find((t) => t.name === f.table)?.columns.find((c) => c.name === f.column);
+            if (f) (v.jsonFilters ??= {})[`${obj}.${pn}`] = { filter: basicJsonFilter(f, col ?? undefined), resolved: [f] };
+          }
+        }
       }
       visuals.push(v);
     }
@@ -462,12 +487,13 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         const config = { name: vname(v), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }], singleVisual: v.hidden ? { ...(v.style!.raw as object), display: { mode: 'hidden' } } : v.style!.raw, ...(v.group ? { parentGroupName: gname(p.groups!.find((g) => g.id === v.group)!) } : {}) };
         return { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, config: JSON.stringify(config), filters: '[]' };
       }
-      const def = visualDef(v.type);
-      const roles = Object.entries(roleMap(v.type));
+      const def = visualDef(v.type, v.custom);
+      const roles = v.type === 'custom' ? def.wells.map((w) => [w.key, w.key]) : Object.entries(roleMap(v.type));
       const entities = [...new Set(Object.values(v.fields).flat().map((f) => f.table))];
       const alias: Record<string, string> = {};
       entities.forEach((e, ei) => (alias[e] = (e[0] ?? 't').toLowerCase().replace(/[^a-z]/, 't') + (ei || '')));
       const select: any[] = [];
+      const nameByKey = new Map<string, string>();
       const projections: Record<string, { queryRef: string; active?: boolean }[]> = {};
       for (const w of def.wells) {
         const role = roles.find(([, well]) => well === w.key)?.[0];
@@ -485,6 +511,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
             name = `${label}(${f.table}.${f.column})`;
           }
           if (!select.some((s) => s.Name === name)) select.push({ ...expr, Name: name });
+          nameByKey.set(fieldKey(f), name);
           (projections[role] ??= []).push({ queryRef: name, ...(role === 'Category' || role === 'Rows' ? { active: true } : {}) });
         }
       }
@@ -516,6 +543,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         put(objects, 'legend', { show: L(String(fm.legendShow)) });
         put(objects, 'labels', { show: L(String(fm.dataLabels)) });
         if (fm.color && fm.color !== '#118DFF') put(objects, 'dataPoint', { fill: color(fm.color) });
+        if (fm.axisType) put(objects, 'categoryAxis', { axisType: Ls(fm.axisType === 'continuous' ? 'Scalar' : 'Categorical') });
       }
       if ((v.type === 'pythonVisual' || v.type === 'rVisual') && v.script !== undefined) put(objects, 'script', { source: Ls(v.script), provider: Ls(v.type === 'rVisual' ? 'R' : 'Python') });
       if (v.type === 'qna' && v.qna?.question) put(objects, 'hiddenProperties', { savedUtterance: Ls(v.qna.question) });
@@ -532,6 +560,14 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         if (f && v.slicerValues?.length) put(objects, 'general', { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: v.slicerValues }, '').filter } });
         else if (objects.general) for (const e of objects.general) delete e.properties?.filter;
       }
+      if (v.type === 'custom') {
+        for (const [key, x] of Object.entries<any>(v.jsonFilters ?? {})) {
+          const [obj, pn] = key.split('.');
+          const f: Filter | undefined = x?.resolved?.[0];
+          if (obj && pn && f?.values.length) put(objects, obj, { [pn]: { filter: filterJson(f, '').filter } });
+        }
+      }
+      exportCondFormat(v, objects, (f) => nameByKey.get(fieldKey(f)), (a) => AGG_OUT[a]?.[0], isChartType(v.type) || v.type === 'filledMap' || v.type === 'map', CF_RANGES.get(v.id));
       const flat = def.wells.flatMap((w) => v.fields[w.key] ?? []);
       const sortField = v.format.sortBy !== undefined ? flat[v.format.sortBy] : undefined;
       const sortSel = sortField ? select.find((s) => (s.Column ?? s.Measure ?? s.Aggregation?.Expression?.Column)?.Property === sortField.column) : undefined;
@@ -543,7 +579,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         singleVisual: {
           ...(v.hidden ? { display: { mode: 'hidden' } } : {}),
           // Same Power BI type as imported when it maps to this LinBI type (cardVisual, advancedSlicerVisual, shape…).
-          visualType: v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
+          visualType: v.type === 'custom' ? v.custom : v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
           projections,
           prototypeQuery: {
             Version: 2,

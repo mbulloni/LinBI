@@ -42,7 +42,7 @@ export type VisualType =
   | 'lineClusteredColumn' | 'lineStackedColumn' | 'waterfall' | 'ribbon'
   | 'pie' | 'donut' | 'treemap' | 'funnel' | 'scatter' | 'gauge' | 'map' | 'filledMap'
   | 'card' | 'multiRowCard' | 'kpi' | 'button' | 'shape' | 'decompositionTree' | 'keyInfluencers' | 'smartNarrative'
-  | 'pythonVisual' | 'rVisual' | 'qna' | 'pageNavigator' | 'bookmarkNavigator' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'unsupported';
+  | 'pythonVisual' | 'rVisual' | 'qna' | 'pageNavigator' | 'bookmarkNavigator' | 'table' | 'matrix' | 'slicer' | 'textbox' | 'image' | 'custom' | 'unsupported';
 
 export interface VisualFormat {
   titleShow: boolean;
@@ -73,17 +73,33 @@ export interface VisualFormat {
   sortDir?: 'asc' | 'desc';
   /** Conditional formatting of table/matrix value fields, keyed by condfmt.fieldKey(). */
   cf?: Record<string, CondFormat>;
+  /** Category axis type ("Tipo" in Asse X): continuous for dates/numbers, categorical = one slot per value. */
+  axisType?: 'continuous' | 'categorical';
   /** Charts: data colors as a gradient over the values (single series). */
   colorScale?: ColorScale;
+  /** Charts: data colors from another field (gradient or rules), like Power BI "In base al campo". */
+  colorRule?: ColorRule;
 }
 
-export interface ColorScale { min: string; max: string; mid?: string; }
+/** Gradient; minValue/midValue/maxValue = "Personalizzato" stops (otherwise lowest/highest value shown). */
+export interface ColorScale { min: string; max: string; mid?: string; minValue?: number; midValue?: number; maxValue?: number; }
+/** Rule ("Regole"): value in [min, max) (bounds optional, inclusive flags) or blank → `value` (color or icon name). */
+export interface CfRule { min?: number; minInc?: boolean; max?: number; maxInc?: boolean; blank?: boolean; value: string; }
 export interface CondFormat {
   background?: ColorScale;
   font?: ColorScale;
+  /** "Stile formato: Regole" for background/font color (take precedence over the gradient). */
+  bgRules?: CfRule[];
+  fontRules?: CfRule[];
   bars?: { positive: string; negative: string };
   icons?: boolean;
+  /** Icon rules (Power BI icon names, e.g. TriangleHigh); without them, icons split the range in thirds. */
+  iconRules?: CfRule[];
+  /** "In base al campo": the field whose value drives the format (default: the formatted field itself). */
+  input?: FieldRef;
 }
+/** Charts "Colori dati › fx": color of each data point from a field, by gradient or rules. */
+export interface ColorRule { field: FieldRef; scale?: ColorScale; rules?: CfRule[]; }
 
 export interface Visual {
   id: string;
@@ -114,6 +130,10 @@ export interface Visual {
   /** Top N rows by the first value (Q&A "i primi 5"). */
   topN?: number;
   topAsc?: boolean;
+  /** Custom visual (.pbiviz): guid of its package in Report.customVisuals. */
+  custom?: string;
+  /** Filters a custom visual applied with host.applyJsonFilter (Power BI IFilter JSON), keyed "objectName.propertyName". */
+  jsonFilters?: Record<string, any>;
   text?: string;       // textbox content, or original visualType for 'unsupported'
   image?: string;      // data URL for 'image'
 }
@@ -211,7 +231,12 @@ export interface Report {
   bookmarks?: Bookmark[];
   /** Power Query parameters (Gestisci parametri): referenced as #[Nome] in sources and filters. */
   pqParams?: PQParam[];
+  /** Custom visuals (.pbiviz) imported from a file or embedded in a .pbix/.pbip. */
+  customVisuals?: CustomVisualPkg[];
 }
+
+/** A custom visual package: the .pbiviz.json resource (visual, capabilities, content.js/css…) and its package.json. */
+export interface CustomVisualPkg { guid: string; pbiviz: any; package?: any; }
 
 export interface PQParam { name: string; type: 'text' | 'number' | 'date'; value: string; description?: string; }
 

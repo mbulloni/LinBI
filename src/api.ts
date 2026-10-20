@@ -1,4 +1,4 @@
-import type { QueryResult, ColumnMeta, TableMeta, DbConnection } from './types';
+import type { QueryResult, ColumnMeta, TableMeta, DbConnection, CustomVisualPkg } from './types';
 import type { PbitPart } from './pbix/pbit';
 
 /** Output of electron/pbix/read_pbix.py */
@@ -12,6 +12,7 @@ export interface PowerBIModel {
   /** Enhanced report format (PBIR): JSON files under Report/definition/. */
   pbir?: Record<string, string>;
   resources: Record<string, string>;
+  customVisuals?: CustomVisualPkg[];
   warnings: string[];
 }
 export interface ClaudeStatus { configured: boolean; fromEnv: boolean; model: string; models: string[]; persistent: boolean; }
@@ -79,6 +80,8 @@ interface Api {
     onProgress(cb: (msg: string, frac: number | null) => void): () => void;
   };
   openExternal(url: string): Promise<void>;
+  /** Importa un oggetto visivo da un file (.pbiviz). */
+  importPbiviz(): Promise<CustomVisualPkg | null>;
   createEmptyTable(table: string, columns: { name: string; dataType: string }[]): Promise<TableInfo>;
   win: {
     minimize(): void;

@@ -113,7 +113,23 @@ const FILTERS = {
   pbit: [{ name: 'Modello di Power BI', extensions: ['pbit'] }],
   theme: [{ name: 'File di tema JSON', extensions: ['json'] }],
   pdf: [{ name: 'PDF', extensions: ['pdf'] }],
+  pbiviz: [{ name: 'Oggetto visivo di Power BI', extensions: ['pbiviz'] }],
 };
+
+// Custom visual (.pbiviz = zip with package.json + resources/<guid>.pbiviz.json). LINBI_PBIVIZ_PATH skips the dialog.
+handle('cv:import', async () => {
+  const file = process.env.LINBI_PBIVIZ_PATH
+    || await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS.pbiviz }).then((r) => (r.canceled ? null : r.filePaths[0]));
+  if (!file) return null;
+  const zip = await JSZip.loadAsync(fs.readFileSync(file));
+  const json = async (name) => JSON.parse((await zip.file(name).async('string')).replace(/^\uFEFF/, ''));
+  const res = Object.keys(zip.files).find((n) => /^resources\/[^/]+\.pbiviz\.json$/.test(n));
+  if (!res) throw new Error('Il file non contiene un oggetto visivo di Power BI (resources/*.pbiviz.json).');
+  const pbiviz = await json(res);
+  const guid = pbiviz.visual?.guid;
+  if (!guid || !pbiviz.content?.js) throw new Error("Pacchetto .pbiviz non valido: mancano guid o codice dell'oggetto visivo.");
+  return { guid, pbiviz, ...(zip.file('package.json') ? { package: await json('package.json') } : {}) };
+});
 
 handle('dialog:openData', async (kind) => {
   const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.any });
@@ -239,6 +255,7 @@ handle('pbit:save', async (parts, suggested) => {
     const opts = { createFolders: false };
     if (p.utf16 !== undefined) zip.file(p.path, Buffer.from(p.utf16, 'utf16le'), opts);
     else if (p.utf8bom !== undefined) zip.file(p.path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(p.utf8bom, 'utf8')]), opts);
+    else if (p.utf8 !== undefined) zip.file(p.path, Buffer.from(p.utf8, 'utf8'), opts);
     else if (p.dataUrl) zip.file(p.path, Buffer.from(p.dataUrl.split(',')[1], 'base64'), opts);
   }
   fs.writeFileSync(target, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));

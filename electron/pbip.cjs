@@ -187,7 +187,7 @@ function mimeOf(f) {
 function read(file) {
   const base = path.dirname(file);
   const pbip = readJson(file);
-  const out = { file, kind: 'pbip', tables: [], relationships: [], measures: [], layout: null, resources: {}, warnings: [] };
+  const out = { file, kind: 'pbip', tables: [], relationships: [], measures: [], layout: null, resources: {}, customVisuals: [], warnings: [] };
   const rel = pbip.artifacts?.find((a) => a.report)?.report?.path;
   if (!rel) throw new Error('Il file .pbip non indica la cartella del report');
   const reportDir = path.resolve(base, rel);
@@ -216,6 +216,20 @@ function read(file) {
       const mime = mimeOf(f);
       const p = path.join(resDir, f);
       if (mime && fs.statSync(p).size <= 6 * 1024 * 1024) out.resources[f] = `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`;
+    }
+  }
+
+  // Custom visuals: CustomVisuals/<guid>/package.json + resources/<guid>.pbiviz.json
+  const cvDir = path.join(reportDir, 'CustomVisuals');
+  if (fs.existsSync(cvDir)) {
+    for (const guid of fs.readdirSync(cvDir)) {
+      const resDir = path.join(cvDir, guid, 'resources');
+      const res = fs.existsSync(resDir) ? fs.readdirSync(resDir).find((f) => f.endsWith('.pbiviz.json')) : undefined;
+      if (!res) continue;
+      try {
+        const pkgFile = path.join(cvDir, guid, 'package.json');
+        out.customVisuals.push({ guid, pbiviz: readJson(path.join(resDir, res)), ...(fs.existsSync(pkgFile) ? { package: readJson(pkgFile) } : {}) });
+      } catch { out.warnings.push(`Oggetto visivo personalizzato ${guid} non leggibile.`); }
     }
   }
 

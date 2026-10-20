@@ -8,7 +8,20 @@ import type { ColumnMeta, Report, TableMeta } from '../types';
 import { appendSteps, mName, mStr, mText } from '../pq/m';
 import { buildLayout } from './layout';
 
-export interface PbitPart { path: string; utf16?: string; utf8bom?: string; dataUrl?: string; }
+export interface PbitPart { path: string; utf16?: string; utf8bom?: string; utf8?: string; dataUrl?: string; }
+
+/** Custom visuals used by the report, as Power BI stores them: CustomVisuals/<guid>/package.json + resources/<guid>.pbiviz.json. */
+function customVisualFiles(report: Report): { path: string; text: string }[] {
+  const used = new Set(report.pages.flatMap((p) => p.visuals.filter((v) => v.type === 'custom').map((v) => v.custom)));
+  return (report.customVisuals ?? []).filter((p) => used.has(p.guid)).flatMap((p) => {
+    const res = `resources/${p.guid}.pbiviz.json`;
+    const pkg = p.package ?? {
+      version: p.pbiviz?.visual?.version ?? '1.0.0', author: p.pbiviz?.author ?? {},
+      resources: [{ resourceId: 'rId0', sourceType: 5, file: res }], visual: p.pbiviz?.visual ?? { guid: p.guid }, metadata: { pbivizjson: { resourceId: 'rId0' } },
+    };
+    return [{ path: `CustomVisuals/${p.guid}/package.json`, text: JSON.stringify(pkg) }, { path: `CustomVisuals/${p.guid}/${res}`, text: JSON.stringify(p.pbiviz) }];
+  });
+}
 
 function tomType(duck: string): { dataType: string; m: string } {
   const t = duck.toUpperCase();
@@ -163,6 +176,7 @@ export function buildPbipParts(report: Report, tables: TableMeta[]): { path: str
     { path: '__BASE__.Report/definition.pbir', text: j({ version: '1.0', datasetReference: { byPath: { path: '../__BASE__.SemanticModel' } } }) },
     { path: '__BASE__.Report/report.json', text: j(JSON.parse(layout)) },
     ...Object.entries(resources).map(([n, d]) => ({ path: `__BASE__.Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+    ...customVisualFiles(report).map((f) => ({ path: `__BASE__.Report/${f.path}`, text: f.text })),
     { path: '__BASE__.SemanticModel/definition.pbism', text: j({ version: '1.0', settings: {} }) },
     { path: '__BASE__.SemanticModel/model.bim', text: j(buildModelSchema(report, tables)) },
     // Microsoft Fabric Git integration metadata.
@@ -199,6 +213,7 @@ export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] 
     { path: 'Settings', utf16: JSON.stringify({ Version: 4, ReportSettings: {}, QueriesSettings: { TypeDetectionEnabled: true, RelationshipImportEnabled: true, Version: '2.128.184.0' } }) },
     { path: 'Metadata', utf16: JSON.stringify({ Version: 5, AutoCreatedRelationships: [], CreatedFrom: 'Cloud', CreatedFromRelease: '2025.10' }) },
     ...Object.entries(resources).map(([n, d]) => ({ path: `Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+    ...customVisualFiles(report).map((f) => ({ path: `Report/${f.path}`, utf8: f.text })),
   ];
 }
 
@@ -252,6 +267,7 @@ export function buildReportParts(report: Report): { path: string; text?: string;
   return [
     { path: 'report.json', text: layout },
     ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+    ...customVisualFiles(report).map((f) => ({ path: f.path, text: f.text })),
   ];
 }
 
@@ -284,6 +300,7 @@ export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string 
     { path: 'Settings', utf16: JSON.stringify({ Version: 4, ReportSettings: {}, QueriesSettings: { TypeDetectionEnabled: true, RelationshipImportEnabled: true, Version: '2.128.184.0' } }) },
     { path: 'Metadata', utf16: JSON.stringify({ Version: 5, AutoCreatedRelationships: [], CreatedFrom: 'Cloud', CreatedFromRelease: '2025.10' }) },
     ...Object.entries(resources).map(([n, d]) => ({ path: `Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
+    ...customVisualFiles(report).map((f) => ({ path: `Report/${f.path}`, utf8: f.text })),
   ];
 }
 

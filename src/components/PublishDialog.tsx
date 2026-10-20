@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, type PbiResult, type PbiStatus, type PbiWorkspace } from '../api';
-import { useStore } from '../store';
+import { prepareCfExport, useStore } from '../store';
 import { buildFabricModel, buildPushSchema, buildReportParts, buildThinPbixParts } from '../pbix/pbit';
 import { Icon } from './icons';
 
@@ -89,6 +89,7 @@ export function PublishDialog() {
 
   const publish = () => wrap(async () => {
     setLog([]); setResult(null); setFrac(null);
+    await prepareCfExport();
     const { report, tables } = useStore.getState();
     let spec: unknown;
     const pre: string[] = [];

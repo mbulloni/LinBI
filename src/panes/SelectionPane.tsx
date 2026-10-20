@@ -20,7 +20,7 @@ function PaneShell({ title, onClose, children, tools }: { title: string; onClose
   );
 }
 
-const visualName = (v: Visual) => v.format.titleText || autoTitle(v) || visualDef(v.type).name;
+const visualName = (v: Visual) => v.format.titleText || autoTitle(v) || visualDef(v.type, v.custom).name;
 
 export function SelectionPane() {
   const s = useStore();
@@ -58,7 +58,7 @@ export function SelectionPane() {
     const v = x.v;
     return (
       <div key={v.id} className={'sel-row' + (sel.has(v.id) ? ' sel' : '') + (isHiddenVisual(page, v) ? ' off' : '')} style={{ paddingLeft: depth * 14 + 4 }} onClick={(e) => click(v, e)}>
-        <span className="nm" title={visualDef(v.type).name}>{visualName(v)}</span>
+        <span className="nm" title={visualDef(v.type, v.custom).name}>{visualName(v)}</span>
         <button title="Porta avanti" onClick={(e) => { e.stopPropagation(); s.moveLayer(v.id, 1); }}><Icon name="chevronUp" size={11} /></button>
         <button title="Porta indietro" onClick={(e) => { e.stopPropagation(); s.moveLayer(v.id, -1); }}><Icon name="chevronDown" size={11} /></button>
         <button title={v.hidden ? 'Mostra' : 'Nascondi'} onClick={(e) => { e.stopPropagation(); s.setVisualHidden(v.id, !v.hidden); }}><Eye open={!v.hidden} /></button>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { useExtraFilters } from './filterContext';
-import { buildVisualQuery, type QueryItem } from '../query';
+import { buildVisualQuery, CF_WELL, type QueryItem } from '../query';
 import type { Visual } from '../types';
 
 export interface VisualData {
@@ -10,6 +10,8 @@ export interface VisualData {
   error?: string;
   empty: boolean;
   items: QueryItem[];
+  /** Hidden items driving conditional formatting (CF_WELL), values in `rows`. */
+  cfItems: QueryItem[];
   rows: Record<string, any>[];
   totals?: Record<string, any>[];
   colTotals?: Record<string, any>[];
@@ -38,7 +40,7 @@ export function useVisualData(v: Visual): VisualData {
     [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures, extra],
   );
   const key = q && 'sql' in q ? [q.sql, q.totalsSql, q.colTotalsSql, q.rowTotalsSql].join('|') : JSON.stringify(q);
-  const [state, setState] = useState<Omit<VisualData, 'percent'>>({ loading: false, empty: true, items: [], rows: [] });
+  const [state, setState] = useState<Omit<VisualData, 'percent' | 'cfItems'>>({ loading: false, empty: true, items: [], rows: [] });
   const percent = useMemo(() => new Set(state.items.filter((i) => i.field.agg === 'measure'
     && report.measures.find((m) => m.name === i.field.column)?.formatString?.includes('%')).map((i) => i.alias)), [state.items, report.measures]);
 
@@ -62,7 +64,9 @@ export function useVisualData(v: Visual): VisualData {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, dataVersion]);
 
-  return { ...state, percent };
+  const items = useMemo(() => state.items.filter((i) => i.well !== CF_WELL), [state.items]);
+  const cfItems = useMemo(() => state.items.filter((i) => i.well === CF_WELL), [state.items]);
+  return { ...state, items, cfItems, percent };
 }
 
 /** Runs an ad-hoc query shaped like visual `v` (its wells), on `v`'s page with every filter in scope,

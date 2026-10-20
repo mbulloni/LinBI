@@ -643,3 +643,14 @@ thead .pq-rn { z-index: 2; }
 .param-item button { border: 0; background: none; cursor: pointer; }
 .param-form { display: flex; flex-direction: column; gap: 6px; }
 .pq-param-ic { width: 16px; height: 16px; border-radius: 3px; background: #8A8886; color: #fff; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+/* Custom visuals: iframes would swallow the mouse while a visual is moved or resized. */
+.linbi-dragging iframe { pointer-events: none; }
+
+/* Conditional formatting rules ("Regole") */
+.cf-rules { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.cf-rule { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 11px; padding: 4px; border: 1px solid var(--border, #E1DFDD); border-radius: 3px; }
+.cf-rule input[type=number] { width: 72px; }
+.cf-rule select { max-width: 130px; }
+.cf-rule button { margin-left: auto; background: none; border: 0; cursor: pointer; }
+.cf-rules .btn { height: 24px; min-width: 0; padding: 0 8px; font-size: 11px; font-weight: 400; }

@@ -21,6 +21,7 @@ import { fieldLabel } from '../format';
 import { NULL_KEY } from '../query';
 import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
+import { CustomVisual } from '../visuals/custom/CustomVisual';
 
 export const FIELD_MIME = 'application/x-linbi-field';
 
@@ -38,7 +39,7 @@ export function boxStyle(v: Visual): CSSProperties {
 
 /** Fields of the visual's drill hierarchy (axis/legend/location with more than one field). */
 export function hierarchyOf(v: Visual): FieldRef[] {
-  const w = visualDef(v.type).wells.find((x) => x.hierarchy);
+  const w = visualDef(v.type, v.custom).wells.find((x) => x.hierarchy);
   return w ? v.fields[w.key] ?? [] : [];
 }
 
@@ -82,9 +83,11 @@ export function autoTitle(v: Visual): string {
   if (v.type === 'gauge') return lbl('values')[0] ?? '';
   if (v.type === 'kpi') return [...lbl('values'), ...lbl('target')].join(' e ');
   const values = [...lbl('values'), ...lbl('lineValues')];
-  const dims = [...(f.category ?? []), ...(f.rows ?? []), ...(f.legend ?? []), ...(f.columns ?? [])].map((x) => x.column);
+  // Date hierarchy levels are named by level ("per Anno, Trimestre, Mese e Giorno"), like Power BI.
+  const dims = [...new Set([...(f.category ?? []), ...(f.rows ?? []), ...(f.legend ?? []), ...(f.columns ?? [])].map((x) => (x.datePart ? fieldLabel(x) : x.column)))];
+  const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : xs[0] ?? '');
   if (!values.length) return dims.join(', ');
-  return dims.length ? `${values.join(' e ')} per ${dims.join(' e ')}` : values.join(' e ');
+  return dims.length ? `${values.join(' e ')} per ${list(dims)}` : values.join(' e ');
 }
 
 export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
@@ -96,7 +99,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   const pages = useStore((s) => s.report.pages);
   const [ctx, setCtx] = useState<{ cat: string | null; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ cat: string | null; x: number; y: number } | null>(null);
-  const def = visualDef(v.type);
+  const def = visualDef(v.type, v.custom);
   const catWell = def.category;
 
   const hier = hierarchyOf(v);
@@ -141,6 +144,8 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'keyInfluencers') return <KeyInfluencersVisual v={v} />;
   if (v.type === 'smartNarrative') return <SmartNarrativeVisual v={v} />;
   if (v.type === 'qna') return <QnaVisual v={v} selected={selected} />;
+  // Custom visuals draw even without fields (empty dataViews), like Power BI.
+  if (v.type === 'custom') return <CustomVisual v={v} data={data} />;
   if (data.empty) return <div className="vc-placeholder"><VisualIcon type={v.type} size={Math.min(120, v.h * 0.45)} /></div>;
   if (data.error) return <div className="vc-error"><b>Impossibile visualizzare l'oggetto visivo.</b><span>{data.error}</span></div>;
   if (v.type === 'card') return <CardVisual v={v} data={data} />;
@@ -192,7 +197,7 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [over, setOver] = useState(false);
   const title = v.format.titleText || autoTitle(v);
-  const def = visualDef(v.type);
+  const def = visualDef(v.type, v.custom);
   const allFields = def.wells.flatMap((w) => (v.fields[w.key] ?? []).map((f) => ({ f, w })));
 
   return (
@@ -224,8 +229,13 @@ export function VisualContainer({ v, scale }: { v: Visual; scale: number }) {
         if (s.multiSel.length) s.set({ multiSel: [] });
         if (!selected) s.selectVisual(v.id);
       }}
-      onDragStop={(_e, d) => { if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) }); }}
-      onResizeStop={(_e, _dir, ref, _delta, pos) => s.updateVisual(v.id, { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) })}
+      onDragStart={() => document.body.classList.add('linbi-dragging')}
+      onResizeStart={() => document.body.classList.add('linbi-dragging')}
+      onDragStop={(_e, d) => { document.body.classList.remove('linbi-dragging'); if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) }); }}
+      onResizeStop={(_e, _dir, ref, _delta, pos) => {
+        document.body.classList.remove('linbi-dragging');
+        s.updateVisual(v.id, { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) });
+      }}
     >
       <div
         className="vc-inner"

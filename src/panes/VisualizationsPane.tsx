@@ -2,13 +2,15 @@ import { useState, type ReactNode } from 'react';
 import { useStore, defaultFormat } from '../store';
 import { uid } from '../format';
 import type { Agg, Visual, VisualFormat } from '../types';
-import { VISUALS, visualDef, isChart } from '../visuals/catalog';
+import { VISUALS, visualDef, isChart, customName, customPkg } from '../visuals/catalog';
+import { dataViewObjects, persist } from '../visuals/custom/objects';
+import type { CustomVisualPkg } from '../types';
 import { AGG_LABEL, fieldLabel, isNumeric } from '../format';
 import { Icon, VisualIcon } from '../components/icons';
 import { Menu, Toggle } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
-import { DEFAULT_CF, fieldKey } from '../visuals/condfmt';
-import type { ColorScale, CondFormat, Page } from '../types';
+import { DEFAULT_CF, fieldKey, ICON_SET } from '../visuals/condfmt';
+import type { CfRule, ColorScale, CondFormat, FieldRef, Page } from '../types';
 
 function ColorPick({ label, value, onChange }: { label: string; value: string; onChange: (c: string) => void }) {
   return (
@@ -19,26 +21,99 @@ function ColorPick({ label, value, onChange }: { label: string; value: string; o
 }
 
 function ScaleEditor({ scale, onChange }: { scale: ColorScale; onChange: (s: ColorScale) => void }) {
+  const numIn = (label: string, k: 'minValue' | 'midValue' | 'maxValue') => (
+    <label className="fmt-row"><span>{label}</span>
+      <input type="number" placeholder="Automatico" value={scale[k] ?? ''} onChange={(e) => onChange({ ...scale, [k]: e.target.value === '' ? undefined : +e.target.value })} /></label>
+  );
   return <>
     <ColorPick label="Valore minimo" value={scale.min} onChange={(min) => onChange({ ...scale, min })} />
-    <div className="fmt-row inline"><span>Aggiungi colore centrale</span><Toggle on={!!scale.mid} onChange={(b) => onChange({ ...scale, mid: b ? '#FFEB84' : undefined })} /></div>
+    {numIn('Valore minimo (numero)', 'minValue')}
+    <div className="fmt-row inline"><span>Aggiungi colore centrale</span><Toggle on={!!scale.mid} onChange={(b) => onChange({ ...scale, mid: b ? '#FFEB84' : undefined, ...(b ? {} : { midValue: undefined }) })} /></div>
     {scale.mid && <ColorPick label="Valore centrale" value={scale.mid} onChange={(mid) => onChange({ ...scale, mid })} />}
+    {scale.mid && numIn('Valore centrale (numero)', 'midValue')}
     <ColorPick label="Valore massimo" value={scale.max} onChange={(max) => onChange({ ...scale, max })} />
+    {numIn('Valore massimo (numero)', 'maxValue')}
   </>;
 }
 
-/** Table/matrix: conditional formatting per value field. */
+/** "Regole": if value >= min and < max then color/icon (rows in order, first match wins). */
+function RulesEditor({ rules, onChange, icons }: { rules: CfRule[]; onChange: (r: CfRule[]) => void; icons?: boolean }) {
+  const set = (i: number, patch: Partial<CfRule>) => onChange(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const n = (x: string) => (x === '' ? undefined : +x);
+  return <div className="cf-rules">
+    {rules.map((r, i) => (
+      <div key={i} className="cf-rule">
+        {r.blank ? <span>Se il valore è vuoto</span> : <>
+          <span>Se</span>
+          <select value={r.minInc === false ? '>' : '>='} onChange={(e) => set(i, { minInc: e.target.value === '>=' })}><option value=">=">≥</option><option value=">">&gt;</option></select>
+          <input type="number" placeholder="min" value={r.min ?? ''} onChange={(e) => set(i, { min: n(e.target.value) })} />
+          <span>e</span>
+          <select value={r.maxInc ? '<=' : '<'} onChange={(e) => set(i, { maxInc: e.target.value === '<=' })}><option value="<">&lt;</option><option value="<=">≤</option></select>
+          <input type="number" placeholder="max" value={r.max ?? ''} onChange={(e) => set(i, { max: n(e.target.value) })} />
+        </>}
+        <span>allora</span>
+        {icons
+          ? <select value={r.value} onChange={(e) => set(i, { value: e.target.value })}>{Object.keys(ICON_SET).map((k) => <option key={k} value={k}>{ICON_SET[k].ch} {k}</option>)}</select>
+          : <input type="color" value={r.value} onChange={(e) => set(i, { value: e.target.value.toUpperCase() })} />}
+        <button title="Elimina regola" onClick={() => onChange(rules.filter((_, j) => j !== i))}><Icon name="close" size={11} /></button>
+      </div>
+    ))}
+    <div style={{ display: 'flex', gap: 6 }}>
+      <button className="btn" onClick={() => onChange([...rules, { min: 0, max: 100, value: icons ? 'CircleHigh' : '#1AAB40' }])}>+ Nuova regola</button>
+      {!rules.some((r) => r.blank) && <button className="btn" onClick={() => onChange([...rules, { blank: true, value: icons ? 'CircleEmpty' : '#C8C6C4' }])}>+ Valori vuoti</button>}
+    </div>
+  </div>;
+}
+
+/** Numeric fields of the model usable as "In base al campo" (measures and summed numeric columns). */
+function useInputFields(): { label: string; f: FieldRef }[] {
+  const s = useStore();
+  return [
+    ...s.report.measures.map((m) => ({ label: `${m.table}[${m.name}]`, f: { table: m.table, column: m.name, agg: 'measure' as const } })),
+    ...s.tables.flatMap((t) => t.columns.filter((c) => isNumeric(c)).map((c) => ({ label: `Somma di ${t.name}[${c.name}]`, f: { table: t.name, column: c.name, agg: 'sum' as const } }))),
+  ];
+}
+
+function InputPick({ value, onChange, self }: { value?: FieldRef; onChange: (f?: FieldRef) => void; self?: string }) {
+  const opts = useInputFields();
+  const cur = value ? opts.findIndex((o) => fieldKey(o.f) === fieldKey(value)) : -1;
+  return <label className="fmt-row"><span>In base al campo</span>
+    <select value={cur} onChange={(e) => onChange(+e.target.value < 0 ? undefined : opts[+e.target.value].f)}>
+      <option value={-1}>{self ?? '(campo stesso)'}</option>
+      {opts.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
+    </select></label>;
+}
+
+/** Gradient or rules for one color (background / font / chart data colors). */
+function ColorFormatEditor({ title, scale, rules, def, onChange }: {
+  title: string; scale?: ColorScale; rules?: CfRule[]; def: ColorScale; onChange: (scale?: ColorScale, rules?: CfRule[]) => void;
+}) {
+  const on = !!scale || !!rules?.length;
+  const style = rules?.length ? 'rules' : 'gradient';
+  return <>
+    <div className="fmt-row inline"><span>{title}</span><Toggle on={on} onChange={(b) => onChange(b ? def : undefined, undefined)} /></div>
+    {on && <label className="fmt-row"><span>Stile formato</span>
+      <select value={style} onChange={(e) => (e.target.value === 'rules' ? onChange(undefined, [{ max: 0, value: '#D64554' }, { min: 0, value: '#1AAB40' }]) : onChange(def, undefined))}>
+        <option value="gradient">Sfumatura</option><option value="rules">Regole</option>
+      </select></label>}
+    {on && style === 'gradient' && scale && <ScaleEditor scale={scale} onChange={(sc) => onChange(sc, undefined)} />}
+    {on && style === 'rules' && <RulesEditor rules={rules!} onChange={(r) => onChange(undefined, r.length ? r : undefined)} />}
+  </>;
+}
+
+/** Table/matrix: conditional formatting per field (values, and columns when driven by another field). */
 function CondFormatCard({ v }: { v: Visual }) {
   const s = useStore();
-  const items = visualDef(v.type).wells.flatMap((w) => (v.fields[w.key] ?? []).filter((f) => f.agg !== 'none'));
-  const [sel, setSel] = useState(0);
+  const items = visualDef(v.type, v.custom).wells.flatMap((w) => v.fields[w.key] ?? []);
+  const [sel, setSel] = useState(Math.max(0, items.findIndex((f) => f.agg !== 'none')));
   const f = items[Math.min(sel, items.length - 1)];
-  if (!f) return <Card title="Formattazione condizionale"><div style={{ color: 'var(--text2)' }}>Aggiungere un campo valore.</div></Card>;
+  if (!f) return <Card title="Formattazione condizionale"><div style={{ color: 'var(--text2)' }}>Aggiungere un campo.</div></Card>;
   const key = fieldKey(f);
   const cf: CondFormat = v.format.cf?.[key] ?? {};
   const set = (patch: Partial<CondFormat>) => {
     const next = { ...cf, ...patch };
-    for (const k of Object.keys(next) as (keyof CondFormat)[]) if (next[k] === undefined || next[k] === false) delete next[k];
+    for (const k of Object.keys(next) as (keyof CondFormat)[]) if (next[k] === undefined || next[k] === false || (Array.isArray(next[k]) && !(next[k] as unknown[]).length)) delete next[k];
+    if (Object.keys(next).length === 1 && next.input) delete next.input;
     const all = { ...(v.format.cf ?? {}) };
     if (Object.keys(next).length) all[key] = next; else delete all[key];
     s.updateFormat(v.id, { cf: all });
@@ -50,23 +125,27 @@ function CondFormatCard({ v }: { v: Visual }) {
           {items.map((x, i) => <option key={i} value={i}>{fieldLabel(x)}</option>)}
         </select>
       </label>
-      <div className="fmt-row inline"><span>Colore di sfondo</span><Toggle on={!!cf.background} onChange={(b) => set({ background: b ? DEFAULT_CF.background : undefined })} /></div>
-      {cf.background && <ScaleEditor scale={cf.background} onChange={(background) => set({ background })} />}
-      <div className="fmt-row inline"><span>Colore carattere</span><Toggle on={!!cf.font} onChange={(b) => set({ font: b ? DEFAULT_CF.font : undefined })} /></div>
-      {cf.font && <ScaleEditor scale={cf.font} onChange={(font) => set({ font })} />}
+      <InputPick value={cf.input} onChange={(input) => set({ input })} self={f.agg === 'none' ? '(scegliere un campo numerico)' : undefined} />
+      <ColorFormatEditor title="Colore di sfondo" scale={cf.background} rules={cf.bgRules} def={DEFAULT_CF.background} onChange={(background, bgRules) => set({ background, bgRules })} />
+      <ColorFormatEditor title="Colore carattere" scale={cf.font} rules={cf.fontRules} def={DEFAULT_CF.font} onChange={(font, fontRules) => set({ font, fontRules })} />
       <div className="fmt-row inline"><span>Barre dei dati</span><Toggle on={!!cf.bars} onChange={(b) => set({ bars: b ? DEFAULT_CF.bars : undefined })} /></div>
       {cf.bars && <>
         <ColorPick label="Barra positiva" value={cf.bars.positive} onChange={(positive) => set({ bars: { ...cf.bars!, positive } })} />
         <ColorPick label="Barra negativa" value={cf.bars.negative} onChange={(negative) => set({ bars: { ...cf.bars!, negative } })} />
       </>}
-      <div className="fmt-row inline"><span>Icone</span><Toggle on={!!cf.icons} onChange={(b) => set({ icons: b || undefined })} /></div>
+      <div className="fmt-row inline"><span>Icone</span><Toggle on={!!cf.icons} onChange={(b) => set({ icons: b || undefined, iconRules: undefined })} /></div>
+      {cf.icons && <label className="fmt-row"><span>Stile icone</span>
+        <select value={cf.iconRules?.length ? 'rules' : 'auto'} onChange={(e) => set({ iconRules: e.target.value === 'rules' ? [{ max: 0, value: 'TriangleLow' }, { min: 0, value: 'TriangleHigh' }] : undefined })}>
+          <option value="auto">Automatico (terzi dell'intervallo)</option><option value="rules">Regole</option>
+        </select></label>}
+      {cf.icons && !!cf.iconRules?.length && <RulesEditor icons rules={cf.iconRules} onChange={(iconRules) => set({ iconRules })} />}
     </Card>
   );
 }
 
 function Wells({ v }: { v: Visual }) {
   const s = useStore();
-  const def = visualDef(v.type);
+  const def = visualDef(v.type, v.custom);
   const [over, setOver] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ well: string; idx: number; x: number; y: number } | null>(null);
   const colMeta = (t: string, c: string) => s.tables.find((x) => x.name === t)?.columns.find((x) => x.name === c);
@@ -101,6 +180,11 @@ function Wells({ v }: { v: Visual }) {
       {menu && mf && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <button onClick={() => { s.removeField(v.id, menu.well, menu.idx); setMenu(null); }}>Rimuovi campo</button>
+          {mf.agg === 'none' && def.wells.find((w) => w.key === menu.well)?.hierarchy && /^(DATE|TIMESTAMP)/i.test(colMeta(mf.table, mf.column)?.type ?? '') && <>
+            <hr />
+            <button onClick={() => { s.setDateHierarchy(v.id, menu.well, menu.idx, false); setMenu(null); }}><span style={{ width: 12 }}>{mf.datePart ? '' : '✓'}</span>{mf.column}</button>
+            <button onClick={() => { s.setDateHierarchy(v.id, menu.well, menu.idx, true); setMenu(null); }}><span style={{ width: 12 }}>{mf.datePart ? '✓' : ''}</span>Gerarchia date</button>
+          </>}
           {mf.agg !== 'measure' && <hr />}
           {mf.agg !== 'measure' && aggs.filter((a) => !(wellIsMeasure && a === 'none' && v.type !== 'table')).map((a) => (
             <button key={a} onClick={() => { s.setFieldAgg(v.id, menu.well, menu.idx, a); setMenu(null); }}>
@@ -127,6 +211,70 @@ function Card({ title, toggle, children, defaultOpen = false }: { title: string;
   );
 }
 
+/** Category of a chart that can use a continuous axis: a single date or number column (no hierarchy levels). */
+function axisKind(v: Visual, tables: import('../types').TableMeta[]): 'date' | 'number' | null {
+  const cats = v.fields.category ?? [];
+  if (cats.length !== 1 || cats[0].agg !== 'none' || cats[0].datePart) return null;
+  const t = tables.find((x) => x.name === cats[0].table)?.columns.find((c) => c.name === cats[0].column)?.type.toUpperCase() ?? '';
+  return /^(DATE|TIMESTAMP)/.test(t) ? 'date' : /INT|DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC/.test(t) ? 'number' : null;
+}
+
+/** Label of a capabilities entry (displayNameKey resolved through the package's string resources). */
+function cvLabel(pkg: CustomVisualPkg, x: any, fallback: string): string {
+  const res = pkg.pbiviz?.stringResources ?? {};
+  const key = x?.displayNameKey;
+  return (key && (res['it-IT']?.[key] ?? res['en-US']?.[key])) ?? x?.displayName ?? fallback;
+}
+
+/** Format pane of a custom visual, generated from its capabilities.objects (values in Visual.style.objects). */
+function CustomFormatCards({ v }: { v: Visual }) {
+  const s = useStore();
+  const pkg = customPkg(v.custom);
+  if (!pkg) return null;
+  const caps = pkg.pbiviz?.capabilities?.objects ?? {};
+  const current = dataViewObjects(v.style?.objects).plain;
+  const set = (obj: string, prop: string, value: unknown) => s.updateVisual(v.id, {
+    style: { ...v.style, objects: persist(v.style?.objects, { merge: [{ objectName: obj, selector: null, properties: { [prop]: value } }] }) },
+  });
+  const editor = (obj: string, prop: string, def: any) => {
+    const t = def?.type ?? {};
+    const cur = current[obj]?.[prop];
+    const label = cvLabel(pkg, def, prop);
+    if (t.bool) return <div key={prop} className="fmt-row inline"><span>{label}</span><Toggle on={!!cur} onChange={(b) => set(obj, prop, b)} /></div>;
+    if (t.enumeration) {
+      const opts: any[] = Array.isArray(t.enumeration) ? t.enumeration : t.enumeration.members?.() ?? [];
+      return <label key={prop} className="fmt-row"><span>{label}</span>
+        <select value={cur ?? ''} onChange={(e) => set(obj, prop, opts.find((o) => String(o.value) === e.target.value)?.value ?? e.target.value)}>
+          {cur === undefined && <option value="">(predefinito)</option>}
+          {opts.map((o) => <option key={String(o.value)} value={String(o.value)}>{cvLabel(pkg, o, String(o.value))}</option>)}
+        </select></label>;
+    }
+    if (t.fill?.solid?.color) return <ColorPick key={prop} label={label} value={cur?.solid?.color ?? '#000000'} onChange={(c) => set(obj, prop, { solid: { color: c } })} />;
+    if (t.numeric || t.integer || t.formatting?.fontSize) {
+      return <label key={prop} className="fmt-row"><span>{label}</span>
+        <input type="number" value={cur ?? ''} placeholder="(predefinito)" onChange={(e) => set(obj, prop, e.target.value === '' ? null : t.integer ? Math.round(+e.target.value) : +e.target.value)} /></label>;
+    }
+    if (t.formatting?.alignment) return <label key={prop} className="fmt-row"><span>{label}</span>
+      <select value={cur ?? ''} onChange={(e) => set(obj, prop, e.target.value)}>
+        <option value="">(predefinito)</option><option value="left">A sinistra</option><option value="center">Al centro</option><option value="right">A destra</option>
+      </select></label>;
+    if (t.text || t.formatting?.fontFamily) return <label key={prop} className="fmt-row"><span>{label}</span><input type="text" value={cur ?? ''} onChange={(e) => set(obj, prop, e.target.value)} /></label>;
+    return null; // filters, images, data-bound properties: not editable here
+  };
+  const cards = Object.entries<any>(caps).map(([obj, def]) => {
+    const props = Object.entries<any>(def.properties ?? {});
+    const show = props.find(([k, p]) => k === 'show' && p.type?.bool);
+    const rows = props.filter(([k]) => k !== 'show' || !show).map(([k, p]) => editor(obj, k, p)).filter(Boolean);
+    if (!rows.length && !show) return null;
+    return (
+      <Card key={obj} title={cvLabel(pkg, def, obj)} toggle={show ? [current[obj]?.show !== false && (current[obj]?.show ?? true), (b) => set(obj, 'show', b)] : undefined}>
+        {rows.length ? rows : undefined}
+      </Card>
+    );
+  }).filter(Boolean);
+  return <>{cards.length ? cards : <div style={{ color: 'var(--text2)', padding: '10px 0' }}>L'oggetto visivo non dichiara opzioni di formato.</div>}</>;
+}
+
 function FormatPane({ v }: { v: Visual }) {
   const s = useStore();
   const [tab, setTab] = useState<'visual' | 'general'>('visual');
@@ -145,7 +293,12 @@ function FormatPane({ v }: { v: Visual }) {
         <button className={tab === 'general' ? 'active' : ''} onClick={() => setTab('general')}>Generale</button>
       </div>
       {tab === 'visual' && <>
-        {cartesian && <Card title="Asse X" toggle={tg('xAxisShow')} />}
+        {cartesian && <Card title="Asse X" toggle={tg('xAxisShow')}>
+          {axisKind(v, s.tables) && <label className="fmt-row"><span>Tipo</span>
+            <select value={f.axisType ?? (axisKind(v, s.tables) === 'date' ? 'continuous' : 'categorical')} onChange={(e) => up({ axisType: e.target.value as VisualFormat['axisType'] })}>
+              <option value="continuous">Continuo</option><option value="categorical">Categorico</option>
+            </select></label>}
+        </Card>}
         {cartesian && <Card title="Asse Y" toggle={tg('yAxisShow')} />}
         {cartesian && <Card title="Linee griglia" toggle={tg('gridlines')} />}
         {hasLegend && (
@@ -163,13 +316,18 @@ function FormatPane({ v }: { v: Visual }) {
             <label className="fmt-row"><span>Colore predefinito</span>
               <span className="colorpick"><input type="color" value={f.color} onChange={(e) => up({ color: e.target.value })} />{f.color.toUpperCase()}</span>
             </label>
-            {cartesian && v.type !== 'scatter' && <>
-              <div className="fmt-row inline"><span>Sfumatura per valore (fx)</span><Toggle on={!!f.colorScale} onChange={(b) => up({ colorScale: b ? { min: '#DEEFFF', max: '#0B5394' } : undefined })} /></div>
+            {(cartesian && v.type !== 'scatter' || v.type === 'filledMap') && <>
+              <div className="fmt-row inline"><span>Formattazione condizionale (fx)</span><Toggle on={!!f.colorScale || !!f.colorRule} onChange={(b) => up({ colorScale: b ? { min: '#DEEFFF', max: '#0B5394' } : undefined, colorRule: undefined })} /></div>
+              {(f.colorScale || f.colorRule) && v.type !== 'filledMap' && <InputPick value={f.colorRule?.field} self="(valore del grafico)"
+                onChange={(field) => up(field ? { colorRule: { field, scale: f.colorRule?.scale ?? f.colorScale ?? { min: '#DEEFFF', max: '#0B5394' }, rules: f.colorRule?.rules }, colorScale: undefined } : { colorScale: f.colorRule?.scale ?? { min: '#DEEFFF', max: '#0B5394' }, colorRule: undefined })} />}
               {f.colorScale && <ScaleEditor scale={f.colorScale} onChange={(colorScale) => up({ colorScale })} />}
+              {f.colorRule && <ColorFormatEditor title="Colore" scale={f.colorRule.scale} rules={f.colorRule.rules} def={{ min: '#DEEFFF', max: '#0B5394' }}
+                onChange={(scale, rules) => up({ colorRule: scale || rules ? { field: f.colorRule!.field, scale, rules } : undefined })} />}
             </>}
           </Card>
         )}
         {(v.type === 'table' || v.type === 'matrix') && <CondFormatCard v={v} />}
+        {v.type === 'custom' && <CustomFormatCards v={v} />}
         {(chart || mapv) && (
           <Card title="Descrizioni comando">
             <label className="fmt-row"><span>Tipo</span>
@@ -190,7 +348,7 @@ function FormatPane({ v }: { v: Visual }) {
             </label>
           </Card>
         )}
-        {!chart && !mapv && !['slicer', 'table', 'matrix'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
+        {!chart && !mapv && !['slicer', 'table', 'matrix', 'custom'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
       </>}
       {tab === 'general' && <>
         <Card title="Proprietà" defaultOpen>
@@ -293,6 +451,29 @@ function PageSettings() {
   );
 }
 
+/** Custom visuals of the report (Visualizations gallery), with "Importa un oggetto visivo da un file". */
+function CustomGallery({ v }: { v?: Visual }) {
+  const s = useStore();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const pkgs = s.report.customVisuals ?? [];
+  return <>
+    {pkgs.map((p) => (
+      <button key={p.guid} title={customName(p)} className={v?.type === 'custom' && v.custom === p.guid ? 'active' : ''}
+        onClick={() => (v && v.type !== 'textbox' ? s.changeVisualType(v.id, 'custom', p.guid) : s.addVisual('custom', undefined, p.guid))}>
+        {p.pbiviz?.content?.iconBase64 ? <img src={p.pbiviz.content.iconBase64} alt="" width={20} height={20} /> : <VisualIcon type="custom" />}
+      </button>
+    ))}
+    <button title="Altri oggetti visivi" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left - 200, y: r.bottom + 2 }); }}>…</button>
+    {menu && (
+      <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <button onClick={() => { setMenu(null); s.importCustomVisual(); }}>Importa un oggetto visivo da un file</button>
+        {pkgs.length > 0 && <hr />}
+        {pkgs.map((p) => <button key={p.guid} onClick={() => { setMenu(null); s.removeCustomVisual(p.guid); }}>Rimuovi «{customName(p)}»</button>)}
+      </Menu>
+    )}
+  </>;
+}
+
 export function VisualizationsPane() {
   const s = useStore();
   if (!s.panes.viz) return null;
@@ -318,6 +499,7 @@ export function VisualizationsPane() {
                 <VisualIcon type={d.type} />
               </button>
             ))}
+            <CustomGallery v={v} />
           </div>
           {v ? <Wells v={v} /> : <PageSettings />}
         </>}

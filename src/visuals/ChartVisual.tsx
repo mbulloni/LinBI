@@ -5,7 +5,7 @@ import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
-import { rangeOf, scaleColor } from './condfmt';
+import { cfInput, fieldKey, rangeOf, ruleValue, scaleColor } from './condfmt';
 import { font, pointColors, pt, queryRef, sp, units } from './pbistyle';
 
 /** ECharts axis label/title/grid settings from the visual's categoryAxis/valueAxis objects. */
@@ -49,6 +49,32 @@ const main = (c: string) => (c.toUpperCase() === '#118DFF' ? PALETTE[0] : c);
 const FONT = "'Segoe UI', 'Selawik', 'Ubuntu Sans', sans-serif";
 const AXIS_TEXT = '#605E5C';
 const catLabel = (c: string | null) => (c === null ? '(Vuoto)' : c);
+
+/** Continuous ("Continuo") category axis: a single date column without hierarchy (default, like Power BI)
+ *  or a numeric one when the axis type is set to continuous. Returns the axis kind, or null for categorical. */
+export function continuousAxis(v: Visual, items: QueryItem[]): 'time' | 'value' | null {
+  const cats = items.filter((i) => i.well === 'category');
+  if (cats.length !== 1 || cats[0].field.agg !== 'none' || cats[0].field.datePart || v.drill?.expand) return null;
+  const f = cats[0].field;
+  const type = useStore.getState().tables.find((t) => t.name === f.table)?.columns.find((c) => c.name === f.column)?.type.toUpperCase() ?? '';
+  const pref = v.format.axisType ?? (sp(v, 'categoryAxis', 'axisType') === 'Categorical' ? 'categorical' : sp(v, 'categoryAxis', 'axisType') === 'Scalar' ? 'continuous' : undefined);
+  if (/^(DATE|TIMESTAMP)/.test(type)) return pref === 'categorical' ? null : 'time';
+  if (/INT|DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC|HUGEINT/.test(type)) return pref === 'continuous' ? 'value' : null;
+  return null;
+}
+
+const IT_MONTH = new Intl.DateTimeFormat('it-IT', { month: 'short' });
+const IT_DAY = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' });
+/** Time-axis tick label in Italian, coarser as the visible span grows (anno › mese › giorno). */
+function timeTick(span: number) {
+  return (t: number) => {
+    const d = new Date(t);
+    if (span > 3 * 365 * 864e5) return String(d.getFullYear());
+    if (span > 90 * 864e5) return d.getMonth() === 0 ? String(d.getFullYear()) : IT_MONTH.format(d).replace('.', '');
+    return IT_DAY.format(d).replace('.', '');
+  };
+}
+const toTime = (c: string | null) => (c === null ? NaN : Date.parse(c.length <= 10 ? c + 'T00:00:00' : c.replace(' ', 'T')));
 
 interface Built { option: echarts.EChartsCoreOption; categories: (string | null)[]; }
 
@@ -126,6 +152,20 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     boundaryGap: kind === 'bar',
   };
   if (horizontal) Object.assign(catAxis, { name: '' });
+  // Continuous axis: points placed by date/number instead of one slot (and one label) per value.
+  const cont = continuousAxis(v, d.items);
+  const xs = cont ? categories.map((c) => (cont === 'time' ? toTime(c) : c === null ? NaN : Number(c))) : [];
+  if (cont) {
+    const finite = xs.filter(Number.isFinite);
+    const span = finite.length ? Math.max(...finite) - Math.min(...finite) : 0;
+    Object.assign(catAxis, {
+      type: cont, data: undefined, scale: cont === 'value', boundaryGap: kind === 'bar' ? ['2%', '2%'] : false,
+      axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true, ...(cont === 'time' ? { formatter: timeTick(span) } : { formatter: (x: number) => fmtAuto(x) }), ...ca.label },
+      splitLine: { show: false }, nameGap: 28,
+    });
+  }
+  const at = (i: number, y: number | null) => (cont ? [xs[i], y] : y);
+  const yOf = (p: any) => (Array.isArray(p.value) ? p.value[1] : p.value);
   const asPct = vals.length > 0 && d.percent.has(vals[0].alias) && !pct;
   const valAxis = {
     type: 'value' as const,
@@ -154,6 +194,17 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
   // "Colori dati" › fx gradient: each bar colored by its value.
   const grad = singleColor && f.colorScale ? f.colorScale : undefined;
   const gradRange = grad ? rangeOf(series[0].data) : null;
+  // "In base al campo": each category colored by another field's value (gradient or rules).
+  const cr = singleColor ? f.colorRule : undefined;
+  const crItem = cr ? d.cfItems.find((c) => fieldKey(c.field) === fieldKey(cfInput(cr.field))) : undefined;
+  const drv: (number | null)[] = categories.map(() => null);
+  if (crItem) for (const r of d.rows) { const i = cat ? catIndex.get(ck(r)) : 0; const x = r[crItem.alias]; if (i !== undefined) drv[i] = x === null || x === undefined ? null : Number(x); }
+  const drvRange = crItem ? rangeOf(drv) : null;
+  const ruleColor = (i: number): string | undefined => {
+    if (!cr || !crItem) return undefined;
+    const x = drv[i];
+    return ruleValue(cr.rules, x) ?? (cr.scale && drvRange && x !== null ? scaleColor(cr.scale, drvRange, x) : undefined);
+  };
   const option: echarts.EChartsCoreOption = {
     textStyle: { fontFamily: FONT },
     animationDuration: 300,
@@ -181,12 +232,14 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
       lineStyle: kind === 'line' ? { width: 2.5 } : undefined,
       areaStyle: area ? { opacity: stacked ? 0.85 : 0.4 } : undefined,
       emphasis: { focus: 'none' },
-      label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: lb.size ?? 10, color: lb.color ?? (stacked ? '#fff' : '#252423'), formatter: (p: any) => (p.value === null ? '' : pct ? fmtAuto(p.value, 1) + '%' : asPct ? fmtPct(p.value) : fmtLbl(p.value)) },
+      label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: lb.size ?? 10, color: lb.color ?? (stacked ? '#fff' : '#252423'), formatter: (p: any) => (yOf(p) === null ? '' : pct ? fmtAuto(yOf(p), 1) + '%' : asPct ? fmtPct(yOf(p)) : fmtLbl(yOf(p))) },
+      ...(cont && kind === 'bar' ? { barMaxWidth: Math.max(2, Math.min(60, ((width - 80) / Math.max(1, categories.length)) * 0.8 / (stacked ? 1 : series.length))) } : {}),
       data: s.data.map((x, i) => ({
-        value: x,
+        value: at(i, x),
         itemStyle: {
           ...(singleColor && pc.byValue.has(categories[i] ?? '') ? { color: pc.byValue.get(categories[i] ?? '') } : {}),
           ...(grad && gradRange && x !== null ? { color: scaleColor(grad, gradRange, x) } : {}),
+          ...(ruleColor(i) ? { color: ruleColor(i) } : {}),
           ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}),
         },
       })),
@@ -194,8 +247,8 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     })), ...lines.map((s, k) => ({
       name: s.name, type: 'line', yAxisIndex: 1, symbol: 'circle', symbolSize: 6, lineStyle: { width: 2.5 },
       color: PALETTE[(series.length + k) % PALETTE.length], z: 50 + k,
-      label: { show: f.dataLabels, position: 'top', fontSize: 10, color: '#252423', formatter: (p: any) => (p.value === null ? '' : fmtAuto(p.value)) },
-      data: s.data,
+      label: { show: f.dataLabels, position: 'top', fontSize: 10, color: '#252423', formatter: (p: any) => (yOf(p) === null ? '' : fmtAuto(yOf(p))) },
+      data: s.data.map((x, i) => at(i, x)),
     }))],
   };
   return { option, categories };

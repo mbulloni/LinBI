@@ -1,4 +1,4 @@
-import type { VisualType } from '../types';
+import type { CustomVisualPkg, VisualType } from '../types';
 
 export interface Well {
   key: string;
@@ -89,7 +89,29 @@ export const VISUALS: VisualDef[] = [
 
 const OTHER: Partial<Record<VisualType, string>> = { textbox: 'Casella di testo', image: 'Immagine', button: 'Pulsante', shape: 'Forma', pageNavigator: 'Navigatore pagine', bookmarkNavigator: 'Navigatore segnalibri', unsupported: 'Oggetto visivo non supportato' };
 
-export const visualDef = (t: VisualType): VisualDef =>
-  VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
+/* Custom visuals of the open report (set from Report.customVisuals by the store). */
+const CUSTOM = new Map<string, CustomVisualPkg>();
+export function setCustomVisuals(list: CustomVisualPkg[] = []) { CUSTOM.clear(); for (const p of list) CUSTOM.set(p.guid, p); }
+export const customPkg = (guid?: string) => (guid ? CUSTOM.get(guid) : undefined);
+export const customName = (p: CustomVisualPkg): string => p.pbiviz?.visual?.displayName ?? p.package?.visual?.displayName ?? p.guid;
 
-export const isChart = (t: VisualType) => !['pageNavigator', 'bookmarkNavigator', 'map', 'filledMap', 'keyInfluencers', 'decompositionTree', 'smartNarrative', 'qna', 'pythonVisual', 'rVisual', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'unsupported'].includes(t);
+/** Role kind in capabilities: 0/Grouping, 1/Measure, 2/GroupingOrMeasure. */
+export const roleKind = (k: unknown): 0 | 1 | 2 => (k === 1 || k === 'Measure' ? 1 : k === 2 || k === 'GroupingOrMeasure' ? 2 : 0);
+
+/** Wells of a custom visual = its capabilities' dataRoles (max from the first mapping's conditions). */
+function customDef(p: CustomVisualPkg): VisualDef {
+  const caps = p.pbiviz?.capabilities ?? {};
+  const cond = caps.dataViewMappings?.[0]?.conditions?.[0] ?? {};
+  const wells: Well[] = (caps.dataRoles ?? []).map((r: any) => ({
+    key: r.name, label: r.displayName ?? r.name, measure: roleKind(r.kind) === 1,
+    ...(typeof cond[r.name]?.max === 'number' && cond[r.name].max > 0 ? { max: cond[r.name].max } : {}),
+  }));
+  return { type: 'custom', name: customName(p), wells, category: wells.find((w) => !w.measure)?.key };
+}
+
+export const visualDef = (t: VisualType, custom?: string): VisualDef => {
+  if (t === 'custom') { const p = customPkg(custom); return p ? customDef(p) : { type: t, name: 'Oggetto visivo personalizzato', wells: [] }; }
+  return VISUALS.find((v) => v.type === t) ?? { type: t, name: OTHER[t] ?? t, wells: [] };
+};
+
+export const isChart = (t: VisualType) => !['pageNavigator', 'bookmarkNavigator', 'map', 'filledMap', 'keyInfluencers', 'decompositionTree', 'smartNarrative', 'qna', 'pythonVisual', 'rVisual', 'card', 'multiRowCard', 'kpi', 'button', 'shape', 'table', 'matrix', 'slicer', 'textbox', 'image', 'custom', 'unsupported'].includes(t);

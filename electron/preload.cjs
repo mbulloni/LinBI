@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   openExternal: (url) => call('shell:open', url),
+  importPbiviz: () => call('cv:import'),
   createEmptyTable: (table, columns) => call('db:createEmpty', table, columns),
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),

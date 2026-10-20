@@ -160,11 +160,29 @@ def from_schema(z, out):
         })
 
 
+CV_PART = re.compile(r"^Report/CustomVisuals/([^/]+)/(package\.json|resources/[^/]+\.pbiviz\.json)$")
+
+
+def custom_visuals(z, names):
+    """Custom visuals embedded in the report: Report/CustomVisuals/<guid>/package.json + resources/<guid>.pbiviz.json."""
+    found = {}
+    for n in names:
+        m = CV_PART.match(n)
+        if not m:
+            continue
+        try:
+            data = json.loads(z.read(n).decode("utf-8-sig"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        found.setdefault(m.group(1), {"guid": m.group(1)})["package" if m.group(2) == "package.json" else "pbiviz"] = data
+    return [v for v in found.values() if "pbiviz" in v]
+
+
 def main():
     path, outdir = sys.argv[1], sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
     out = {"file": path, "kind": None, "tables": [], "relationships": [], "measures": [],
-           "layout": None, "resources": {}, "warnings": []}
+           "layout": None, "resources": {}, "customVisuals": [], "warnings": []}
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         if "Report/Layout" in names:
@@ -178,6 +196,7 @@ def main():
                 mime = mimetypes.guess_type(n)[0] or "application/octet-stream"
                 if mime.startswith("image/") or mime == "application/json":
                     out["resources"][n.rsplit("/", 1)[1]] = f"data:{mime};base64," + base64.b64encode(z.read(n)).decode()
+        out["customVisuals"] = custom_visuals(z, names)
         if "DataModel" in names:
             out["kind"] = "pbix"
             from_pbixray(path, outdir, out)
