@@ -654,3 +654,8 @@ thead .pq-rn { z-index: 2; }
 .cf-rule select { max-width: 130px; }
 .cf-rule button { margin-left: auto; background: none; border: 0; cursor: pointer; }
 .cf-rules .btn { height: 24px; min-width: 0; padding: 0 8px; font-size: 11px; font-weight: 400; }
+
+/* Data view: Strumenti colonna */
+.coltools { display: flex; align-items: center; gap: 16px; padding: 6px 12px; border-bottom: 1px solid var(--border, #E1DFDD); background: var(--panel, #FAF9F8); font-size: 12px; }
+.coltools label { display: flex; align-items: center; gap: 6px; }
+.coltools select { height: 24px; }

@@ -36,7 +36,7 @@ function bounds(points: [number, number][]): [[number, number], [number, number]
 
 /** Base map under bubbles: the most detailed layer that contains all points. */
 function baseFor(g: Geocoded, points: [number, number][]): PolyLayer {
-  if (g.layer !== 'cities' && g.layer !== 'world' && g.layer !== 'it-municipalities') return g.layer;
+  if (g.layer !== 'cities' && g.layer !== 'postal' && g.layer !== 'world' && g.layer !== 'it-municipalities') return g.layer;
   const inItaly = points.length > 0 && points.every(([x, y]) => x > 6 && x < 19 && y > 35.4 && y < 47.2);
   if (inItaly) return 'it-regions';
   const inUS = points.length > 0 && points.every(([x, y]) => x > -170 && x < -60 && y > 18 && y < 72);
@@ -50,6 +50,7 @@ export function MapVisual({ v, data, cross, onSelect }: { v: Visual; data: Visua
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
   const [note, setNote] = useState<string | null>(null);
+  const [postal, setPostal] = useState(false);
   const theme = useStore((s) => s.report.theme);
 
   useEffect(() => {
@@ -73,7 +74,9 @@ export function MapVisual({ v, data, cross, onSelect }: { v: Visual; data: Visua
       const val = data.items.find((i) => i.well === 'values');
       const filled = v.type === 'filledMap';
       const locs = cat ? data.rows.map((r) => r[cat.alias] as string) : [];
-      const g = cat && !(lat && lon && !filled) ? await geocode(locs, cat.field.column, filled) : null;
+      // Power BI data category of the location column (imported from the model or set in Strumenti colonna).
+      const category = cat ? useStore.getState().tables.find((t) => t.name === cat.field.table)?.dataCategory?.[cat.field.column] : undefined;
+      const g = cat && !(lat && lon && !filled) ? await geocode(locs, cat.field.column, filled, category) : null;
       if (!live) return;
       const selected = cross && cross.visualId === v.id ? (cross.value === NULL_KEY ? null : cross.value) : undefined;
       const dim = (i: number) => selected !== undefined && cats.current[i] !== selected;
@@ -96,6 +99,7 @@ export function MapVisual({ v, data, cross, onSelect }: { v: Visual; data: Visua
       const layer: PolyLayer = filled ? ((g?.layer as PolyLayer) ?? 'world') : baseFor(g ?? { layer: 'cities', hits: new Map(), missing: [] }, pts.map((p) => p.coord));
       const lay = await register(layer);
       if (!live || !chart.current) return;
+      setPostal(g?.layer === 'postal');
       const missing = g?.missing.length ?? 0;
       setNote(missing ? `${missing} ${missing === 1 ? 'posizione non trovata' : 'posizioni non trovate'} (${g!.missing.slice(0, 3).join(', ')}${missing > 3 ? '…' : ''}) · ${LAYER_LABEL[g!.layer]}` : null);
 
@@ -195,7 +199,7 @@ export function MapVisual({ v, data, cross, onSelect }: { v: Visual; data: Visua
   return (
     <>
       <div ref={el} style={{ position: 'absolute', inset: '0 4px 4px 4px' }} />
-      <div className="map-credit">{note ? <span className="map-note">{note} · </span> : null}Natural Earth · US Census · ISTAT/openpolis CC BY 4.0</div>
+      <div className="map-credit">{note ? <span className="map-note">{note} · </span> : null}Natural Earth · US Census · ISTAT/openpolis CC BY 4.0{postal ? ' · GeoNames CC BY 4.0' : ''}</div>
     </>
   );
 }

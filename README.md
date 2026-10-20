@@ -256,6 +256,11 @@ del repository di pbixray (sample Microsoft).
 [Natural Earth](https://www.naturalearthdata.com/) (pubblico dominio, tramite `world-atlas`), stati USA da US Census
 (pubblico dominio, tramite `us-atlas`), regioni, province e comuni italiani da
 [openpolis/geojson-italy](https://github.com/openpolis/geojson-italy) su dati ISTAT (CC BY 4.0).
+Stati e province di tutti i paesi (admin-1) e continenti da Natural Earth (`ne_10m_admin_1_states_provinces`,
+`ne_50m_admin_0_countries`, pubblico dominio); codici postali (IT, US, DE, FR, ES, GB, CH, AT, NL, BE, PT) da
+[GeoNames](https://download.geonames.org/export/zip/) (CC BY 4.0). `GEO_ONLY=admin1,continents,postal` rigenera solo
+alcuni livelli. Le mappe usano la categoria dati della colonna (importata dal modello Power BI o impostata in
+Vista dati › Strumenti colonna), altrimenti la deducono dal nome della colonna.
 
 ## Licenza
 

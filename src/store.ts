@@ -245,6 +245,8 @@ interface State {
   addField: (visualId: string | null, field: FieldDrop, well?: string, at?: { x: number; y: number }) => void;
   removeField: (visualId: string, well: string, idx: number) => void;
   setFieldAgg: (visualId: string, well: string, idx: number, agg: FieldRef['agg']) => void;
+  /** Strumenti colonna: data category and "Ordina per colonna" (null removes). */
+  setColumnProps: (table: string, column: string, p: { dataCategory?: string | null; sortBy?: string | null }) => void;
   /** Date field in a hierarchy well: plain date ("Data") or automatic date hierarchy ("Gerarchia date"). */
   setDateHierarchy: (visualId: string, well: string, idx: number, on: boolean) => void;
   selectVisual: (id: string | null) => void;
@@ -309,6 +311,9 @@ export const useStore = create<State>((set, get) => {
       return !w.max || (v.fields[k]?.length ?? 0) < w.max;
     };
     let well = wellKey ? def.wells.find((w) => w.key === wellKey) : undefined;
+    // Latitude/Longitude data category (or column name) → the map's coordinate wells.
+    const category = get().tables.find((t) => t.name === f.table)?.dataCategory?.[f.column];
+    well ??= def.wells.find((w) => (category === 'Latitude' ? w.key === 'lat' : category === 'Longitude' ? w.key === 'lon' : false) && hasRoom(w.key));
     well ??= def.wells.find((w) => w.match?.test(f.column) && hasRoom(w.key));
     if (!well) {
       well = (num ? def.wells.find((w) => w.measure && hasRoom(w.key)) : undefined)
@@ -339,7 +344,7 @@ export const useStore = create<State>((set, get) => {
 
   /** Runs a query (source + applied steps) and stores the result as model table `def.name`.
    *  `context` resolves references to other queries (defaults to the loaded tables). */
-  const loadTable = async (def: QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns'] }, context?: QueryDef[]) => {
+  const loadTable = async (def: QueryDef & { sortBy?: Record<string, string>; dataCategory?: Record<string, string>; calcColumns?: TableMeta['calcColumns'] }, context?: QueryDef[]) => {
     const all = context ?? get().tables;
     const meta = await api.materialize(def.name, await compileQuery(def, all, { srcExpr }));
     const steps = def.steps?.length ? def.steps : undefined;
@@ -350,8 +355,9 @@ export const useStore = create<State>((set, get) => {
     }
     const prev = get().tables.find((x) => x.name === def.name);
     const sortBy = def.sortBy ?? prev?.sortBy;
+    const dataCategory = def.dataCategory ?? prev?.dataCategory;
     const calcColumns = def.calcColumns ?? prev?.calcColumns;
-    const t: TableMeta = { ...meta, source: def.source, ...(steps ? { steps, sourceColumns } : {}), ...(sortBy ? { sortBy } : {}), ...(calcColumns?.length ? { calcColumns } : {}) };
+    const t: TableMeta = { ...meta, source: def.source, ...(steps ? { steps, sourceColumns } : {}), ...(sortBy ? { sortBy } : {}), ...(dataCategory && Object.keys(dataCategory).length ? { dataCategory } : {}), ...(calcColumns?.length ? { calcColumns } : {}) };
     set((s) => ({
       tables: prev ? s.tables.map((x) => (x.name === def.name ? t : x)) : [...s.tables, t],
       dataVersion: s.dataVersion + 1,
@@ -423,9 +429,10 @@ export const useStore = create<State>((set, get) => {
           }
         }
         const sortBy = new Map(model.tables.map((t) => [t.name, t.sortBy ?? {}]));
+        const cats = new Map(model.tables.filter((t) => t.dataCategory && Object.keys(t.dataCategory).length).map((t) => [t.name, t.dataCategory!]));
         // Calculated columns of schema-only files (.pbit/.pbip) are computed here; .pbix data already has them.
         const calc = new Map(model.tables.filter((t) => !t.parquet && t.calcColumns?.length).map((t) => [t.name, t.calcColumns!]));
-        set((s) => ({ tables: s.tables.map((t) => ({ ...t, sortBy: sortBy.get(t.name), ...(calc.has(t.name) ? { calcColumns: calc.get(t.name) } : {}) })) }));
+        set((s) => ({ tables: s.tables.map((t) => ({ ...t, sortBy: sortBy.get(t.name), ...(cats.has(t.name) ? { dataCategory: cats.get(t.name) } : {}), ...(calc.has(t.name) ? { calcColumns: calc.get(t.name) } : {}) })) }));
         const relationships: Relationship[] = model.relationships.map((r) => {
           const swap = r.cardinality === 'oneToMany';
           return {
@@ -1045,7 +1052,9 @@ export const useStore = create<State>((set, get) => {
     addField: (visualId, field, well, at) => {
       let id = visualId;
       if (!id) {
-        const type: VisualType = field.measure ? 'card' : isNumeric(columnOf(field)) ? 'clusteredColumn' : 'table';
+        // Like Power BI: a geographic column (data category) dropped on the canvas makes a map.
+        const geo = !field.measure && /^(Address|Place|City|County|StateOrProvince|PostalCode|Country|Continent|Latitude|Longitude)$/.test(get().tables.find((t) => t.name === field.table)?.dataCategory?.[field.column] ?? '');
+        const type: VisualType = field.measure ? 'card' : geo ? 'map' : isNumeric(columnOf(field)) ? 'clusteredColumn' : 'table';
         id = get().addVisual(type, at);
         // Fold into the creation step so a single undo removes the new visual.
         const past = get().past;
@@ -1057,6 +1066,22 @@ export const useStore = create<State>((set, get) => {
     },
     removeField: (visualId, well, idx) => get().mut((r) => { const v = findVisual(r, visualId); v?.fields[well]?.splice(idx, 1); }),
     setFieldAgg: (visualId, well, idx, agg) => get().mut((r) => { const f = findVisual(r, visualId)?.fields[well]?.[idx]; if (f) f.agg = agg; }),
+    setColumnProps: (table, column, p) => {
+      set((s) => ({
+        dirty: true, dataVersion: s.dataVersion + 1,
+        tables: s.tables.map((t) => {
+          if (t.name !== table) return t;
+          const next = { ...t };
+          for (const k of ['dataCategory', 'sortBy'] as const) {
+            if (p[k] === undefined) continue;
+            const m = { ...(t[k] ?? {}) };
+            if (p[k]) m[column] = p[k]!; else delete m[column];
+            if (Object.keys(m).length) next[k] = m; else delete next[k];
+          }
+          return next;
+        }),
+      }));
+    },
     setDateHierarchy: (visualId, well, idx, on) => get().mut((r) => {
       const v = findVisual(r, visualId);
       const list = v?.fields[well];
@@ -1163,7 +1188,7 @@ export const useStore = create<State>((set, get) => {
       // Version 2: data embedded as Parquet (like a .pbix), sources and steps kept for refresh.
       const content = JSON.stringify({
         format: 'lbix', version: 2,
-        tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, calcColumns: t.calcColumns, ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}), data: `data/${i}.parquet` })),
+        tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, ...(t.dataCategory ? { dataCategory: t.dataCategory } : {}), calcColumns: t.calcColumns, ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}), data: `data/${i}.parquet` })),
         report,
       }, null, 2);
       set({ busy: 'Salvataggio…' });
@@ -1186,7 +1211,7 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];
-        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; calcColumns?: TableMeta['calcColumns']; sourceColumns?: TableMeta['sourceColumns']; fieldParam?: TableMeta['fieldParam']; data?: string })[];
+        const defs = doc.tables as (QueryDef & { sortBy?: Record<string, string>; dataCategory?: Record<string, string>; calcColumns?: TableMeta['calcColumns']; sourceColumns?: TableMeta['sourceColumns']; fieldParam?: TableMeta['fieldParam']; data?: string })[];
         for (const t of defs) {
           if (f.dataDir && t.data) {
             // Embedded data: no access to the original sources needed (Aggiorna reloads from them).
@@ -1197,7 +1222,7 @@ export const useStore = create<State>((set, get) => {
               continue;
             } catch { /* fall back to the sources */ }
           }
-          if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns, ...(t.sortBy ? { sortBy: t.sortBy } : {}), ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}) }] })); continue; }
+          if (t.source.dax) { set((st) => ({ tables: [...st.tables, { name: t.name, rowCount: 0, columns: [], source: t.source, calcColumns: t.calcColumns, ...(t.sortBy ? { sortBy: t.sortBy } : {}), ...(t.dataCategory ? { dataCategory: t.dataCategory } : {}), ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}) }] })); continue; }
           try { await loadTable(t, defs); } catch { failed.push(t.name); }
         }
         doc.report.relationships ??= [];

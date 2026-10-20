@@ -5,7 +5,7 @@ import type { PbitPart } from './pbix/pbit';
 export interface PowerBIModel {
   file: string;
   kind: 'pbix' | 'pbit' | 'pbip' | 'live';
-  tables: { name: string; parquet: string | null; rows: number; m: string | null; columns?: { name: string; dataType: string }[]; sortBy?: Record<string, string>; dax?: string; calcColumns?: { name: string; expression: string }[] }[];
+  tables: { name: string; parquet: string | null; rows: number; m: string | null; columns?: { name: string; dataType: string }[]; sortBy?: Record<string, string>; dataCategory?: Record<string, string>; dax?: string; calcColumns?: { name: string; expression: string }[] }[];
   relationships: { fromTable: string; fromColumn: string; toTable: string; toColumn: string; cardinality: string; crossFilter: 'single' | 'both'; active: boolean }[];
   measures: { table: string; name: string; expression: string; formatString?: string }[];
   layout: string | null;

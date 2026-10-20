@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api } from '../api';
 import type { CrossFilter, Visual } from '../types';
 import type { VisualData } from './useVisualData';
@@ -59,14 +59,28 @@ export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unk
   return units(x, unit, precision) ?? (typeof precision === 'number' ? x.toLocaleString('it-IT', { minimumFractionDigits: precision, maximumFractionDigits: precision }) : fmtAuto(x));
 }
 
+/** Columns with data category "URL immagine" / "URL Web": image or link instead of text (like Power BI). */
+function useRichCells(items: QueryItem[]) {
+  const tables = useStore((s) => s.tables);
+  const kind = new Map(items.filter((i) => !i.measure).map((i) => [i.alias, tables.find((t) => t.name === i.field.table)?.dataCategory?.[i.field.column]]));
+  return (it: QueryItem, text: string, big = false): ReactNode => {
+    const k = kind.get(it.alias);
+    if (!text || !/^(https?:|data:image\/)/i.test(text)) return text;
+    if (k === 'ImageUrl') return <img src={text} alt="" style={big ? { maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' } : { maxHeight: 40, maxWidth: 120, verticalAlign: 'middle' }} />;
+    if (k === 'WebUrl') return <a href={text} onClick={(e) => { e.preventDefault(); e.stopPropagation(); api.openExternal(text).catch(() => {}); }}>{text}</a>;
+    return text;
+  };
+}
+
 export function CardVisual({ v, data }: { v: Visual; data: VisualData }) {
   const m = data.items[0];
+  const rich = useRichCells(data.items);
   const val = m ? data.rows[0]?.[m.alias] : undefined;
   const showCat = sp(v, 'categoryLabels', 'show') !== false;
   return (
     <div className="card-v">
       <div className="val" style={{ color: sp(v, 'labels', 'color'), fontSize: pt(sp(v, 'labels', 'fontSize')), fontFamily: font(sp(v, 'labels', 'fontFamily')) }}>
-        {m ? fmtStyled(data, m.alias, val, sp(v, 'labels', 'labelDisplayUnits'), sp(v, 'labels', 'labelPrecision')) : ''}
+        {m ? rich(m, fmtStyled(data, m.alias, val, sp(v, 'labels', 'labelDisplayUnits'), sp(v, 'labels', 'labelPrecision')), true) : ''}
       </div>
       {m && showCat && <div className="cap" style={{ color: sp(v, 'categoryLabels', 'color'), fontSize: pt(sp(v, 'categoryLabels', 'fontSize')), fontFamily: font(sp(v, 'categoryLabels', 'fontFamily')) }}>{fieldLabel(m.field)}</div>}
     </div>
@@ -88,11 +102,12 @@ export function MultiRowCardVisual({ v, data, cross, onSelect }: { v: Visual; da
   const capStyle = { color: sp(v, 'categoryLabels', 'color'), fontSize: pt(sp(v, 'categoryLabels', 'fontSize')), fontFamily: font(sp(v, 'categoryLabels', 'fontFamily')) };
   const headStyle = { color: sp(v, 'cardTitle', 'color'), fontSize: pt(sp(v, 'cardTitle', 'fontSize')), fontFamily: font(sp(v, 'cardTitle', 'fontFamily')) };
   const showCap = sp(v, 'categoryLabels', 'show') !== false;
+  const rich = useRichCells(data.items);
   return (
     <div className="mrc">
       {data.rows.map((r, k) => (
         <div key={k} className={'mrc-row' + (selected !== undefined && first && selected !== toKey(r[first.alias]) ? ' dim' : '')} style={{ borderLeftColor: bar ? barColor : 'transparent' }} onClick={() => first && onSelect(r[first.alias])}>
-          {dims.length > 0 && <div className="mrc-head" style={headStyle}>{dims.map((d) => fmtItem(data, d, r[d.alias])).join(' · ')}</div>}
+          {dims.length > 0 && <div className="mrc-head" style={headStyle}>{dims.map((d, i) => <span key={d.alias}>{i ? ' · ' : ''}{rich(d, fmtItem(data, d, r[d.alias]))}</span>)}</div>}
           <div className="mrc-vals">{vals.map((m) => (
             <div key={m.alias}><div className="val" style={valStyle}>{fmtStyled(data, m.alias, r[m.alias], sp(v, 'dataLabels', 'labelDisplayUnits'), sp(v, 'dataLabels', 'labelPrecision'))}</div>{showCap && <div className="cap" style={capStyle}>{fieldLabel(m.field)}</div>}</div>
           ))}</div>
@@ -132,6 +147,7 @@ export function KpiVisual({ data }: { data: VisualData }) {
 
 export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: VisualData; cross: CrossFilter | null; onSelect: (c: string | null) => void }) {
   const updateFormat = useStore((s) => s.updateFormat);
+  const rich = useRichCells(data.items);
   const firstDim = data.items.find((i) => !i.measure);
   const selected = cross?.visualId === v.id ? cross.value : undefined;
   const sortClick = (idx: number) => {
@@ -154,7 +170,7 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
             <tr key={k} className={selected !== undefined && selected === key ? 'sel' : ''} onClick={() => firstDim && onSelect(r[firstDim.alias])}>
               {data.items.map((it) => {
                 const text = data.percent.has(it.alias) ? fmtPct(r[it.alias]) : cell(r[it.alias], it.measure);
-                return v.format.cf?.[fieldKey(it.field)] ? decorated(v, it, ranges, r, data.cfItems, text, it.alias) : <td key={it.alias} className={it.measure ? 'num' : ''}>{text}</td>;
+                return v.format.cf?.[fieldKey(it.field)] ? decorated(v, it, ranges, r, data.cfItems, text, it.alias) : <td key={it.alias} className={it.measure ? 'num' : ''}>{it.measure ? text : rich(it, text)}</td>;
               })}
             </tr>
           );

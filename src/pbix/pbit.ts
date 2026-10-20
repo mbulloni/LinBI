@@ -120,6 +120,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[]) {
             summarizeBy: numeric(tt.dataType) ? 'sum' : 'none',
             ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'Short Date' : 'General Date' } : {}),
             ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
+            ...(t.dataCategory?.[c.name] ? { dataCategory: t.dataCategory[c.name] } : {}),
             annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }],
           };
         }),
@@ -249,6 +250,7 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
             name: c.name, dataType: PUSH_TYPES[tt.dataType],
             ...(tt.dataType === 'dateTime' ? { formatString: tt.m === 'type date' ? 'dd/mm/yyyy' : 'dd/mm/yyyy hh:nn:ss' } : {}),
             ...(t.sortBy?.[c.name] ? { sortByColumn: t.sortBy[c.name] } : {}),
+            ...(t.dataCategory?.[c.name] ? { dataCategory: t.dataCategory[c.name] } : {}),
             summarizeBy: ['int64', 'double', 'decimal'].includes(tt.dataType) ? 'sum' : 'none',
           };
         }),

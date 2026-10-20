@@ -24,7 +24,14 @@ function valueType(f: FieldRef, tables: TableMeta[], sample: unknown[]): Record<
   if (f.agg === 'count' || f.agg === 'countd') return { numeric: true, integer: true };
   if (f.agg !== 'none') return { numeric: true };
   if (f.datePart) return f.datePart === 'quarter' || f.datePart === 'month' ? { text: true } : { numeric: true, integer: true };
-  const t = tables.find((x) => x.name === f.table)?.columns.find((c) => c.name === f.column)?.type.toUpperCase() ?? 'VARCHAR';
+  const tm = tables.find((x) => x.name === f.table);
+  const t = tm?.columns.find((c) => c.name === f.column)?.type.toUpperCase() ?? 'VARCHAR';
+  const cat = tm?.dataCategory?.[f.column];
+  const MISC: Record<string, string> = { ImageUrl: 'imageUrl', WebUrl: 'webUrl', Barcode: 'barcode' };
+  const GEO: Record<string, string> = { Address: 'address', City: 'city', Continent: 'continent', Country: 'country', County: 'county', Latitude: 'latitude', Longitude: 'longitude', Place: 'place', PostalCode: 'postalCode', StateOrProvince: 'stateOrProvince' };
+  const base = /INT/.test(t) ? { numeric: true, integer: true } : /DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC/.test(t) ? { numeric: true } : null;
+  if (cat && MISC[cat]) return { text: true, misc: { [MISC[cat]]: true } };
+  if (cat && GEO[cat]) return { ...(base ?? { text: true }), geography: { [GEO[cat]]: true } };
   if (/INT/.test(t)) return { numeric: true, integer: true };
   if (/DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC/.test(t)) return { numeric: true };
   if (/^DATE$/.test(t)) return { dateTime: true };

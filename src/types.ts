@@ -22,6 +22,8 @@ export interface TableMeta {
   calcColumns?: { name: string; expression: string }[];
   /** Power BI "sort by column": display column → column whose values define its order. */
   sortBy?: Record<string, string>;
+  /** Power BI data category per column (Country, StateOrProvince, City, PostalCode, Latitude, ImageUrl…). */
+  dataCategory?: Record<string, string>;
   /** Field parameter: the label column, and the field each label stands for (in order). */
   fieldParam?: { column: string; fields: ParamField[] };
 }

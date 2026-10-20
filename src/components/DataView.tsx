@@ -6,6 +6,13 @@ import { qi } from '../query';
 import { Icon } from './icons';
 import { Menu } from './Menu';
 
+/** Power BI data categories (Strumenti colonna › Categoria dati), Italian labels. */
+export const DATA_CATEGORIES: [string, string][] = [
+  ['', 'Non categorizzato'], ['Address', 'Indirizzo'], ['Place', 'Luogo'], ['City', 'Città'], ['County', 'Contea'],
+  ['StateOrProvince', 'Stato o provincia'], ['PostalCode', 'CAP'], ['Country', 'Paese/area geografica'], ['Continent', 'Continente'],
+  ['Latitude', 'Latitudine'], ['Longitude', 'Longitudine'], ['WebUrl', 'URL Web'], ['ImageUrl', 'URL immagine'], ['Barcode', 'Codice a barre'],
+];
+
 export function DataView() {
   const s = useStore();
   const t = s.tables.find((x) => x.name === s.dataViewTable) ?? s.tables[0];
@@ -26,6 +33,22 @@ export function DataView() {
 
   return (
     <div className="dataview">
+      {col && (
+        <div className="coltools">
+          <b>Strumenti colonna</b>
+          <label>Categoria dati
+            <select value={t.dataCategory?.[col.name] ?? ''} onChange={(e) => s.setColumnProps(t.name, col.name, { dataCategory: e.target.value || null })}>
+              {DATA_CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </label>
+          <label>Ordina per colonna
+            <select value={t.sortBy?.[col.name] ?? ''} onChange={(e) => s.setColumnProps(t.name, col.name, { sortBy: e.target.value && e.target.value !== col.name ? e.target.value : null })}>
+              <option value="">{col.name}</option>
+              {t.columns.filter((c) => c.name !== col.name).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       <div className="formulabar">
         <Icon name="close" size={12} /><span style={{ color: 'var(--text3)' }}>✓</span><span className="fx">fx</span>
         <span>{col ? `${col.name}  ·  Tipo di dati: ${col.type}` : ''}</span>

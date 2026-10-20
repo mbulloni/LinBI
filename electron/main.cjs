@@ -224,12 +224,13 @@ const SETUP_PBIX = app.isPackaged
 handle('pbix:read', (file) => new Promise((resolve, reject) => {
   if (/\.pbip$/i.test(file)) { try { return resolve(pbip.read(file)); } catch (e) { return reject(new Error('Lettura del progetto Power BI non riuscita: ' + e.message)); } }
   const stat = fs.statSync(file);
-  const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).digest('hex').slice(0, 16);
+  // Packaged app: Python cannot read inside app.asar (electron/pbix is unpacked by electron-builder).
+  const script = path.join(__dirname, 'pbix', 'read_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+  // The reader's own content is part of the key: a newer LinBI re-reads files it extracted before.
+  const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).update(fs.readFileSync(script)).digest('hex').slice(0, 16);
   const outdir = path.join(app.getPath('userData'), 'pbix-cache', key);
   const cached = path.join(outdir, 'model.json');
   if (fs.existsSync(cached)) return resolve(JSON.parse(fs.readFileSync(cached, 'utf8')));
-  // Packaged app: Python cannot read inside app.asar (electron/pbix is unpacked by electron-builder).
-  const script = path.join(__dirname, 'pbix', 'read_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
   execFile(pythonBin(), [script, file, outdir], { maxBuffer: 1 << 26, timeout: 15 * 60 * 1000 }, (err, stdout, stderr) => {
     if (err) {
       const msg = String(stderr || err.message);

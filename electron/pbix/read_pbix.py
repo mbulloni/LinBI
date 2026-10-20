@@ -79,13 +79,18 @@ def from_pbixray(path, outdir, out):
         out["tables"].append({"name": name, "parquet": file, "rows": int(len(df)), "m": pq.get(name)})
 
     # Model metadata not exposed by pbixray's public API: "sort by column" and measure formats.
-    sort_by, fmt = {}, {}
+    sort_by, fmt, category = {}, {}, {}
     try:
         db = model._metadata.source._db
         q = db.query("SELECT t.Name AS T, c.ExplicitName AS C, s.ExplicitName AS S FROM [Column] c "
                      "JOIN [Table] t ON c.TableID = t.ID JOIN [Column] s ON c.SortByColumnID = s.ID")
         for _, r in q.iterrows():
             sort_by.setdefault(r["T"], {})[r["C"]] = r["S"]
+        q = db.query("SELECT t.Name AS T, c.ExplicitName AS C, c.DataCategory AS D FROM [Column] c JOIN [Table] t ON c.TableID = t.ID "
+                     "WHERE c.DataCategory IS NOT NULL AND c.DataCategory <> ''")
+        for _, r in q.iterrows():
+            if isinstance(r["D"], str) and r["D"] not in ("Uncategorized", "Regular"):
+                category.setdefault(r["T"], {})[r["C"]] = r["D"]
         q = db.query("SELECT t.Name AS T, m.Name AS M, m.FormatString AS F FROM [Measure] m JOIN [Table] t ON m.TableID = t.ID")
         for _, r in q.iterrows():
             if isinstance(r["F"], str) and r["F"]:
@@ -94,6 +99,7 @@ def from_pbixray(path, outdir, out):
         out["warnings"].append(f"Metadati del modello parziali: {e}")
     for t in out["tables"]:
         t["sortBy"] = sort_by.get(t["name"], {})
+        t["dataCategory"] = category.get(t["name"], {})
 
     names = {t["name"] for t in out["tables"]}
     for _, r in model.relationships.iterrows():
@@ -138,8 +144,9 @@ def from_schema(z, out):
         all_hidden = all(c.get("isHidden") for c in t.get("columns", []) if c.get("type") != "rowNumber")
         measure_table = bool(t.get("measures")) and all_hidden
         sort_by = {c["name"]: c["sortByColumn"] for c in t.get("columns", []) if c.get("sortByColumn")}
+        category = {c["name"]: c["dataCategory"] for c in t.get("columns", []) if c.get("dataCategory") and c["dataCategory"] not in ("Uncategorized", "Regular")}
         if not measure_table:  # measure tables only carry measures
-            out["tables"].append({"name": name, "parquet": None, "rows": 0, "m": m, "columns": cols, "sortBy": sort_by,
+            out["tables"].append({"name": name, "parquet": None, "rows": 0, "m": m, "columns": cols, "sortBy": sort_by, "dataCategory": category,
                                   **({"dax": dax} if dax else {}), **({"calcColumns": calc} if calc else {})})
         for ms in t.get("measures", []):
             expr = ms.get("expression", "")

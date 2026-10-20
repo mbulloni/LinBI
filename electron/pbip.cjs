@@ -39,6 +39,7 @@ function pushTable(out, name, m, dax, columns, measures, kindOf) {
       name, parquet: null, rows: 0, m,
       columns: real.filter((c) => kindOf(c) !== 'calculated').map((c) => ({ name: c.name, dataType: c.dataType ?? 'string' })),
       sortBy: Object.fromEntries(real.filter((c) => c.sortByColumn).map((c) => [c.name, c.sortByColumn])),
+      dataCategory: Object.fromEntries(real.filter((c) => c.dataCategory && !['Uncategorized', 'Regular'].includes(String(c.dataCategory))).map((c) => [c.name, String(c.dataCategory)])),
       ...(dax ? { dax } : {}),
       ...(real.some((c) => kindOf(c) === 'calculated') ? { calcColumns: real.filter((c) => kindOf(c) === 'calculated').map((c) => ({ name: c.name, expression: joinExpr(c.expression) })) } : {}),
     });
@@ -164,7 +165,7 @@ function fromTmdl(dir, out) {
       if (kind === 'calculated') dax = src; else if (kind === 'm' || src) m = src;
     }
     const columns = t.children.filter((c) => c.kind === 'column').map((c) => ({
-      name: c.name, dataType: c.props.dataType, isHidden: c.props.isHidden, sortByColumn: unquote(c.props.sortByColumn),
+      name: c.name, dataType: c.props.dataType, isHidden: c.props.isHidden, sortByColumn: unquote(c.props.sortByColumn), dataCategory: unquote(c.props.dataCategory),
       type: c.value ? 'calculated' : undefined, expression: c.value,
     }));
     const measures = t.children.filter((c) => c.kind === 'measure').map((c) => ({ name: c.name, expression: c.value ?? '', formatString: c.props.formatString }));
