@@ -690,3 +690,11 @@ thead .pq-rn { z-index: 2; }
 .readbar span { flex: 1; color: var(--text2); }
 .readbar .btn { height: 26px; min-width: 0; }
 .read-vc { cursor: default; }
+
+/* Impostazioni origine dati */
+.cred-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; max-height: 280px; overflow: auto; }
+.cred-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid #E1DFDD; }
+.cred-row > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cred-row > div b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cred-row > div span { font-size: 11px; color: var(--text2); }
+.cred-row .btn { height: 26px; min-width: 0; }

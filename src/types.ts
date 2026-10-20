@@ -13,6 +13,9 @@ export interface TableMeta {
     web?: { url: string; format?: 'csv' | 'json' | 'parquet' | 'xlsx' };
     odata?: { url: string };
     folder?: { path: string; ext: string };
+    /** SharePoint Online (Microsoft Graph, Microsoft account): files of a site (SharePoint.Files, combined like a folder,
+     *  optionally under `folder` and with extension `ext`) or the items of a list (SharePoint.Tables › `list`). */
+    sharepoint?: { site: string; folder?: string; ext?: string; list?: string };
   };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
   steps?: Step[];
@@ -273,6 +276,7 @@ export type Step = { id: string } & (
   | { kind: 'changeType'; columns: [string, PQType][] }
   | { kind: 'filterRows'; column: string; op: FilterOp; value?: string; vtype?: ValueType; values?: (string | null)[] }
   | { kind: 'sort'; by: [string, 'asc' | 'desc'][] }
+  /** columns = [] → duplicates over all columns (Table.Distinct without a column list). */
   | { kind: 'removeDuplicates'; columns: string[] }
   | { kind: 'keepTop' | 'keepBottom' | 'removeTop' | 'removeBottom'; n: number }
   | { kind: 'replaceValues'; columns: string[]; find: string; replace: string; vtype: ValueType; whole: boolean }
@@ -284,6 +288,8 @@ export type Step = { id: string } & (
   | { kind: 'duplicateColumn'; column: string; name: string }
   | { kind: 'groupBy'; keys: string[]; aggs: { name: string; op: GroupOp; column?: string }[] }
   | { kind: 'unpivot'; columns: string[]; other: boolean; cast: boolean }
+  /** Table.Pivot: one new column per distinct value of `column`, filled with `agg` of `value` ('none' = Non aggregare). */
+  | { kind: 'pivot'; column: string; value: string; agg: GroupOp | 'none' }
   | { kind: 'merge'; table: string; left: string[]; right: string[]; join: JoinKind; expand: string[] }
   | { kind: 'append'; tables: string[] }
   | { kind: 'conditionalColumn'; name: string; rules: CondRule[]; otherwise: string; otherwiseIsColumn?: boolean }

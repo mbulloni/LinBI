@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
 const db = require('./db.cjs');
+const webcred = require('./webcred.cjs');
 
 const TTL = 10 * 60 * 1000;
 const dir = () => { const d = path.join(app.getPath('userData'), 'remote-cache'); fs.mkdirSync(d, { recursive: true }); return d; };
@@ -37,7 +38,14 @@ function formatOf(url, contentType, explicit) {
 }
 
 async function get(url) {
-  const r = await fetch(checkUrl(url), { headers: { 'User-Agent': 'LinBI' }, redirect: 'follow' });
+  checkUrl(url);
+  // Stored credentials of the URL (Impostazioni origine dati): basic, API key, header, Microsoft account.
+  const req = await webcred.apply(url, { 'User-Agent': 'LinBI' });
+  const r = await fetch(req.url, { headers: req.headers, redirect: 'follow' });
+  if (r.status === 401 || r.status === 403) {
+    const has = !!webcred.forUrl(url);
+    throw new Error(`WEB_AUTH: ${has ? 'le credenziali salvate non sono valide' : 'il server richiede l\'autenticazione'} (${r.status}) per ${url}. Impostarle in Trasforma dati › Impostazioni origine dati.`);
+  }
   if (!r.ok) throw new Error(`Web.Contents: il server ha risposto ${r.status} ${r.statusText} per ${url}`);
   return r;
 }
@@ -89,11 +97,18 @@ async function sourceExpr(source) {
   if (source.web) return db.sourceExpr(await webFile(source.web.url, source.web.format), source.sheet);
   if (source.odata) return db.sourceExpr(await odataFile(source.odata.url));
   if (source.folder) return folderExpr(source.folder.path, source.folder.ext);
+  if (source.sharepoint) {
+    const sp = require('./sharepoint.cjs');
+    if (source.sharepoint.list) return db.sourceExpr(await sp.listFile(source.sharepoint));
+    const { dir, ext } = await sp.filesDir(source.sharepoint);
+    return folderExpr(dir, ext);
+  }
   throw new Error('Origine non riconosciuta');
 }
 
 function clearCache() {
-  try { for (const f of fs.readdirSync(dir())) fs.rmSync(path.join(dir(), f), { force: true }); } catch { /* nothing cached */ }
+  // Files and SharePoint folders (sp-*).
+  try { for (const f of fs.readdirSync(dir())) fs.rmSync(path.join(dir(), f), { force: true, recursive: true }); } catch { /* nothing cached */ }
 }
 
 module.exports = { sourceExpr, clearCache };

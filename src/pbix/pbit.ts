@@ -53,6 +53,21 @@ function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
     ? `    #"Modificato tipo" = Table.TransformColumnTypes(${prev}, ${types})\nin\n    #"Modificato tipo"`
     : `    Fine = ${prev}\nin\n    Fine`;
   if (t.source.odata) return `let\n    Origine = OData.Feed(${mText(t.source.odata.url)}, null, [Implementation="2.0"])\nin\n    Origine`;
+  const sp = t.source.sharepoint;
+  if (sp?.list) return `let\n    Origine = SharePoint.Tables(${mText(sp.site)}, [ApiVersion = 15]),\n    Elenco = Origine{[Title=${mText(sp.list)}]}[Items]\nin\n    Elenco`;
+  if (sp) {
+    // Like Power BI's "Combina file" over SharePoint.Files: filter by extension (and folder), read each Content.
+    const e = (sp.ext ?? 'csv').replace(/^\./, '').toLowerCase();
+    const read = e === 'parquet' ? 'Parquet.Document([Content])' : e === 'json' ? 'Table.FromRecords(Json.Document([Content]))'
+      : 'Table.PromoteHeaders(Csv.Document([Content], [Delimiter=",", Encoding=65001, QuoteStyle=QuoteStyle.Csv]), [PromoteAllScalars=true])';
+    const data = columns.filter((c) => c.name !== 'Source.Name').map((c) => c.name);
+    const cond = `Text.Lower([Extension]) = ${mStr('.' + e)}${sp.folder ? ` and Text.Contains([Folder Path], ${mText(sp.folder)})` : ''}`;
+    return `let\n    Origine = SharePoint.Files(${mText(sp.site)}, [ApiVersion = 15]),\n    #"Righe filtrate" = Table.SelectRows(Origine, each ${cond}),\n` +
+      `    #"Contenuto letto" = Table.AddColumn(#"Righe filtrate", "Dati", each ${read}),\n` +
+      `    #"Altre colonne rimosse" = Table.SelectColumns(#"Contenuto letto", {"Name", "Dati"}),\n` +
+      `    #"Colonna espansa" = Table.ExpandTableColumn(#"Altre colonne rimosse", "Dati", {${data.map(mStr).join(', ')}}),\n` +
+      `    #"Colonne rinominate" = Table.RenameColumns(#"Colonna espansa", {{"Name", "Source.Name"}}),\n${typed('#"Colonne rinominate"')}`;
+  }
   if (t.source.folder) {
     const f = t.source.folder, e = f.ext.replace(/^\./, '').toLowerCase();
     const read = e === 'parquet' ? 'Parquet.Document([Content])' : e === 'json' ? 'Table.FromRecords(Json.Document([Content]))'

@@ -112,6 +112,12 @@ def from_pbixray(path, outdir, out):
             "crossFilter": "both" if str(r["CrossFilteringBehavior"]).lower().startswith("both") else "single",
             "active": bool(r["IsActive"]),
         })
+    try:
+        for _, r in model.m_parameters.iterrows():
+            out["parameters"].append({"name": r["ParameterName"], "expression": r["Expression"],
+                                      **({"description": r["Description"]} if isinstance(r["Description"], str) else {})})
+    except Exception:  # noqa: BLE001 - older pbixray / no parameters
+        pass
     for _, r in model.dax_measures.iterrows():
         out["measures"].append({
             "table": r["TableName"], "name": r["Name"],
@@ -153,6 +159,10 @@ def from_schema(z, out):
             out["measures"].append({"table": name, "name": ms["name"],
                                     "expression": "\n".join(expr) if isinstance(expr, list) else expr,
                                     "formatString": ms.get("formatString", "")})
+    for e in model.get("expressions", []):
+        text = "\n".join(e["expression"]) if isinstance(e.get("expression"), list) else e.get("expression", "")
+        if re.search(r"IsParameterQuery\s*=\s*true", text or "", re.I):
+            out["parameters"].append({"name": e["name"], "expression": text, **({"description": e["description"]} if e.get("description") else {})})
     names = {t["name"] for t in out["tables"]}
     for r in model.get("relationships", []):
         if r["fromTable"] not in names or r["toTable"] not in names:
@@ -189,7 +199,7 @@ def main():
     path, outdir = sys.argv[1], sys.argv[2]
     os.makedirs(outdir, exist_ok=True)
     out = {"file": path, "kind": None, "tables": [], "relationships": [], "measures": [],
-           "layout": None, "resources": {}, "customVisuals": [], "warnings": []}
+           "layout": None, "resources": {}, "customVisuals": [], "parameters": [], "warnings": []}
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         if "Report/Layout" in names:

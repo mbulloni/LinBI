@@ -83,7 +83,7 @@ export function stepM(s: Step, prev: string, names: string[]): string[] {
     case 'changeType': return [`Table.TransformColumnTypes(${p}, {${s.columns.map(([c, t]) => `{${mStr(c)}, ${M_TYPE[t]}}`).join(', ')}})`];
     case 'filterRows': return [`Table.SelectRows(${p}, each ${filterM(s)})`];
     case 'sort': return [`Table.Sort(${p}, {${s.by.map(([c, d]) => `{${mStr(c)}, ${d === 'asc' ? 'Order.Ascending' : 'Order.Descending'}}`).join(', ')}})`];
-    case 'removeDuplicates': return [`Table.Distinct(${p}, ${mList(s.columns)})`];
+    case 'removeDuplicates': return [s.columns.length ? `Table.Distinct(${p}, ${mList(s.columns)})` : `Table.Distinct(${p})`];
     case 'keepTop': return [`Table.FirstN(${p}, ${s.n})`];
     case 'keepBottom': return [`Table.LastN(${p}, ${s.n})`];
     case 'removeTop': return [`Table.Skip(${p}, ${s.n})`];
@@ -107,6 +107,10 @@ export function stepM(s: Step, prev: string, names: string[]): string[] {
     case 'indexColumn': return [`Table.AddIndexColumn(${p}, ${mStr(s.name)}, ${s.start}, 1, Int64.Type)`];
     case 'duplicateColumn': return [`Table.DuplicateColumn(${p}, ${mStr(s.column)}, ${mStr(s.name)})`];
     case 'groupBy': return [`Table.Group(${p}, ${mList(s.keys)}, {${s.aggs.map((a) => { const [e, t] = GROUP_M[a.op](a.column); return `{${mStr(a.name)}, each ${e}, ${t}}`; }).join(', ')}})`];
+    case 'pivot': {
+      const fn = { sum: 'List.Sum', avg: 'List.Average', count: 'List.Count', countd: 'each List.Count(List.Distinct(_))', median: 'List.Median', min: 'List.Min', max: 'List.Max', none: '' }[s.agg];
+      return [`Table.Pivot(${p}, List.Distinct(${p}${mCol(s.column)}), ${mStr(s.column)}, ${mStr(s.value)}${fn ? ', ' + fn : ''})`];
+    }
     case 'unpivot': return [`${s.other ? 'Table.UnpivotOtherColumns' : 'Table.Unpivot'}(${p}, ${mList(s.columns)}, "Attributo", "Valore")`];
     case 'merge': return [
       `Table.NestedJoin(${p}, ${mList(s.left)}, ${mName(s.table)}, ${mList(s.right)}, ${mStr(s.table)}, ${JOIN_M[s.join]})`,

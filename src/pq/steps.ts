@@ -36,6 +36,7 @@ export function stepLabel(s: Step): string {
     case 'indexColumn': return 'Aggiunta colonna indice';
     case 'duplicateColumn': return 'Duplicata colonna';
     case 'groupBy': return 'Raggruppate righe';
+    case 'pivot': return 'Colonna trasformata tramite Pivot';
     case 'unpivot': return s.other ? 'Trasformazione Unpivot di altre colonne eseguita' : 'Trasformazione Unpivot di colonne eseguita';
     case 'merge': return 'Query unite';
     case 'append': return 'Query accodate';

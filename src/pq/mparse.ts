@@ -149,6 +149,9 @@ class P {
       this.eat(')'); return { k: 'call', fn: id, args };
     }
     if (/^(Int64|Number|Text|Date|DateTime|Logical|Currency|Percentage)\.Type$/.test(id)) return { k: 'type', v: id };
+    // Field access (#"Passo"[Colonna]): kept as an opaque identifier (e.g. List.Distinct(t[col]) in Table.Pivot).
+    this.ws();
+    if (this.s[this.i] === '[') { const j = this.s.indexOf(']', this.i); if (j > 0) { id += this.s.slice(this.i, j + 1); this.i = j + 1; } }
     return { k: 'id', v: id };
   }
 }
@@ -253,7 +256,14 @@ export function exprToStep(expr: string, pending?: { table: string; left: string
     };
     case 'Table.SelectRows': return filterStep(each(a[1], v.fn));
     case 'Table.Sort': return { kind: 'sort', by: pairs(a[1], v.fn).map((p) => [str(p[0], v.fn), p[1]?.k === 'id' && p[1].v === 'Order.Descending' ? 'desc' : 'asc'] as [string, 'asc' | 'desc']) };
-    case 'Table.Distinct': if (!a[1]) throw new MParseError('Table.Distinct: indicare l\'elenco delle colonne.'); return { kind: 'removeDuplicates', columns: strs(a[1], v.fn) };
+    case 'Table.Distinct': return { kind: 'removeDuplicates', columns: a[1] ? strs(a[1], v.fn) : [] };
+    case 'Table.Pivot': {
+      // Table.Pivot(t, List.Distinct(t[col]), "col", "val", aggregator?)
+      const f = a[4];
+      const AGG: Record<string, GroupOp> = { 'List.Sum': 'sum', 'List.Average': 'avg', 'List.Count': 'count', 'List.Min': 'min', 'List.Max': 'max', 'List.Median': 'median' };
+      const agg: GroupOp | 'none' = !f ? 'none' : f.k === 'id' && AGG[f.v] ? AGG[f.v] : f.k === 'each' && /List\.Count\(\s*List\.Distinct\(\s*_\s*\)\s*\)/.test(f.text) ? 'countd' : (() => { throw new MParseError('Table.Pivot: funzione di aggregazione non supportata.'); })();
+      return { kind: 'pivot', column: str(a[2], v.fn), value: str(a[3], v.fn), agg };
+    }
     case 'Table.FirstN': return { kind: 'keepTop', n: num(a[1], v.fn) };
     case 'Table.LastN': return { kind: 'keepBottom', n: num(a[1], v.fn) };
     case 'Table.Skip': return { kind: 'removeTop', n: num(a[1], v.fn) };
@@ -307,9 +317,61 @@ export function exprToStep(expr: string, pending?: { table: string; left: string
   }
 }
 
+/** Expression split into string literals (decoded) and the text between them (whitespace-normalized). */
+function splitLiterals(expr: string): { code: string[]; lits: string[] } {
+  const code: string[] = [], lits: string[] = [];
+  let cur = '';
+  for (let i = 0; i < expr.length;) {
+    if (expr[i] === '"' && expr[i - 1] !== '#') {
+      let j = i + 1, v = '';
+      while (j < expr.length) { if (expr[j] === '"') { if (expr[j + 1] === '"') { v += '"'; j += 2; continue; } break; } v += expr[j++]; }
+      code.push(cur.replace(/\s+/g, ' ').trim()); lits.push(v); cur = ''; i = j + 1;
+    } else cur += expr[i++];
+  }
+  code.push(cur.replace(/\s+/g, ' ').trim());
+  return { code, lits };
+}
+
+type Source = import('../types').TableMeta['source'];
+/** Source edited in M: the source steps keep LinBI's shape and only their text literals change
+ *  (path, sheet, URL, server, database, schema, table…); each changed literal updates the source field that held it. */
+function editedSource(docSteps: [string, string][], baseSteps: [string, string][], source: Source): Source {
+  const fail = () => { throw new MParseError(`L'origine si modifica cambiando solo i valori tra virgolette dei passaggi "${baseSteps.map((b) => b[0]).join('", "')}" (o dal passaggio Origine).`); };
+  const changes = new Map<string, string>();
+  baseSteps.forEach(([name, expr], i) => {
+    const d = docSteps[i];
+    if (!d || d[0] !== name) fail();
+    const a = splitLiterals(expr), b = splitLiterals(d[1]);
+    if (a.code.length !== b.code.length || a.code.some((c, k) => c !== b.code[k])) fail();
+    a.lits.forEach((v, k) => { if (v !== b.lits[k]) { if (changes.has(v) && changes.get(v) !== b.lits[k]) fail(); changes.set(v, b.lits[k]); } });
+  });
+  if (!changes.size) return source;
+  const next: any = structuredClone(source);
+  let used = 0;
+  const visit = (o: any) => {
+    for (const k of Object.keys(o)) {
+      if (typeof o[k] === 'string' && changes.has(o[k])) { o[k] = changes.get(o[k]); used++; }
+      else if (o[k] && typeof o[k] === 'object') visit(o[k]);
+    }
+  };
+  visit(next);
+  // Folder sources: the extension literal is written with its dot (".csv").
+  if (next.folder) for (const [from, to] of changes) if (from === '.' + next.folder.ext) { next.folder.ext = to.replace(/^\./, ''); used++; }
+  if (!used) fail();
+  return next;
+}
+
+/** Whole document → source (possibly edited, see editedSource) and the steps after it. */
+export function mToQuery(text: string, baseM: string, source: Source): { source: Source; steps: NewStep[] } {
+  const doc = parseLet(text);
+  const base = parseLet(baseM);
+  const src = editedSource(doc.steps.slice(0, base.steps.length), base.steps, source);
+  return { source: src, steps: stepsAfter(doc, base) };
+}
+
 /**
  * Whole document → steps after the source. The lines of `baseM` (the query's source) must be
- * unchanged: LinBI edits sources from the Origine step, not in M.
+ * unchanged (mToQuery also accepts an edited source).
  */
 export function mToSteps(text: string, baseM: string): NewStep[] {
   const doc = parseLet(text);
@@ -318,9 +380,13 @@ export function mToSteps(text: string, baseM: string): NewStep[] {
   for (let i = 0; i < base.steps.length; i++) {
     const d = doc.steps[i];
     if (!d || d[0] !== base.steps[i][0] || norm(d[1]) !== norm(base.steps[i][1])) {
-      throw new MParseError(`L'origine ("${base.steps[i][0]}") non può essere modificata dall'Editor avanzato: usare il passaggio Origine.`);
+      throw new MParseError(`L'origine ("${base.steps[i][0]}") non può essere modificata in questo punto: usare l'Editor avanzato o il passaggio Origine.`);
     }
   }
+  return stepsAfter(doc, base);
+}
+
+function stepsAfter(doc: ReturnType<typeof parseLet>, base: ReturnType<typeof parseLet>): NewStep[] {
   const out: NewStep[] = [];
   let pending: Parameters<typeof exprToStep>[1];
   let prev = base.steps[base.steps.length - 1][0];

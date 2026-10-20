@@ -4,9 +4,9 @@ import { useStore, type PQState } from '../store';
 import type { ColumnMeta, FilterOp, NewStep, PQType, Step, TransformFn } from '../types';
 import { compileQuery, qi } from '../pq/compile';
 import { dependencies, pqTypeOf, renameQueryRef, stepNames, TYPE_LABEL } from '../pq/steps';
-import { exprToStep, mToSteps } from '../pq/mparse';
+import { exprToStep, mToQuery } from '../pq/mparse';
 import { learn } from '../pq/examples';
-import { ParamsDialog } from './SourceDialogs';
+import { DataSourceSettings, ParamsDialog } from './SourceDialogs';
 import { stepM } from '../pq/m';
 import { queryM } from '../pbix/pbit';
 import { Icon } from './icons';
@@ -152,6 +152,7 @@ function Editor() {
       case 'filterRows': return ['in', 'notIn', 'blank', 'notBlank'].includes(st.op) ? null : { kind: 'filter', col: st.column, op: st.op };
       case 'replaceValues': return { kind: 'replace', cols: st.columns };
       case 'splitColumn': return { kind: 'split', col: st.column };
+      case 'pivot': return { kind: 'pivot', col: st.column };
       case 'groupBy': return { kind: 'group', cols: st.keys };
       case 'customColumn': return { kind: 'custom' };
       case 'conditionalColumn': return { kind: 'conditional' };
@@ -334,7 +335,10 @@ function Editor() {
   const saveM = async (text: string): Promise<string | null> => {
     try {
       const base = queryM({ source: q!.source, steps: [] }, srcColsOf());
-      replaceSteps(await resolveHeaders(mToSteps(text, base)));
+      const r = mToQuery(text, base, q!.source);
+      // Edited source (path, sheet, URL, server…): the query reloads from it.
+      if (JSON.stringify(r.source) !== JSON.stringify(q!.source)) s.pqSet((x) => { x.queries.find((y) => y.name === x.selected)!.source = r.source; });
+      replaceSteps(await resolveHeaders(r.steps));
       return null;
     } catch (e: any) { return e.message; }
   };
@@ -351,6 +355,7 @@ function Editor() {
     setEx(null);
   };
   const [paramsOpen, setParamsOpen] = useState(false);
+  const [dsOpen, setDsOpen] = useState(false);
   const [fxText, setFxText] = useState<string | null>(null);
   const [fxErr, setFxErr] = useState<string | null>(null);
   useEffect(() => { setFxText(null); setFxErr(null); }, [upto, q?.name]);
@@ -429,6 +434,7 @@ function Editor() {
             </Group>
             <Group label="Parametri">
               <Big icon="newTable" label={<>Gestisci<br />parametri</>} onClick={() => setParamsOpen(true)} />
+              <Big icon="getData" label={<>Impostazioni<br />origine dati</>} onClick={() => setDsOpen(true)} />
             </Group>
             <Group label="Query">
               <Big icon="refresh" label={<>Aggiorna<br />anteprima</>} onClick={async () => { await api.clearRemoteCache(); setReload(reload + 1); }} disabled={noQuery} />
@@ -481,6 +487,7 @@ function Editor() {
               <Big icon="replaceValues" label={<>Sostituisci<br />valori</>} onClick={() => need(T) && setDialog({ kind: 'replace', cols: T })} disabled={noCols} />
               <Big icon="fillDown" label="Riempi" dropdown onClick={openMenu('fill')} disabled={noCols} />
               <Big icon="unpivot" label={<>Trasforma colonne<br />in valori</>} dropdown onClick={openMenu('unpivot')} disabled={noCols} />
+              <Big icon="unpivot" label={<>Colonna<br />pivot</>} onClick={() => { const c = one(T); if (c) setDialog({ kind: 'pivot', col: c }); }} disabled={noCols} />
             </Group>
             <Group label="Colonna di testo">
               <Big icon="splitColumn" label={<>Dividi<br />colonna</>} onClick={() => { const c = one(T); if (c) setDialog({ kind: 'split', col: c }); }} disabled={noCols} />
@@ -682,6 +689,8 @@ function Editor() {
           <button onClick={m(() => s.set({ sourceDialog: 'web' }))}><Icon name="getData" size={18} />Web</button>
           <button onClick={m(() => s.set({ sourceDialog: 'odata' }))}><Icon name="getData" size={18} />Feed OData</button>
           <button onClick={m(() => s.set({ sourceDialog: 'folder' }))}><Icon name="getData" size={18} />Cartella</button>
+          <button onClick={m(() => s.set({ sourceDialog: 'sharepoint' }))}><Icon name="getData" size={18} />Cartella SharePoint</button>
+          <button onClick={m(() => s.set({ sourceDialog: 'splist' }))}><Icon name="getData" size={18} />Elenco SharePoint Online</button>
         </Menu>
       )}
       {menu?.kind === 'removecols' && (
@@ -786,6 +795,7 @@ function Editor() {
       )}
 
       {paramsOpen && <ParamsDialog onClose={() => { setParamsOpen(false); setReload((x) => x + 1); }} />}
+      {dsOpen && <DataSourceSettings onClose={() => { setDsOpen(false); api.clearRemoteCache().catch(() => {}); setReload((x) => x + 1); }} />}
       {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} saveM={saveM} />}
 
       {confirm && (

@@ -58,8 +58,13 @@ handle('db:query', (sql) => db.query(sql));
 handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
-handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
+handle('db:sourceExpr', (source) => (source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder || source.sharepoint ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
 handle('remote:clearCache', () => remote.clearCache());
+const webcred = require('./webcred.cjs');
+handle('webcred:list', () => webcred.list());
+handle('webcred:set', (prefix, cred) => webcred.set(prefix, cred));
+handle('webcred:remove', (prefix) => webcred.remove(prefix));
+handle('sharepoint:lists', (site) => require('./sharepoint.cjs').lists(site));
 handle('file:openDir', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   return r.canceled ? null : r.filePaths[0];

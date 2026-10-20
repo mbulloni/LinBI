@@ -5,7 +5,7 @@ import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, NULL_KEY, qi, ql } from './query';
 import { calcColumnSql, calcTableSql, checkMeasure, type Model } from './dax';
-import { resolveSource, setParams } from './pq/params';
+import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
 import { parseLayout, setCfExportRanges, themeFromLayout } from './pbix/layout';
 import { runVisualQuery } from './visuals/useVisualData';
 import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
@@ -165,7 +165,7 @@ interface State {
   /** Visual whose script is open in the script editor. */
   scriptEditor: string | null;
   /** Ottieni dati › Web / Feed OData / Cartella dialog. */
-  sourceDialog: 'web' | 'odata' | 'folder' | null;
+  sourceDialog: 'web' | 'odata' | 'folder' | 'sharepoint' | 'splist' | null;
   /** Nuovo parametro dialog. */
   paramDialog: 'numeric' | 'fields' | null;
   clipboard: Visual | null;
@@ -409,6 +409,8 @@ export const useStore = create<State>((set, get) => {
         await get().newReport();
         set({ busy: `Caricamento di ${model.tables.length} tabelle…` });
         const failed: string[] = [];
+        // Power Query parameters (Gestisci parametri): kept, and used to locate .pbit sources.
+        const pqParams = (model.parameters ?? []).map((p) => paramFromM(p.name, p.expression, p.description));
         for (const t of model.tables) {
           try {
             if (t.dax) {
@@ -417,9 +419,10 @@ export const useStore = create<State>((set, get) => {
               continue;
             }
             if (t.parquet) { await importTable(t.parquet, t.name, undefined, t.m ?? undefined); continue; }
-            // .pbit: no data inside; try the local file the Power Query points at, else empty typed table.
-            const src = /File\.Contents\("([^"]+)"\)/.exec(t.m ?? '')?.[1];
-            const sheet = /Item="([^"]+)",Kind="Sheet"/.exec(t.m ?? '')?.[1];
+            // .pbit: no data inside; try the local file the Power Query points at (parameters inlined), else empty typed table.
+            const mText = inlineParamsInM(t.m ?? '', pqParams);
+            const src = /File\.Contents\("([^"]+)"\)/.exec(mText)?.[1];
+            const sheet = /Item="([^"]+)",Kind="Sheet"/.exec(mText)?.[1];
             let ok = false;
             if (src) { try { await importTable(src, t.name, sheet, t.m ?? undefined); ok = true; } catch { /* fall through */ } }
             if (!ok) {
@@ -458,7 +461,7 @@ export const useStore = create<State>((set, get) => {
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}) };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}) };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;

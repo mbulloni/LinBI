@@ -28,6 +28,7 @@ function fromTmsl(schema, out) {
     pushTable(out, t.name, m, dax, t.columns ?? [], t.measures ?? [], (c) => c.type);
   }
   for (const r of model.relationships ?? []) pushRel(out, r);
+  pushParams(out, (model.expressions ?? []).map((e) => ({ name: e.name, expression: joinExpr(e.expression), description: e.description })));
 }
 
 function pushTable(out, name, m, dax, columns, measures, kindOf) {
@@ -45,6 +46,11 @@ function pushTable(out, name, m, dax, columns, measures, kindOf) {
     });
   }
   for (const ms of measures) out.measures.push({ table: name, name: ms.name, expression: joinExpr(ms.expression), formatString: ms.formatString ?? '' });
+}
+
+/** Power Query parameters: shared expressions flagged IsParameterQuery. */
+function pushParams(out, exprs) {
+  out.parameters = (out.parameters ?? []).concat(exprs.filter((e) => /IsParameterQuery\s*=\s*true/i.test(e.expression ?? '')));
 }
 
 function pushRel(out, r) {
@@ -171,6 +177,7 @@ function fromTmdl(dir, out) {
     const measures = t.children.filter((c) => c.kind === 'measure').map((c) => ({ name: c.name, expression: c.value ?? '', formatString: c.props.formatString }));
     pushTable(out, t.name, m, dax, columns, measures, (c) => c.type);
   }
+  pushParams(out, objs.filter((o) => o.kind === 'expression').map((e) => ({ name: e.name, expression: e.value ?? '', description: e.props.description })));
   for (const r of objs.filter((o) => o.kind === 'relationship')) {
     const [ft, fc] = tableColumn(r.props.fromColumn ?? '');
     const [tt, tc] = tableColumn(r.props.toColumn ?? '');

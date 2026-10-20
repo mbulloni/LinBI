@@ -113,7 +113,10 @@ function stepSql(s: Step, P: string, subs: Map<string, string>): string {
       const order = s.by.map(([c, d]) => `${qi(c)} ${d === 'asc' ? 'ASC NULLS FIRST' : 'DESC NULLS LAST'}`).join(', ');
       return `SELECT * REPLACE (row_number() OVER (ORDER BY ${order}, ${R}) AS ${R}) FROM ${P}`;
     }
-    case 'removeDuplicates': return `SELECT * FROM ${P} QUALIFY row_number() OVER (PARTITION BY ${list(s.columns)} ORDER BY ${R}) = 1`;
+    case 'removeDuplicates':
+      // No columns: whole-row duplicates (first occurrence kept).
+      if (!s.columns.length) return `SELECT * FROM ${P} WHERE ${R} IN (SELECT m FROM (SELECT min(${R}) AS m, COLUMNS(* EXCLUDE (${R})) FROM ${P} GROUP BY ALL))`;
+      return `SELECT * FROM ${P} QUALIFY row_number() OVER (PARTITION BY ${list(s.columns)} ORDER BY ${R}) = 1`;
     case 'keepTop': return `SELECT * FROM ${P} ORDER BY ${R} LIMIT ${Math.max(0, Math.floor(s.n))}`;
     case 'keepBottom': return `SELECT * FROM ${P} QUALIFY row_number() OVER (ORDER BY ${R} DESC) <= ${Math.floor(s.n)}`;
     case 'removeTop': return `SELECT * FROM ${P} QUALIFY row_number() OVER (ORDER BY ${R}) > ${Math.floor(s.n)}`;
@@ -158,6 +161,12 @@ function stepSql(s: Step, P: string, subs: Map<string, string>): string {
         : keep ? `(SELECT ${list([R, ...keep])}, CAST(${on} AS VARCHAR) FROM ${P})`
           : `(SELECT * REPLACE (${s.columns.map((c) => `CAST(${qi(c)} AS VARCHAR) AS ${qi(c)}`).join(', ')}) FROM ${P})`;
       return `SELECT * REPLACE (row_number() OVER (ORDER BY ${R}) AS ${R}) FROM (UNPIVOT ${input} ON ${on} INTO NAME "Attributo" VALUE "Valore")`;
+    }
+    case 'pivot': {
+      // Rows = the other columns (sorted, like Power Query's grouping); one column per value of s.column.
+      const v = qi(s.value);
+      const agg = { sum: `sum(${v})`, avg: `avg(${v})`, count: `count(${v})`, countd: `count(DISTINCT ${v})`, median: `median(${v})`, min: `min(${v})`, max: `max(${v})`, none: `first(${v})` }[s.agg];
+      return `SELECT row_number() OVER () AS ${R}, * FROM (SELECT * FROM (PIVOT (SELECT * EXCLUDE (${R}) FROM ${P}) ON ${qi(s.column)} USING ${agg}) ORDER BY ALL)`;
     }
     case 'merge': {
       const right = `(${subs.get(s.table)})`;

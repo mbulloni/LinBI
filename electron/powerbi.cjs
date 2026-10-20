@@ -20,6 +20,8 @@ const FABRIC = process.env.LINBI_PBI_FABRIC || 'https://api.fabric.microsoft.com
 const SCOPES = {
   pbi: 'https://analysis.windows.net/powerbi/api/.default',
   fabric: 'https://api.fabric.microsoft.com/.default',
+  // SharePoint sources (sharepoint.cjs): same refresh token, Graph resource.
+  graph: 'https://graph.microsoft.com/.default',
 };
 
 const qi = (s) => '"' + String(s).replace(/"/g, '""') + '"';
@@ -213,7 +215,7 @@ async function token(kind) {
   if (!ok && kind === 'fabric' && j.error !== 'invalid_grant') return token('pbi');
   if (!ok) {
     if (j.error === 'invalid_grant') signOut();
-    throw new Error(`Token ${kind === 'fabric' ? 'Fabric' : 'Power BI'} non ottenuto: ${j.error_description?.split('\r\n')[0] || j.error}`);
+    throw new Error(`Token ${kind === 'fabric' ? 'Fabric' : kind === 'graph' ? 'Microsoft Graph' : 'Power BI'} non ottenuto: ${j.error_description?.split('\r\n')[0] || j.error}`);
   }
   if (j.refresh_token) keepRefresh(j.refresh_token);
   tokens.set(kind, { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
@@ -528,4 +530,4 @@ async function publishFabric(spec, progress) {
   return { datasetId: sm.id, reportId: report?.id ?? null, webUrl: report?.id ? `https://app.powerbi.com/groups/${ws}/reports/${report.id}` : null, warnings };
 }
 
-module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric };
+module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token };

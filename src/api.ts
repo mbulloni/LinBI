@@ -13,8 +13,12 @@ export interface PowerBIModel {
   pbir?: Record<string, string>;
   resources: Record<string, string>;
   customVisuals?: CustomVisualPkg[];
+  /** Power Query parameters (expressions with IsParameterQuery=true). */
+  parameters?: { name: string; expression: string; description?: string }[];
   warnings: string[];
 }
+export type WebCredKind = 'basic' | 'apikey' | 'header' | 'oauth';
+export interface WebCredInfo { prefix: string; kind: WebCredKind; user?: string; name?: string; persistent: boolean; }
 export interface ClaudeStatus { configured: boolean; fromEnv: boolean; model: string; models: string[]; persistent: boolean; }
 /** Visual described by a Q&A answer (local rules or Claude). */
 export interface QnaSpec {
@@ -82,6 +86,14 @@ interface Api {
   openExternal(url: string): Promise<void>;
   /** Importa un oggetto visivo da un file (.pbiviz). */
   importPbiviz(): Promise<CustomVisualPkg | null>;
+  /** Web/OData/SharePoint credentials per URL prefix (secrets stay in the main process). */
+  webcred: {
+    list(): Promise<WebCredInfo[]>;
+    set(prefix: string, cred: { kind: WebCredKind; user?: string; name?: string; secret?: string }): Promise<boolean>;
+    remove(prefix: string): Promise<void>;
+  };
+  /** Lists of a SharePoint Online site (Microsoft account). */
+  sharepointLists(site: string): Promise<string[]>;
   createEmptyTable(table: string, columns: { name: string; dataType: string }[]): Promise<TableInfo>;
   win: {
     minimize(): void;

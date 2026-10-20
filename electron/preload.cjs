@@ -57,6 +57,12 @@ contextBridge.exposeInMainWorld('api', {
   },
   openExternal: (url) => call('shell:open', url),
   importPbiviz: () => call('cv:import'),
+  webcred: {
+    list: () => call('webcred:list'),
+    set: (prefix, cred) => call('webcred:set', prefix, cred),
+    remove: (prefix) => call('webcred:remove', prefix),
+  },
+  sharepointLists: (site) => call('sharepoint:lists', site),
   createEmptyTable: (table, columns) => call('db:createEmpty', table, columns),
   win: {
     minimize: () => ipcRenderer.send('win:minimize'),

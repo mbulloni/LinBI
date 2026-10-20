@@ -21,7 +21,8 @@ export type DialogState =
   | { kind: 'append' }
   | { kind: 'round'; cols: string[] }
   | { kind: 'advanced'; m: string; name: string }
-  | { kind: 'conditional' };
+  | { kind: 'conditional' }
+  | { kind: 'pivot'; col: string };
 
 export interface Preview { columns: ColumnMeta[]; rows: Record<string, any>[]; sql: string; at: Date; upto?: number; query?: string; }
 
@@ -99,6 +100,7 @@ export function PQDialog(p: Props) {
     case 'round': return <Round {...p} cols={p.dialog.cols} />;
     case 'advanced': return <Advanced {...p} m={p.dialog.m} name={p.dialog.name} />;
     case 'conditional': return <ConditionalColumn {...p} />;
+    case 'pivot': return <PivotColumn {...p} col={p.dialog.col} />;
   }
 }
 
@@ -215,6 +217,29 @@ function SplitColumn(p: Props & { col: string }) {
       </label>
       {d === '' && <input type="text" autoFocus value={custom} onChange={(e) => setCustom(e.target.value)} />}
       <div className="pq-note">Dividi in corrispondenza di ogni occorrenza del delimitatore. Il numero di colonne è calcolato sui dati.</div>
+    </Shell>
+  );
+}
+
+/** Trasforma › Colonna pivot: the selected column's values become columns, filled from the values column. */
+function PivotColumn(p: Props & { col: string }) {
+  const { close, add, preview, col } = p;
+  const init = initOf(p, 'pivot');
+  const others = (preview?.columns ?? []).map((c) => c.name).filter((c) => c !== col);
+  const [value, setValue] = useState(init?.value ?? others[others.length - 1] ?? '');
+  const [agg, setAgg] = useState<GroupOp | 'none'>(init?.agg ?? 'sum');
+  return (
+    <Shell title="Colonna pivot" sub={<>Usare i nomi nella colonna <b>{col}</b> per creare nuove colonne.</>} onClose={close} okDisabled={!value}
+      onOk={() => { add({ kind: 'pivot', column: col, value, agg }); close(); }}>
+      <label className="pq-field">Colonna dei valori
+        <select value={value} onChange={(e) => setValue(e.target.value)}>{others.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+      </label>
+      <label className="pq-field">Funzione di aggregazione dei valori (Opzioni avanzate)
+        <select value={agg} onChange={(e) => setAgg(e.target.value as GroupOp | 'none')}>
+          <option value="none">Non aggregare</option>{GROUP_OPS.filter(([k]) => k !== 'count').map(([k, l]) => <option key={k} value={k}>{l}</option>)}<option value="count">Conteggio (tutti)</option>
+        </select>
+      </label>
+      <div className="pq-note">Le righe restano raggruppate per le altre colonne; con «Non aggregare» si usa il primo valore di ogni cella.</div>
     </Shell>
   );
 }
@@ -464,7 +489,7 @@ function Advanced({ close, m, name, saveM }: Props & { m: string; name: string }
     if (e) setErr(e); else close();
   };
   return (
-    <Shell title={name} sub="Modificare il codice M dei passaggi; l'origine si modifica dal passaggio Origine." width={900} onClose={close} onOk={done} okLabel={busy ? '…' : 'Fine'} okDisabled={busy}>
+    <Shell title={name} sub="Modificare il codice M; nei passaggi dell'origine si possono cambiare i valori tra virgolette (percorso, foglio, URL, server, database)." width={900} onClose={close} onOk={done} okLabel={busy ? '…' : 'Fine'} okDisabled={busy}>
       <textarea className="pq-code pq-code-edit" spellCheck={false} value={text} onChange={(e) => { setText(e.target.value); setErr(null); }}
         onKeyDown={(e) => { if (e.key === 'Tab') { e.preventDefault(); const t = e.currentTarget, a = t.selectionStart; setText(text.slice(0, a) + '    ' + text.slice(t.selectionEnd)); setTimeout(() => t.setSelectionRange(a + 4, a + 4)); } }} />
       <div className={err ? 'pq-err' : 'pq-ok'}>{err ? '⚠ ' + err : '✓ Nessun errore di sintassi rilevato.'}</div>
