@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { api } from '../api';
 import type { CrossFilter, Visual } from '../types';
 import type { VisualData } from './useVisualData';
-import { fieldLabel, fmtAuto, fmtFull, fmtPct } from '../format';
+import { fieldLabel, fmtAuto, fmtFull, fmtPct, fmtWith, locale } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { cellFormat, cfInput, fieldKey, rangeOf, type Range } from './condfmt';
@@ -53,11 +53,26 @@ const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[], c
   new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => { const a = driverAlias(v, i, cfItems); return [i.alias, rangeOf(rows.map((r) => r[a]))]; }));
 
 /** Number with the visual's display units/precision (Power BI labels), else LinBI's automatic format. */
-export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unknown, precision: unknown): string {
+export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unknown, precision: unknown, row?: Record<string, any>): string {
   if (typeof x !== 'number') return x === null || x === undefined ? '(Vuoto)' : String(x);
+  const dyn = dynFmt(row, alias);
+  if (dyn !== undefined) return fmtWith(x, dyn);
   if (data.percent.has(alias)) return fmtPct(x);
-  return units(x, unit, precision) ?? (typeof precision === 'number' ? x.toLocaleString('it-IT', { minimumFractionDigits: precision, maximumFractionDigits: precision }) : fmtAuto(x));
+  return units(x, unit, precision) ?? (typeof precision === 'number' ? x.toLocaleString(locale(), { minimumFractionDigits: precision, maximumFractionDigits: precision }) : fmtAuto(x));
 }
+
+/** Format string a calculation item chose for this cell (column `<alias>__f`), if any. */
+const dynFmt = (row: Record<string, any> | undefined, alias: string): string | undefined => {
+  const f = row?.[alias + '__f'];
+  return typeof f === 'string' && f.trim() ? f : undefined;
+};
+/** Measure cell text: dynamic format string, else percent / full number. */
+const measureText = (data: VisualData, alias: string, row: Record<string, any> | undefined, full = true) => {
+  const x = row?.[alias];
+  const dyn = dynFmt(row, alias);
+  if (dyn !== undefined && typeof x === 'number') return fmtWith(x, dyn);
+  return data.percent.has(alias) ? fmtPct(x) : full ? fmtFull(x) : fmtAuto(x);
+};
 
 /** Columns with data category "URL immagine" / "URL Web": image or link instead of text (like Power BI). */
 function useRichCells(items: QueryItem[]) {
@@ -80,7 +95,7 @@ export function CardVisual({ v, data }: { v: Visual; data: VisualData }) {
   return (
     <div className="card-v">
       <div className="val" style={{ color: sp(v, 'labels', 'color'), fontSize: pt(sp(v, 'labels', 'fontSize')), fontFamily: font(sp(v, 'labels', 'fontFamily')) }}>
-        {m ? rich(m, fmtStyled(data, m.alias, val, sp(v, 'labels', 'labelDisplayUnits'), sp(v, 'labels', 'labelPrecision')), true) : ''}
+        {m ? rich(m, fmtStyled(data, m.alias, val, sp(v, 'labels', 'labelDisplayUnits'), sp(v, 'labels', 'labelPrecision'), data.rows[0]), true) : ''}
       </div>
       {m && showCat && <div className="cap" style={{ color: sp(v, 'categoryLabels', 'color'), fontSize: pt(sp(v, 'categoryLabels', 'fontSize')), fontFamily: font(sp(v, 'categoryLabels', 'fontFamily')) }}>{fieldLabel(m.field)}</div>}
     </div>
@@ -109,7 +124,7 @@ export function MultiRowCardVisual({ v, data, cross, onSelect }: { v: Visual; da
         <div key={k} className={'mrc-row' + (selected !== undefined && first && selected !== toKey(r[first.alias]) ? ' dim' : '')} style={{ borderLeftColor: bar ? barColor : 'transparent' }} onClick={() => first && onSelect(r[first.alias])}>
           {dims.length > 0 && <div className="mrc-head" style={headStyle}>{dims.map((d, i) => <span key={d.alias}>{i ? ' · ' : ''}{rich(d, fmtItem(data, d, r[d.alias]))}</span>)}</div>}
           <div className="mrc-vals">{vals.map((m) => (
-            <div key={m.alias}><div className="val" style={valStyle}>{fmtStyled(data, m.alias, r[m.alias], sp(v, 'dataLabels', 'labelDisplayUnits'), sp(v, 'dataLabels', 'labelPrecision'))}</div>{showCap && <div className="cap" style={capStyle}>{fieldLabel(m.field)}</div>}</div>
+            <div key={m.alias}><div className="val" style={valStyle}>{fmtStyled(data, m.alias, r[m.alias], sp(v, 'dataLabels', 'labelDisplayUnits'), sp(v, 'dataLabels', 'labelPrecision'), r)}</div>{showCap && <div className="cap" style={capStyle}>{fieldLabel(m.field)}</div>}</div>
           ))}</div>
         </div>
       ))}
@@ -140,7 +155,7 @@ export function KpiVisual({ data }: { data: VisualData }) {
     <div className="kpi-v">
       {path && <svg className="kpi-trend" viewBox="0 0 100 40" preserveAspectRatio="none"><path d={path} fill={color} opacity={0.25} /></svg>}
       <div className="val" style={{ color: g === null ? undefined : color }}>{x === null ? '(Vuoto)' : val && fmtItem(data, val, x)}{g !== null && <span className="kpi-mark">{ok ? ' ✓' : ' !'}</span>}</div>
-      {g !== null && goal && <div className="cap">Obiettivo: {fmtItem(data, goal, g)}{dist !== null && <span style={{ color }}> ({dist >= 0 ? '+' : ''}{dist.toLocaleString('it-IT', { maximumFractionDigits: 2 })}%)</span>}</div>}
+      {g !== null && goal && <div className="cap">Obiettivo: {fmtItem(data, goal, g)}{dist !== null && <span style={{ color }}> ({dist >= 0 ? '+' : ''}{dist.toLocaleString(locale(), { maximumFractionDigits: 2 })}%)</span>}</div>}
     </div>
   );
 }
@@ -169,14 +184,14 @@ export function TableVisual({ v, data, cross, onSelect }: { v: Visual; data: Vis
           return (
             <tr key={k} className={selected !== undefined && selected === key ? 'sel' : ''} onClick={() => firstDim && onSelect(r[firstDim.alias])}>
               {data.items.map((it) => {
-                const text = data.percent.has(it.alias) ? fmtPct(r[it.alias]) : cell(r[it.alias], it.measure);
+                const text = it.measure && (dynFmt(r, it.alias) || data.percent.has(it.alias)) ? measureText(data, it.alias, r) : cell(r[it.alias], it.measure);
                 return v.format.cf?.[fieldKey(it.field)] ? decorated(v, it, ranges, r, data.cfItems, text, it.alias) : <td key={it.alias} className={it.measure ? 'num' : ''}>{it.measure ? text : rich(it, text)}</td>;
               })}
             </tr>
           );
         })}</tbody>
         {tot && <tfoot><tr>{data.items.map((it, i) => (
-          <td key={it.alias} className={it.measure ? 'num' : ''}>{it.measure ? (data.percent.has(it.alias) ? fmtPct(tot[it.alias]) : fmtFull(tot[it.alias])) : i === 0 ? 'Totale' : ''}</td>
+          <td key={it.alias} className={it.measure ? 'num' : ''}>{it.measure ? measureText(data, it.alias, tot) : i === 0 ? 'Totale' : ''}</td>
         ))}</tr></tfoot>}
       </table>
     </div>
@@ -205,7 +220,7 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
   const order = (data.colTotals ?? []).map((r) => r[col.alias]);
   colValues.sort((a, b) => {
     const ia = order.indexOf(a), ib = order.indexOf(b);
-    return ia >= 0 && ib >= 0 ? ia - ib : (a ?? '').localeCompare(b ?? '', 'it', { numeric: true });
+    return ia >= 0 && ib >= 0 ? ia - ib : (a ?? '').localeCompare(b ?? '', locale(), { numeric: true });
   });
   const rowTot = new Map((data.rowTotals ?? []).map((r) => [JSON.stringify(rows.map((d) => r[d.alias])), r]));
   const colTot = new Map((data.colTotals ?? []).map((r) => [r[col.alias], r]));
@@ -215,7 +230,7 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
   // Conditional formatting applies to the value cells, not to totals (Power BI default).
   const valCells = (src: Record<string, any> | undefined, k: string, bold = false) =>
     (vals.length ? vals : [null]).map((m, i) => {
-      const text = m && src ? (data.percent.has(m.alias) ? fmtPct(src[m.alias]) : fmtFull(src[m.alias])) : '';
+      const text = m && src ? measureText(data, m.alias, src) : '';
       return m && src && !bold && k !== 'g' && !k.startsWith('ct') ? decorated(v, m, ranges, src, data.cfItems, text, k + i)
         : <td key={k + i} className="num" style={bold ? { fontWeight: 600 } : undefined}>{text}</td>;
     });
@@ -270,10 +285,10 @@ export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
     if (!nums.length) return null;
     return (
       <div className="slicer-v slider-v">
-        <div className="slider-val">{cur >= 0 ? nums[cur].n.toLocaleString('it-IT') : '(Tutti)'}</div>
+        <div className="slider-val">{cur >= 0 ? nums[cur].n.toLocaleString(locale()) : '(Tutti)'}</div>
         <input type="range" min={0} max={nums.length - 1} step={1} value={cur >= 0 ? cur : 0}
           onMouseDown={(e) => e.stopPropagation()} onChange={(e) => set([nums[+e.target.value].x])} />
-        <div className="slider-ends"><span>{nums[0].n.toLocaleString('it-IT')}</span><span>{nums[nums.length - 1].n.toLocaleString('it-IT')}</span></div>
+        <div className="slider-ends"><span>{nums[0].n.toLocaleString(locale())}</span><span>{nums[nums.length - 1].n.toLocaleString(locale())}</span></div>
       </div>
     );
   }

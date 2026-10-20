@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useStore } from '../store';
-import type { TableMeta } from '../types';
+import { levelName, type TableMeta } from '../types';
 import { isDate, isNumeric } from '../format';
 import { Icon } from '../components/icons';
 import { Menu } from '../components/Menu';
@@ -47,17 +47,17 @@ export function DataPane() {
   const drag = (payload: object) => (e: React.DragEvent) => { e.dataTransfer.setData(FIELD_MIME, JSON.stringify(payload)); e.dataTransfer.effectAllowed = 'copy'; };
   const ctx = (m: Omit<MenuState, 'x' | 'y'>) => (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, ...m }); };
 
-  const columnNode = (t: TableMeta, name: string, depth: number, level?: string) => {
+  const columnNode = (t: TableMeta, name: string, depth: number, level?: string, label?: string) => {
     const c = t.columns.find((x) => x.name === name);
     const checked = used.has(t.name + '\u0001' + name);
     return (
       <div key={(level ? 'l:' + level + ':' : 'c:') + name} className="tnode field" draggable={report} style={{ paddingLeft: 4 + depth * 14 }}
-        onDragStart={drag({ table: t.name, column: name })}
+        onDragStart={drag({ table: t.name, column: name, ...(level ? { hierarchy: level } : {}) })}
         onClick={() => toggleField(t.name, name)}
         onContextMenu={ctx(level ? { table: t.name, hierarchy: level, level: name } : { table: t.name, column: name })}>
         {report && <input type="checkbox" checked={checked} readOnly />}
         <span className="ty">{t.calcColumns?.some((x) => x.name === name) ? <i className="fx-ico">fx</i> : isNumeric(c) ? <Icon name="sigma" size={13} /> : isDate(c) ? <Icon name="calendar" size={13} /> : null}</span>
-        <span className="nm" title={c ? `${name} (${c.type})` : name}>{name}</span>
+        <span className="nm" title={c ? `${name} (${c.type})` : name}>{label ?? name}</span>
       </div>
     );
   };
@@ -85,15 +85,15 @@ export function DataPane() {
     return (
       <div key={'h:' + h.name}>
         <div className="tnode field" draggable={report} style={{ paddingLeft: 4 + depth * 14 }}
-          onDragStart={drag({ table: t.name, column: h.levels[0], levels: h.levels })}
-          onClick={() => { if (report && !all) s.addField(target(), { table: t.name, column: h.levels[0], levels: h.levels }); }}
+          onDragStart={drag({ table: t.name, column: h.levels[0], levels: h.levels, hierarchy: h.name })}
+          onClick={() => { if (report && !all) s.addField(target(), { table: t.name, column: h.levels[0], levels: h.levels, hierarchy: h.name }); }}
           onContextMenu={ctx({ table: t.name, hierarchy: h.name })}>
           <span className="chev" onClick={(e) => { e.stopPropagation(); toggle(k); }}><Icon name={isOpen(k) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
           {report && <input type="checkbox" checked={all} readOnly />}
           <span className="ty"><Icon name="hierarchy" size={13} /></span>
           <span className="nm" title={`${h.name}: ${h.levels.join(' › ')}`}>{h.name}</span>
         </div>
-        {isOpen(k) && h.levels.map((l) => columnNode(t, l, depth + 1, h.name))}
+        {isOpen(k) && h.levels.map((l) => columnNode(t, l, depth + 1, h.name, levelName(h, l)))}
       </div>
     );
   };

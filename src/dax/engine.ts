@@ -15,7 +15,7 @@
  */
 import type { CalcGroup, Measure, Relationship, TableMeta } from '../types';
 import { edgesFrom, filterSql, type Edge } from '../query';
-import { isDate, isNumeric } from '../format';
+import { dayNames, isDate, isNumeric, monthNames } from '../format';
 import { DaxError, parse, parseQuery, type Node } from './parse';
 
 export { DaxError };
@@ -56,8 +56,6 @@ const TI_FNS = new Set(['DATESYTD', 'DATESQTD', 'DATESMTD', 'SAMEPERIODLASTYEAR'
   'PREVIOUSQUARTER', 'PREVIOUSYEAR', 'NEXTDAY', 'NEXTMONTH', 'NEXTQUARTER', 'NEXTYEAR', 'DATESBETWEEN', 'DATESINPERIOD',
   'FIRSTDATE', 'LASTDATE', 'STARTOFMONTH', 'STARTOFQUARTER', 'STARTOFYEAR', 'ENDOFMONTH', 'ENDOFQUARTER', 'ENDOFYEAR']);
 const CMP: Record<string, string> = { '=': '=', '==': '=', '<>': '<>', '<': '<', '>': '>', '<=': '<=', '>=': '>=' };
-const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
-const DAYS = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
 const sqlList = (xs: string[]) => `[${xs.map(ql).join(', ')}]`;
 const blank = (n?: Node) => !n || (n.k === 'call' && n.fn === 'BLANK' && !n.args.length);
 
@@ -69,8 +67,8 @@ class Compiler {
   private parsed = new Map<string, Node>();
   /** Measures defined by a DAX query (DEFINE MEASURE), shadowing the model's. */
   defined = new Map<string, { table: string; name: string; node: Node }>();
-  /** > 0 while compiling inside a calculation item: measure references are not transformed again. */
-  private calcOff = 0;
+  /** "group|measure" being transformed: that measure is not transformed again by that group (no infinite recursion). */
+  private applying = new Set<string>();
   /** SELECTEDMEASURE() of the calculation items being compiled (innermost last). */
   private selected: { name: string; sql: (env: Env) => string }[] = [];
 
@@ -799,9 +797,11 @@ class Compiler {
   measureRef(name: string, env: Env): string {
     const m = this.measure(name)!;
     // Calculation groups filtered in this context (slicer, axis, CALCULATE) transform the measure.
-    if (!this.calcOff && this.m.calcGroups?.length) {
+    // Like Power BI, also measures referenced inside other measures and items (sideways), but a measure
+    // is not transformed again by a group already transforming it.
+    if (this.m.calcGroups?.length) {
       const fc = env.rows.length ? this.calculate(env, []).fc : env.fc;
-      const groups = this.m.calcGroups.filter((g) => fc.filters.some((f) => eqi(f.table, g.table))).sort((a, b) => b.precedence - a.precedence);
+      const groups = this.m.calcGroups.filter((g) => !this.applying.has(`${g.table.toLowerCase()}|${m.name.toLowerCase()}`) && fc.filters.some((f) => eqi(f.table, g.table))).sort((a, b) => b.precedence - a.precedence);
       if (groups.length) return this.applyCalc(m.name, groups, { fc, rows: [], vars: new Map(), home: m.table });
     }
     if (this.stack.includes(m.name.toLowerCase())) throw new DaxError(`Riferimento circolare: ${[...this.stack, m.name].join(' → ')}`);
@@ -831,11 +831,13 @@ class Compiler {
    */
   private applyCalc(name: string, groups: CalcGroup[], env: Env): string {
     const [g, ...rest] = groups;
-    const inner = (e: Env): string => {
-      if (rest.length) return this.applyCalc(name, rest, e);
-      this.calcOff++;
-      try { return this.measureRef(name, e); } finally { this.calcOff--; }
-    };
+    const key = `${g.table.toLowerCase()}|${name.toLowerCase()}`;
+    this.applying.add(key);
+    try { return this.calcCase(name, g, rest, env); } finally { this.applying.delete(key); }
+  }
+
+  private calcCase(name: string, g: CalcGroup, rest: CalcGroup[], env: Env): string {
+    const inner = (e: Env): string => (rest.length ? this.applyCalc(name, rest, e) : this.measureRef(name, e));
     const t = this.table(g.table);
     const a = this.A();
     const w = this.preds(t.name, a, env.fc);
@@ -843,12 +845,29 @@ class Compiler {
     const sel = `(SELECT CASE WHEN COUNT(DISTINCT ${x}) = 1 THEN MIN(${x}) END FROM ${qi(t.name)} ${a}${w ? ` WHERE ${w}` : ''})`;
     const branches = g.items.map((it) => {
       this.selected.push({ name, sql: inner });
-      this.calcOff++;
       try { return `WHEN ${ql(it.name)} THEN ${this.scalar(parse(it.expression), env)}`; }
       catch (e) { throw e instanceof DaxError ? new DaxError(`Elemento di calcolo "${it.name}": ${e.message}`) : e; }
-      finally { this.calcOff--; this.selected.pop(); }
+      finally { this.selected.pop(); }
     });
     return `(CASE ${sel} ${branches.join(' ')} ELSE ${inner(env)} END)`;
+  }
+
+  /** Format string of measure `name` in this context: the selected item's formatStringDefinition, else the measure's. */
+  formatRef(name: string, env: Env): string {
+    const m = this.measure(name)!;
+    const own = ql(this.m.measures.find((x) => eqi(x.name, m.name))?.formatString ?? '');
+    const g = (this.m.calcGroups ?? []).filter((x) => x.items.some((i) => i.formatString?.trim()) && env.fc.filters.some((f) => eqi(f.table, x.table))).sort((a, b) => b.precedence - a.precedence)[0];
+    if (!g) return own;
+    const t = this.table(g.table);
+    const a = this.A();
+    const w = this.preds(t.name, a, env.fc);
+    const x = `${a}.${qi(g.column)}`;
+    const sel = `(SELECT CASE WHEN COUNT(DISTINCT ${x}) = 1 THEN MIN(${x}) END FROM ${qi(t.name)} ${a}${w ? ` WHERE ${w}` : ''})`;
+    this.selected.push({ name: m.name, sql: () => 'NULL' });
+    try {
+      const branches = g.items.filter((i) => i.formatString?.trim()).map((i) => `WHEN ${ql(i.name)} THEN CAST(${this.scalar(parse(i.formatString!), env)} AS VARCHAR)`);
+      return `(CASE ${sel} ${branches.join(' ')} ELSE ${own} END)`;
+    } finally { this.selected.pop(); }
   }
 
   /** WHERE predicate on row alias `alias` of `table` for a DAX boolean row expression (RLS filter). */
@@ -942,12 +961,12 @@ class Compiler {
       const l = t.toLowerCase();
       if (l === 'yyyy') parts.push(`strftime(${d}, '%Y')`);
       else if (l === 'yy') parts.push(`strftime(${d}, '%y')`);
-      else if (l === 'mmmm') parts.push(`${sqlList(MONTHS)}[month(${d})]`);
-      else if (l === 'mmm') parts.push(`${sqlList(MONTHS.map((x) => x.slice(0, 3)))}[month(${d})]`);
+      else if (l === 'mmmm') parts.push(`${sqlList(monthNames())}[month(${d})]`);
+      else if (l === 'mmm') parts.push(`${sqlList(monthNames(true))}[month(${d})]`);
       else if (l === 'mm') parts.push(`strftime(${d}, '%m')`);
       else if (l === 'm') parts.push(`CAST(month(${d}) AS VARCHAR)`);
-      else if (l === 'dddd') parts.push(`${sqlList(DAYS)}[dayofweek(${d}) + 1]`);
-      else if (l === 'ddd') parts.push(`${sqlList(DAYS.map((x) => x.slice(0, 3)))}[dayofweek(${d}) + 1]`);
+      else if (l === 'dddd') parts.push(`${sqlList(dayNames())}[dayofweek(${d}) + 1]`);
+      else if (l === 'ddd') parts.push(`${sqlList(dayNames(true))}[dayofweek(${d}) + 1]`);
       else if (l === 'dd') parts.push(`strftime(${d}, '%d')`);
       else if (l === 'd') parts.push(`CAST(day(${d}) AS VARCHAR)`);
       else if (l === 'hh' || l === 'h') parts.push(`strftime(${d}, '%H')`);
@@ -1233,9 +1252,7 @@ class Compiler {
         if (!top) throw new DaxError('SELECTEDMEASURE si può usare solo negli elementi di calcolo');
         // The measure is compiled outside the item that references it (its own SELECTEDMEASURE is the next one out).
         const saved = this.selected.pop()!;
-        const off = this.calcOff;
-        this.calcOff = 0;
-        try { return top.sql(env.rows.length ? this.calculate(env, []) : env); } finally { this.calcOff = off; this.selected.push(saved); }
+        try { return top.sql(env.rows.length ? this.calculate(env, []) : env); } finally { this.selected.push(saved); }
       }
       case 'SELECTEDMEASURENAME': {
         const top = this.selected[this.selected.length - 1];
@@ -1279,6 +1296,20 @@ export function measureSql(model: Model, name: string, home: string, outer: Filt
     if (e instanceof DaxError) throw new DaxError(`Misura [${m.name}]: ${e.message.replace(/^\[[^\]]+\]: /, '')}`);
     throw e;
   }
+}
+
+/** Dynamic format string of a measure (calculation items with formatStringDefinition), or null when it is fixed. */
+export function measureFormatSql(model: Model, name: string, home: string, outer: FilterIn[], groups: GroupIn[]): string | null {
+  if (!model.calcGroups?.some((g) => g.items.some((i) => i.formatString?.trim()))) return null;
+  const c = new Compiler(model);
+  const m = model.measures.find((x) => x.name === name && x.table === home) ?? model.measures.find((x) => x.name === name);
+  if (!m) return null;
+  const env = emptyEnv(model, m.table);
+  env.fc.filters = [
+    ...outer.map((f): Filt => ({ table: f.table, cols: [f.column], pred: (a) => filterSql((f.expr ?? ((x) => x))(`${a}.${qi(f.column)}`), f.values), tag: 'outer' })),
+    ...groups.map((g): Filt => ({ table: g.table, cols: [g.column], pred: (a) => `${(g.expr ?? ((x) => x))(`${a}.${qi(g.column)}`)} IS NOT DISTINCT FROM ${g.ref}`, tag: 'group' })),
+  ];
+  try { return c.formatRef(m.name, env); } catch { return null; }
 }
 
 /** Error message for a measure that cannot be compiled, or null. */
@@ -1354,7 +1385,8 @@ export function rlsWhere(model: Model, filters: { table: string; expression: str
     const t = c.table(f.table);
     own.set(t.name, f.expression);
   }
-  const rels = model.rels.map((r) => ({ ...r, crossFilter: 'single' as const }));
+  // Security filters flow one → many, and many → one only with "Applica filtro di sicurezza in entrambe le direzioni".
+  const rels = model.rels.map((r) => ({ ...r, crossFilter: r.securityBoth && r.crossFilter === 'both' ? 'both' as const : 'single' as const }));
   const out: { table: string; where: string }[] = [];
   for (const t of model.tables) {
     const parts: string[] = [];

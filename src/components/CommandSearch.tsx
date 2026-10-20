@@ -3,6 +3,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { VISUALS } from '../visuals/catalog';
 import { Icon, VisualIcon } from './icons';
+import { locale } from '../format';
 
 interface Item { group: string; label: string; hint?: string; run: () => void; icon?: React.ReactNode; }
 
@@ -37,7 +38,7 @@ export function CommandSearch() {
     const fields: Item[] = [
       ...s.report.measures.map((m) => ({ group: 'Misure', label: m.name, hint: m.table, run: () => st().startDax('measure', m.table, m.name) })),
       ...s.tables.flatMap((t) => [
-        { group: 'Tabelle', label: t.name, hint: `${t.rowCount.toLocaleString('it-IT')} righe`, run: () => st().set({ view: 'data', dataViewTable: t.name }) },
+        { group: 'Tabelle', label: t.name, hint: `${t.rowCount.toLocaleString(locale())} righe`, run: () => st().set({ view: 'data', dataViewTable: t.name }) },
         ...t.columns.map((c) => ({ group: 'Colonne', label: c.name, hint: t.name, run: () => st().set({ view: 'data', dataViewTable: t.name }) })),
       ]),
     ];

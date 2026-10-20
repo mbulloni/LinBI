@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { daxQuerySql, type DaxQueryResult } from '../dax';
-import { fmtFull, isDate, isNumeric } from '../format';
+import { fmtFull, isDate, isNumeric, locale } from '../format';
 import { Icon } from './icons';
 import { Menu } from './Menu';
 import { DaxInput } from './DaxInput';
+import { daxShow, daxStore } from '../dax/separators';
 
 let inserter: ((text: string) => void) | null = null;
 /** Inserts text at the cursor of the DAX query editor (fields clicked in the Data pane). */
@@ -51,7 +52,7 @@ export function DaxQueryView() {
   const setText = (t: string) => useStore.setState({ daxQueryText: t });
 
   useEffect(() => {
-    if (!text) setText(examples(useStore.getState())[1]?.[1] ?? '');
+    if (!text) setText(daxShow(examples(useStore.getState())[1]?.[1] ?? ''));
     inserter = (ins) => {
       const el = ta.current;
       const cur = useStore.getState().daxQueryText;
@@ -67,11 +68,11 @@ export function DaxQueryView() {
     setRunning(true);
     setError(null);
     try {
-      const queries = daxQuerySql(s.model(), text);
+      const queries = daxQuerySql(s.model(), daxStore(text));
       const out: Result[] = [];
       for (const q of queries) {
         const t0 = performance.now();
-        const r = await api.query(q.sql);
+        const r = await api.queryAs(q.sql);
         out.push({ cols: q.columns, rows: r.rows, sql: q.sql, ms: Math.round(performance.now() - t0) });
       }
       setResults(out);
@@ -112,7 +113,7 @@ export function DaxQueryView() {
         <div className="daxview-tabs">
           {results.map((r, i) => <button key={i} className={i === tab ? 'active' : ''} onClick={() => setTab(i)}>Risultato {i + 1}</button>)}
           <span style={{ flex: 1 }} />
-          {res && <span className="hint">{res.rows.length.toLocaleString('it-IT')} righe · {res.ms} ms</span>}
+          {res && <span className="hint">{res.rows.length.toLocaleString(locale())} righe · {res.ms} ms</span>}
         </div>
         {error && <div className="pq-error" style={{ margin: 12 }}><Icon name="warning" size={18} /><div><b>Errore della query</b><div>{error}</div></div></div>}
         {!error && showSql && res && <pre className="pq-sql" style={{ maxHeight: 220 }}>{res.sql}</pre>}
@@ -134,7 +135,7 @@ export function DaxQueryView() {
       </div>
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
-          {examples(s).map(([l, q]) => <button key={l} onClick={() => { setText(q); setMenu(null); }}>{l}</button>)}
+          {examples(s).map(([l, q]) => <button key={l} onClick={() => { setText(daxShow(q)); setMenu(null); }}>{l}</button>)}
         </Menu>
       )}
     </div>

@@ -80,6 +80,7 @@ export function ModelView() {
   const [drag, setDrag] = useState<{ table: string; x: number; y: number } | null>(null);
   const [link, setLink] = useState<{ table: string; column: string; from: Pt; to: Pt } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [colMenu, setColMenu] = useState<{ x: number; y: number; table: string; column: string } | null>(null);
 
   if (!s.tables.length) return <div className="placeholder-view"><Icon name="model" size={48} /><h2>Nessuna tabella</h2><span>Le tabelle caricate e le loro relazioni appariranno qui.</span></div>;
 
@@ -160,22 +161,45 @@ export function ModelView() {
         const related = s.report.relationships.some((r) => r.fromTable === t.name || r.toTable === t.name);
         return (
           <div key={t.name} className={'mtable' + (drag?.table === t.name ? ' moving' : '')} style={{ left: b.x, top: b.y, width: W }} onMouseDown={(e) => e.stopPropagation()}>
-            <div className="mt-h" onMouseDown={startMove(t.name, i)} style={{ borderTopColor: related ? '#118DFF' : '#A19F9D' }}>
+            <div className="mt-h" onMouseDown={startMove(t.name, i)} style={{ borderTopColor: related ? '#118DFF' : '#A19F9D' }}
+              onContextMenu={(e) => { e.preventDefault(); s.set({ propsTarget: { table: t.name } }); }} title="Clic destro: proprietà della tabella">
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name}</span>
             </div>
             <div className="mt-b" style={{ maxHeight: MAX_BODY }}>
               {t.columns.map((c) => (
                 <div key={c.name} data-table={t.name} data-col={c.name}
                   className={hot.has(`${t.name}\u0001${c.name}`) ? 'hot' : link && link.table !== t.name ? 'droppable' : ''}
-                  onMouseDown={startLink(t.name, c.name)} title={`${c.name} (${c.type})`}>
+                  onMouseDown={startLink(t.name, c.name)} title={`${c.name} (${c.type})`}
+                  onContextMenu={(e) => { e.preventDefault(); setColMenu({ x: e.clientX, y: e.clientY, table: t.name, column: c.name }); }}>
                   <span style={{ width: 14, display: 'flex' }}>{isNumeric(c) ? <Icon name="sigma" size={12} /> : isDate(c) ? <Icon name="calendar" size={12} /> : null}</span>
                   {c.name}
+                </div>
+              ))}
+              {s.report.measures.filter((m) => m.table === t.name).map((m) => (
+                <div key={'m:' + m.name} className="mt-extra" title={`${m.name} = ${m.expression}`} onContextMenu={(e) => { e.preventDefault(); s.set({ propsTarget: { table: t.name, field: m.name } }); }}
+                  onDoubleClick={() => s.startDax('measure', t.name, m.name)}>
+                  <span style={{ width: 14, display: 'flex' }}><Icon name="calc" size={12} /></span>{m.name}
+                </div>
+              ))}
+              {(s.report.hierarchies ?? []).filter((h) => h.table === t.name).map((h) => (
+                <div key={'h:' + h.name} className="mt-extra" title={h.levels.join(' › ')} onContextMenu={(e) => { e.preventDefault(); s.set({ propsTarget: { table: t.name, hierarchy: h.name } }); }}
+                  onDoubleClick={() => s.set({ propsTarget: { table: t.name, hierarchy: h.name } })}>
+                  <span style={{ width: 14, display: 'flex' }}><Icon name="hierarchy" size={12} /></span>{h.name}
                 </div>
               ))}
             </div>
           </div>
         );
       })}
+      {colMenu && (
+        <Menu x={colMenu.x} y={colMenu.y} onClose={() => setColMenu(null)}>
+          <button onClick={() => { s.set({ propsTarget: { table: colMenu.table, field: colMenu.column } }); setColMenu(null); }}><Icon name="gear" />Proprietà</button>
+          <button onClick={() => { s.createHierarchy(colMenu.table, colMenu.column); setColMenu(null); }}><Icon name="hierarchy" />Crea gerarchia</button>
+          {(s.report.hierarchies ?? []).filter((h) => h.table === colMenu.table && !h.levels.includes(colMenu.column)).map((h) => (
+            <button key={h.name} onClick={() => { s.addHierarchyLevel(colMenu.table, h.name, colMenu.column); setColMenu(null); }}>Aggiungi alla gerarchia › {h.name}</button>
+          ))}
+        </Menu>
+      )}
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <button onClick={() => { const r = s.report.relationships.find((x) => x.id === menu.id); if (r) s.set({ relEditor: { draft: r, isNew: false } }); setMenu(null); }}>Proprietà</button>

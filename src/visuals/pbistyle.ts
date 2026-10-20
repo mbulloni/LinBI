@@ -2,7 +2,7 @@
 // renderers read what they support through these helpers, export writes it back untouched.
 // Lookup order: the visual's own objects, then the theme's visualStyles[<type>]['*'], then ['*']['*'].
 import type { Theme, Visual } from '../types';
-import { PALETTE } from '../format';
+import { PALETTE, locale } from '../format';
 
 type Entry = { properties?: Record<string, any>; selector?: any };
 export type Objects = Record<string, Entry[]>;
@@ -124,7 +124,7 @@ export function units(n: number, unit: unknown, precision: unknown): string | un
   const p = typeof precision === 'number' ? precision : unit === 1 ? undefined : 1;
   const suffix: Record<number, string> = { 1: '', 1000: ' K', 1000000: ' Mln', 1000000000: ' Mrd', 1000000000000: ' Bln' };
   const v = unit === 1 ? n : n / unit;
-  return v.toLocaleString('it-IT', p === undefined ? { maximumFractionDigits: 2 } : { minimumFractionDigits: p, maximumFractionDigits: p }) + (suffix[unit] ?? '');
+  return v.toLocaleString(locale(), p === undefined ? { maximumFractionDigits: 2 } : { minimumFractionDigits: p, maximumFractionDigits: p }) + (suffix[unit] ?? '');
 }
 
 /** Query reference Power BI uses in selectors/projections ("Table.Measure", "Sum(Table.Column)"). */

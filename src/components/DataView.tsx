@@ -25,7 +25,7 @@ export function DataView() {
   useEffect(() => {
     if (!t) return;
     const order = sort ? ` ORDER BY ${qi(sort.col)} ${sort.dir} NULLS LAST` : '';
-    api.query(`SELECT * FROM ${qi(t.name)}${order} LIMIT 2000`).then((r) => setRows(r.rows)).catch((e) => s.notify(e.message));
+    api.queryAs(`SELECT * FROM ${qi(t.name)}${order} LIMIT 2000`).then((r) => setRows(r.rows)).catch((e) => s.notify(e.message));
   }, [t?.name, sort, s.dataVersion]);
 
   if (!t) return <div className="placeholder-view"><Icon name="tableView" size={48} /><h2>Nessun dato</h2><span>Caricare dati per visualizzarli in questa vista.</span></div>;

@@ -1,6 +1,6 @@
 import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, Report, TableMeta, Visual } from './types';
-import { measureSql, type Model } from './dax';
-import { isNumeric } from './format';
+import { measureFormatSql, measureSql, type Model } from './dax';
+import { isNumeric, monthNames, quarterPrefix } from './format';
 import { visualDef } from './visuals/catalog';
 import { cfInput, fieldKey } from './visuals/condfmt';
 
@@ -12,7 +12,9 @@ export const qi = (s: string) => '"' + s.replace(/"/g, '""') + '"';
 export const ql = (s: string) => "'" + s.replace(/'/g, "''") + "'";
 
 /** `sortCol`: Power BI "sort by column" of a dim (ordering uses it via hidden s_<alias>). */
-export interface QueryItem { alias: string; field: FieldRef; well: string; measure: boolean; sortCol?: string; }
+export interface QueryItem { alias: string; field: FieldRef; well: string; measure: boolean; sortCol?: string;
+  /** DAX measure with a dynamic format string (calculation items): column `<alias>__f` holds it per row. */
+  fmt?: boolean; }
 export interface VisualQuery {
   sql: string;
   totalsSql?: string;     // grand total (table, matrix)
@@ -22,13 +24,12 @@ export interface VisualQuery {
 }
 export interface FilterSpec { table: string; column: string; values: string[]; datePart?: DatePart; }
 
-const MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
 /** SQL of a date hierarchy level applied to a column expression (identity without a level). */
 export function partExpr(part: DatePart | undefined, sql: string): string {
   switch (part) {
     case 'year': return `CAST(YEAR(${sql}) AS INTEGER)`;
-    case 'quarter': return `('Trim ' || QUARTER(${sql}))`;
-    case 'month': return `list_extract([${MONTHS.map((m) => `'${m}'`).join(', ')}], MONTH(${sql}))`;
+    case 'quarter': return `(${ql(quarterPrefix())} || QUARTER(${sql}))`;
+    case 'month': return `list_extract([${monthNames().map(ql).join(', ')}], MONTH(${sql}))`;
     case 'day': return `CAST(DAY(${sql}) AS INTEGER)`;
     default: return sql;
   }
@@ -227,10 +228,13 @@ function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx, crossJoin = fa
     // DAX measures only (SUMMARIZECOLUMNS): fields of unrelated tables (e.g. a calculation group)
     // are cross joined; groups where every measure is blank are dropped afterwards.
     if (!tree && crossJoin) {
+      // Connected components (connected() follows chains, so B bridging A and C joins all three).
       const comps: string[][] = [];
       for (const t of dimTables) {
-        const c = comps.find((x) => x.some((y) => connected(ctx.rels, y, t)));
-        if (c) c.push(t); else comps.push([t]);
+        const hit = comps.filter((x) => x.some((y) => connected(ctx.rels, y, t)));
+        const merged = [...hit.flat(), t];
+        for (const h of hit) comps.splice(comps.indexOf(h), 1);
+        comps.push(merged);
       }
       if (comps.length > 1) {
         const parts: string[] = [];
@@ -294,7 +298,7 @@ function core(dims: QueryItem[], measures: QueryItem[], ctx: Ctx, crossJoin = fa
 
 /** Adds display (VARCHAR) columns for dims, ordering and limit on top of a core query. */
 function finalize(c: { sql: string }, dims: QueryItem[], measures: QueryItem[], order = '', limit = 0): string {
-  const sel = [...dims.flatMap((d) => [`CAST(q.${k(d)} AS VARCHAR) AS ${d.alias}`, `q.${k(d)}`, ...(d.sortCol ? [`q.${sk(d)}`] : [])]), ...measures.map((m) => `q.${m.alias}`)];
+  const sel = [...dims.flatMap((d) => [`CAST(q.${k(d)} AS VARCHAR) AS ${d.alias}`, `q.${k(d)}`, ...(d.sortCol ? [`q.${sk(d)}`] : [])]), ...measures.flatMap((m) => [`q.${m.alias}`, ...(m.fmt ? [`q.${m.alias}__f`] : [])])];
   return `SELECT ${sel.join(', ')} FROM (${c.sql}) AS q${order ? ` ORDER BY ${order}` : ''}${limit ? ` LIMIT ${limit}` : ''}`;
 }
 
@@ -345,7 +349,9 @@ export function buildVisualQuery(
   if (extra.length) v = { ...v, filters: [...(v.filters ?? []), ...extra] };
   if (!items.length) return null;
   // Conditional formatting "In base al campo": the driving fields as extra (hidden) measures.
-  const cfFields = [...Object.values(v.format.cf ?? {}).map((c) => c.input), v.format.colorRule?.field].filter((f): f is FieldRef => !!f).map(cfInput);
+  // (also the upper/lower bounds of error bars "by field", Riquadro Analisi)
+  const errFields = (v.format.analytics ?? []).flatMap((l) => (l.kind === 'errorBars' && l.errMode === 'field' ? [l.upper, l.lower] : []));
+  const cfFields = [...Object.values(v.format.cf ?? {}).map((c) => c.input), v.format.colorRule?.field, ...errFields].filter((f): f is FieldRef => !!f).map(cfInput);
   for (const f of cfFields) {
     if (items.some((i) => i.well === CF_WELL && fieldKey(i.field) === fieldKey(f))) continue;
     items.push({ alias: 'c' + items.length, field: f, well: CF_WELL, measure: true });
@@ -387,7 +393,11 @@ export function buildVisualQuery(
     try {
       const groups = ds.map((d) => ({ table: d.field.table, column: d.field.column, ref: `g.${k(d)}`, ...(d.field.datePart ? { expr: (x: string) => partExpr(d.field.datePart, x) } : {}) }));
       const outer = ctx.filters.map((f) => ({ ...f, ...(f.datePart ? { expr: (x: string) => partExpr(f.datePart, x) } : {}) }));
-      const sel = dax.map((m) => `${measureSql(model, m.field.column, m.field.table, outer, groups)} AS ${m.alias}`);
+      const sel = dax.flatMap((m) => {
+        const f = measureFormatSql(model, m.field.column, m.field.table, outer, groups);
+        if (f) m.fmt = true;
+        return [`${measureSql(model, m.field.column, m.field.table, outer, groups)} AS ${m.alias}`, ...(f ? [`${f} AS ${m.alias}__f`] : [])];
+      });
       let sql = `SELECT g.*, ${sel.join(', ')} FROM (${c.sql}) AS g`;
       // Like Power BI, groups where every measure is blank are not shown.
       if (ds.length && !plain.length) sql = `SELECT * FROM (${sql}) AS b WHERE NOT (${dax.map((m) => `b.${m.alias} IS NULL`).join(' AND ')})`;

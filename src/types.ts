@@ -41,7 +41,8 @@ export type DbConnection = Omit<DbSource, 'schema' | 'table'>;
 
 /** Level of the automatic date hierarchy (a date column placed on an axis becomes Year › Quarter › Month › Day). */
 export type DatePart = 'year' | 'quarter' | 'month' | 'day';
-export interface FieldRef { table: string; column: string; agg: Agg; datePart?: DatePart; }
+/** `hierarchy`: the field is a level of that user hierarchy (exported as HierarchyLevel). */
+export interface FieldRef { table: string; column: string; agg: Agg; datePart?: DatePart; hierarchy?: string; }
 
 export type VisualType =
   | 'stackedBar' | 'stackedColumn' | 'clusteredBar' | 'clusteredColumn'
@@ -54,7 +55,7 @@ export type VisualType =
 /** Riquadro Analisi: reference line of a chart (Power BI y1AxisReferenceLine, averageLine, trend…). */
 export interface AnalyticsLine {
   id: string;
-  kind: 'constant' | 'xConstant' | 'min' | 'max' | 'average' | 'median' | 'percentile' | 'trend';
+  kind: 'constant' | 'xConstant' | 'min' | 'max' | 'average' | 'median' | 'percentile' | 'trend' | 'forecast' | 'errorBars';
   name?: string;
   /** constant lines */
   value?: number;
@@ -70,6 +71,21 @@ export interface AnalyticsLine {
   /** 0-100 */
   transparency?: number;
   label?: boolean;
+  /** Reference lines: "Area ombreggiata" before (below) or after (above) the line. */
+  shade?: 'before' | 'after';
+  shadeColor?: string;
+  /** 0-100 */
+  shadeTransparency?: number;
+  /** Forecast (line charts on a continuous axis): points ahead, confidence %, seasonality (points, 0 = auto), last points ignored. */
+  forecastLength?: number;
+  confidence?: number;
+  seasonality?: number;
+  ignoreLast?: number;
+  /** Error bars: from fields (upper/lower bound), ± percentage of the value, or ± n standard deviations of the series. */
+  errMode?: 'field' | 'percent' | 'stdev';
+  errValue?: number;
+  upper?: FieldRef;
+  lower?: FieldRef;
 }
 
 export interface VisualFormat {
@@ -243,6 +259,8 @@ export interface Relationship {
   cardinality: Cardinality;
   crossFilter: 'single' | 'both';
   active: boolean;
+  /** "Applica filtro di sicurezza in entrambe le direzioni" (RLS also flows many → one; needs crossFilter both). */
+  securityBoth?: boolean;
 }
 
 /** DAX measure (stored as written; evaluated by the DAX→SQL compiler in dax.ts). */
@@ -284,7 +302,9 @@ export interface Report {
   roles?: RoleDef[];
 }
 
-export interface Hierarchy { table: string; name: string; levels: string[]; }
+/** `levels` = columns in order; `levelNames` = level name when it differs from the column. */
+export interface Hierarchy { table: string; name: string; levels: string[]; levelNames?: Record<string, string>; }
+export const levelName = (h: Hierarchy, column: string) => h.levelNames?.[column] ?? column;
 export interface CalcItem { name: string; expression: string; formatString?: string; }
 export interface CalcGroup { table: string; column: string; precedence: number; items: CalcItem[]; }
 export interface RoleDef { name: string; filters: { table: string; expression: string }[]; }

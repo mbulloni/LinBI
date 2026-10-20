@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store';
 import { isDate } from '../format';
+import { levelName } from '../types';
 import { Icon } from './icons';
 
 export function ModelProperties() {
@@ -73,7 +74,10 @@ export function ModelProperties() {
               <div className="hier-levels">
                 {h.levels.map((l, i) => (
                   <div key={l} className="hier-level">
-                    <Icon name="hierarchy" size={13} /><span>{l}</span>
+                    <Icon name="hierarchy" size={13} />
+                    <input className="hier-name" value={levelName(h, l)} title={`Livello sulla colonna ${l}`}
+                      onChange={(e) => { const names = { ...(h.levelNames ?? {}) }; if (e.target.value && e.target.value !== l) names[l] = e.target.value; else delete names[l]; s.updateHierarchy(h.table, h.name, { levelNames: names }); }} />
+                    {levelName(h, l) !== l && <span className="hint">{l}</span>}
                     <button title="Sposta su" disabled={i === 0} onClick={() => { const lv = [...h.levels]; [lv[i - 1], lv[i]] = [lv[i], lv[i - 1]]; s.updateHierarchy(h.table, h.name, { levels: lv }); }}><Icon name="chevronUp" size={12} /></button>
                     <button title="Sposta giù" disabled={i === h.levels.length - 1} onClick={() => { const lv = [...h.levels]; [lv[i + 1], lv[i]] = [lv[i], lv[i + 1]]; s.updateHierarchy(h.table, h.name, { levels: lv }); }}><Icon name="chevronDown" size={12} /></button>
                     <button title="Rimuovi" disabled={h.levels.length === 1} onClick={() => s.updateHierarchy(h.table, h.name, { levels: h.levels.filter((x) => x !== l) })}><Icon name="close" size={12} /></button>

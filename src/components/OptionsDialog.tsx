@@ -5,9 +5,12 @@ import { api, type ClaudeStatus } from '../api';
 import { globalOptions, setGlobalOptions } from '../options';
 import { Icon } from './icons';
 import { Toggle } from './Menu';
+import { fmtWith, setLocale } from '../format';
+
+const LOCALES: [string, string][] = [['it-IT', 'Italiano (Italia)'], ['it-CH', 'Italiano (Svizzera)'], ['en-US', 'Inglese (Stati Uniti)'], ['en-GB', 'Inglese (Regno Unito)'], ['de-DE', 'Tedesco (Germania)'], ['fr-FR', 'Francese (Francia)'], ['es-ES', 'Spagnolo (Spagna)'], ['pt-BR', 'Portoghese (Brasile)']];
 import { DataSourceSettings } from './SourceDialogs';
 
-type Section = 'load' | 'python' | 'r' | 'qna' | 'fileLoad';
+type Section = 'load' | 'intl' | 'python' | 'r' | 'qna' | 'fileLoad';
 
 export function OptionsDialog() {
   const s = useStore();
@@ -37,6 +40,7 @@ export function OptionsDialog() {
           <nav>
             <div className="hdr">GLOBALE</div>
             {nav('load', 'Caricamento dati')}
+            {nav('intl', 'Impostazioni internazionali')}
             {nav('python', 'Scripting Python')}
             {nav('r', 'Scripting R')}
             {nav('qna', 'Domande e risposte')}
@@ -49,6 +53,18 @@ export function OptionsDialog() {
               <h3>Rilevamento relazioni</h3>
               <div className="fmt-row inline"><span>Rileva automaticamente le nuove relazioni dopo il caricamento dei dati</span>
                 <Toggle on={opts.autoRelationships} onChange={(b) => setOpts(setGlobalOptions({ autoRelationships: b }))} /></div>
+            </>}
+            {sec === 'intl' && <>
+              <h3>Impostazioni internazionali</h3>
+              <label className="pq-field">Formato di numeri e date (oggetti visivi, nomi dei mesi della gerarchia date, cultura del modello esportato)
+                <select value={opts.locale ?? 'it-IT'} onChange={(e) => { setOpts(setGlobalOptions({ locale: e.target.value })); setLocale(e.target.value); s.set({ dataVersion: s.dataVersion + 1 }); }}>
+                  {LOCALES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select></label>
+              <p>Esempio: {fmtWith(1234567.891, '#,0.00')} · {new Date(2026, 9, 20).toLocaleDateString(opts.locale ?? 'it-IT', { day: 'numeric', month: 'long', year: 'numeric' })}. I filtri già impostati su mesi o trimestri usano i nomi della lingua in cui sono stati creati.</p>
+              <h3>Separatori DAX</h3>
+              <div className="fmt-row inline"><span>Usa separatori locali (<code>;</code> tra gli argomenti, <code>,</code> per i decimali), come Power BI in italiano</span>
+                <Toggle on={!!opts.daxLocalSeparators} onChange={(b) => setOpts(setGlobalOptions({ daxLocalSeparators: b }))} /></div>
+              <p>Le espressioni vengono salvate sempre con i separatori standard (<code>,</code> e <code>.</code>), quindi i file restano compatibili con Power BI in qualsiasi lingua.</p>
             </>}
             {sec === 'python' && <>
               <h3>Opzioni script Python</h3>

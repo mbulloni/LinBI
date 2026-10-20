@@ -86,6 +86,7 @@ function pushRel(out, r) {
     cardinality: fc === 'one' && tc === 'one' ? 'oneToOne' : tc === 'many' ? 'manyToMany' : 'manyToOne',
     crossFilter: r.crossFilteringBehavior === 'bothDirections' ? 'both' : 'single',
     active: r.isActive !== false && r.isActive !== 'false',
+    securityBoth: r.securityFilteringBehavior === 'bothDirections',
   });
 }
 
@@ -228,7 +229,7 @@ function fromTmdl(dir, out) {
   for (const r of objs.filter((o) => o.kind === 'relationship')) {
     const [ft, fc] = tableColumn(r.props.fromColumn ?? '');
     const [tt, tc] = tableColumn(r.props.toColumn ?? '');
-    pushRel(out, { fromTable: ft, fromColumn: fc, toTable: tt, toColumn: tc, fromCardinality: r.props.fromCardinality, toCardinality: r.props.toCardinality, crossFilteringBehavior: r.props.crossFilteringBehavior, isActive: r.props.isActive });
+    pushRel(out, { fromTable: ft, fromColumn: fc, toTable: tt, toColumn: tc, fromCardinality: r.props.fromCardinality, toCardinality: r.props.toCardinality, crossFilteringBehavior: r.props.crossFilteringBehavior, securityFilteringBehavior: r.props.securityFilteringBehavior, isActive: r.props.isActive });
   }
 }
 

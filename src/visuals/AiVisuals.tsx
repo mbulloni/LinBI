@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FieldRef, Filter, Visual } from '../types';
 import { useStore } from '../store';
 import { runVisualQuery } from './useVisualData';
-import { fieldLabel, fmtAuto, isNumeric, PALETTE, uid } from '../format';
+import { fieldLabel, fmtAuto, isNumeric, PALETTE, uid, locale } from '../format';
 import { NULL_KEY } from '../query';
 import { Menu } from '../components/Menu';
 import { autoTitle } from '../components/VisualContainer';
@@ -321,7 +321,7 @@ function TopSegments({ v, target, explain, numericTarget, targetValue, dir, tLab
   if (st.error) return <div className="ki-empty">{st.error}</div>;
   const d = st.data;
   const segs = d?.segments ?? [];
-  const metric = (x: number) => (numericTarget ? fmtAuto(x) : (x * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%');
+  const metric = (x: number) => (numericTarget ? fmtAuto(x) : (x * 100).toLocaleString(locale(), { maximumFractionDigits: 1 }) + '%');
   const selIdx = /^seg:(\d+)$/.exec(v.ki?.selected ?? '')?.[1];
   const sel = selIdx !== undefined ? segs[+selIdx] : undefined;
   const pick = (i: number | null) => updateVisual(v.id, { ki: { ...v.ki, tab: 'segments', selected: i === null ? undefined : `seg:${i}` } });
@@ -339,7 +339,7 @@ function TopSegments({ v, target, explain, numericTarget, targetValue, dir, tLab
             ? <>{target.agg === 'measure' ? tLabel : target.column} {target.agg === 'measure' ? 'è in media' : 'medio è'} <b>{metric(sel.mean)}</b>, {diff >= 0 ? <><b>{metric(diff)}</b> in più</> : <><b>{metric(-diff)}</b> in meno</>} rispetto alla media complessiva ({metric(d!.overall)}).</>
             : <>{tLabel} è <b>{targetValue}</b> nel <b>{metric(sel.mean)}</b> dei casi (media complessiva {metric(d!.overall)}).</>}
         </div>
-        <div className="ki-dtitle">Il segmento contiene <b>{sel.n.toLocaleString('it-IT')}</b> {target.agg === 'measure' ? 'righe' : 'record'} ({((sel.n / d!.N) * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 })}% dei dati).</div>
+        <div className="ki-dtitle">Il segmento contiene <b>{sel.n.toLocaleString(locale())}</b> {target.agg === 'measure' ? 'righe' : 'record'} ({((sel.n / d!.N) * 100).toLocaleString(locale(), { maximumFractionDigits: 1 })}% dei dati).</div>
         <div className="ki-conds"><div className="hdr">Caratteristiche del segmento</div>{condText(sel.conds, factors).map((t, i) => <div key={i} className="ki-cond">{t}</div>)}</div>
       </div>
     );
@@ -462,8 +462,8 @@ export function KeyInfluencersVisual({ v }: { v: Visual }) {
   const sel = list.find((x) => `${x.field}\u0001${x.key}` === selKey) ?? list[0];
   const set = (patch: NonNullable<Visual['ki']>) => updateVisual(v.id, { ki: { ...ki, ...patch } });
   const tLabel = numericTarget ? fieldLabel(target) : target.column;
-  const metric = (x: number) => (numericTarget ? fmtAuto(x) : (x * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%');
-  const effectText = (x: Influencer) => (numericTarget ? `${dir === 'up' ? '+' : '-'}${fmtAuto(x.effect)}` : `${x.effect === Infinity ? '∞' : x.effect.toLocaleString('it-IT', { maximumFractionDigits: 2 })}x`);
+  const metric = (x: number) => (numericTarget ? fmtAuto(x) : (x * 100).toLocaleString(locale(), { maximumFractionDigits: 1 }) + '%');
+  const effectText = (x: Influencer) => (numericTarget ? `${dir === 'up' ? '+' : '-'}${fmtAuto(x.effect)}` : `${x.effect === Infinity ? '∞' : x.effect.toLocaleString(locale(), { maximumFractionDigits: 2 })}x`);
   const maxEffect = Math.max(1e-9, ...list.map((x) => (x.effect === Infinity ? 0 : x.effect)));
 
   const tab = ki.tab ?? 'influencers';
@@ -546,11 +546,11 @@ async function describe(v: Visual): Promise<string[]> {
   const total = rows.reduce((a, x) => a + x.y, 0);
   const additive = val.agg === 'sum' || val.agg === 'count' || val.agg === 'countd' || val.agg === 'measure';
   const sorted = [...rows].sort((a, b) => b.y - a.y);
-  const share = (x: number) => (total ? ((x / total) * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%' : '');
+  const share = (x: number) => (total ? ((x / total) * 100).toLocaleString(locale(), { maximumFractionDigits: 1 }) + '%' : '');
   if (TIME.test(cat.column) || rows.every((x) => /^\d{4}(-\d\d){0,2}/.test(x.k))) {
     const first = rows[0], last = rows[rows.length - 1];
     const ch = first.y ? ((last.y - first.y) / Math.abs(first.y)) * 100 : 0;
-    out.push(`${m} è ${ch >= 0 ? 'aumentato' : 'diminuito'} del <b>${Math.abs(ch).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</b> tra <b>${first.k}</b> e <b>${last.k}</b> (da ${fmt(first.y)} a ${fmt(last.y)}).`);
+    out.push(`${m} è ${ch >= 0 ? 'aumentato' : 'diminuito'} del <b>${Math.abs(ch).toLocaleString(locale(), { maximumFractionDigits: 1 })}%</b> tra <b>${first.k}</b> e <b>${last.k}</b> (da ${fmt(first.y)} a ${fmt(last.y)}).`);
     out.push(`Il valore più alto è stato registrato in <b>${sorted[0].k}</b> (${fmt(sorted[0].y)}), il più basso in <b>${sorted[sorted.length - 1].k}</b> (${fmt(sorted[sorted.length - 1].y)}).`);
   } else {
     out.push(`<b>${sorted[0].k}</b> ha il valore più alto di ${m} (${fmt(sorted[0].y)}${additive ? `, il ${share(sorted[0].y)} del totale` : ''}), seguito da <b>${sorted[1].k}</b> (${fmt(sorted[1].y)}).`);
@@ -600,7 +600,7 @@ export function SmartNarrativeVisual({ v, selected }: { v: Visual; selected?: bo
         const r = await runVisualQuery({ ...v, type: 'card', fields: { values: [f] } });
         const x = r.rows[0]?.[r.items[0]?.alias];
         const pct = f.agg === 'measure' && measures.find((m) => m.name === f.column)?.formatString?.includes('%');
-        out[t] = typeof x === 'number' || (x !== null && x !== undefined && !isNaN(Number(x))) ? (pct ? (Number(x) * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%' : fmtAuto(Number(x))) : label(x);
+        out[t] = typeof x === 'number' || (x !== null && x !== undefined && !isNaN(Number(x))) ? (pct ? (Number(x) * 100).toLocaleString(locale(), { maximumFractionDigits: 1 }) + '%' : fmtAuto(Number(x))) : label(x);
       } catch { out[t] = '(errore)'; }
     }
     return out;

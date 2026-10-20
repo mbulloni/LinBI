@@ -10,6 +10,7 @@ type Kind = AnalyticsLine['kind'];
 export const ANALYTICS_OBJECT: Record<Kind, string> = {
   constant: 'y1AxisReferenceLine', xConstant: 'xAxisReferenceLine', min: 'minLine', max: 'maxLine',
   average: 'averageLine', median: 'medianLine', percentile: 'percentileLine', trend: 'trend',
+  forecast: 'forecast', errorBars: 'error',
 };
 const KIND_OF = Object.fromEntries(Object.entries(ANALYTICS_OBJECT).map(([k, o]) => [o, k as Kind]));
 
@@ -26,7 +27,8 @@ export function importAnalytics(objects: any, byRef: Record<string, FieldRef>): 
       const p = e.properties ?? {};
       const d = (k: string) => decode(p[k]);
       if (d('show') === false) continue;
-      if (kind === 'trend' && d('show') !== true) continue;
+      if ((kind === 'trend' || kind === 'forecast') && d('show') !== true) continue;
+      if (kind === 'errorBars' && d('enabled') !== true) continue;
       const m = e.selector?.metadata ? byRef[e.selector.metadata] : undefined;
       const color = d('lineColor');
       const style = d('style');
@@ -41,6 +43,19 @@ export function importAnalytics(objects: any, byRef: Record<string, FieldRef>): 
         ...(typeof d('width') === 'number' ? { width: d('width') } : {}),
         ...(typeof d('transparency') === 'number' ? { transparency: d('transparency') } : {}),
         ...(d('dataLabelShow') === true ? { label: true } : {}),
+        // Area ombreggiata (shadeShow / shadeRegion / shadeColor / shadeTransparency).
+        ...(d('shadeShow') === true && (d('shadeRegion') === 'before' || d('shadeRegion') === 'after') ? { shade: d('shadeRegion') } : {}),
+        ...(typeof d('shadeColor') === 'string' ? { shadeColor: d('shadeColor') } : {}),
+        ...(typeof d('shadeTransparency') === 'number' ? { shadeTransparency: d('shadeTransparency') } : {}),
+        ...(kind === 'forecast' ? {
+          ...(typeof d('bandAreaTransparency') === 'number' ? { shadeTransparency: d('bandAreaTransparency') } : {}),
+          ...(typeof d('strokeTransparency') === 'number' ? { transparency: d('strokeTransparency') } : {}),
+        } : {}),
+        ...(kind === 'errorBars' ? {
+          errMode: 'percent' as const, errValue: 10,
+          ...(typeof d('barColor') === 'string' ? { color: d('barColor') } : {}),
+          ...(typeof d('barWidth') === 'number' ? { width: d('barWidth') } : {}),
+        } : {}),
       };
       if ((kind === 'constant' || kind === 'xConstant') && line.value === undefined) continue;
       out.push(line);
@@ -53,7 +68,28 @@ export function importAnalytics(objects: any, byRef: Record<string, FieldRef>): 
 export function exportAnalytics(lines: AnalyticsLine[] | undefined, objects: any, nameOf: (key: string) => string | undefined) {
   for (const o of Object.values(ANALYTICS_OBJECT)) delete objects[o];
   (lines ?? []).forEach((l, i) => {
-    const props: Record<string, any> = { show: L('true') };
+    const props: Record<string, any> = l.kind === 'errorBars' ? { enabled: L('true'), barShow: L('true') } : { show: L('true') };
+    if (l.kind === 'errorBars') {
+      if (l.color) props.barColor = { solid: { color: str(l.color) } };
+      if (l.width !== undefined) props.barWidth = num(l.width);
+      const meta = l.measure ? nameOf(l.measure) : undefined;
+      (objects.error ??= []).push({ properties: props, selector: { ...(meta ? { metadata: meta } : {}), id: String(i + 1) } });
+      return;
+    }
+    if (l.kind === 'forecast') {
+      if (l.name) props.displayName = str(l.name);
+      if (l.color) props.lineColor = { solid: { color: str(l.color) } };
+      if (l.style) props.style = str(l.style);
+      if (l.width !== undefined) props.width = num(l.width);
+      if (l.transparency !== undefined) props.strokeTransparency = num(l.transparency);
+      props.bandAreaShow = L('true');
+      if (l.shadeTransparency !== undefined) props.bandAreaTransparency = num(l.shadeTransparency);
+      (objects.forecast ??= []).push({ properties: props });
+      return;
+    }
+    if (l.shade) { props.shadeShow = L('true'); props.shadeRegion = str(l.shade); }
+    if (l.shadeColor) props.shadeColor = { solid: { color: str(l.shadeColor) } };
+    if (l.shadeTransparency !== undefined) props.shadeTransparency = num(l.shadeTransparency);
     if (l.name) props.displayName = str(l.name);
     if (l.value !== undefined && (l.kind === 'constant' || l.kind === 'xConstant')) props.value = num(l.value);
     if (l.kind === 'percentile') props.percentile = num(l.percentile ?? 50);

@@ -22,6 +22,7 @@ export function PageBackground({ p }: { p: Page }) {
 import { VisualContainer, VisualBody, VisualStatic, FIELD_MIME, autoTitle } from './VisualContainer';
 import { Icon } from './icons';
 import { Menu } from './Menu';
+import { locale } from '../format';
 
 function EmptyState() {
   const s = useStore();
@@ -82,7 +83,7 @@ export function StatusBar({ fitScale }: { fitScale: number }) {
   return (
     <div className="statusbar">
       {s.view === 'report' && <span>Pagina {idx} di {s.report.pages.length}</span>}
-      {s.view === 'data' && s.dataViewTable && <span>TABELLA: {s.dataViewTable} ({s.tables.find((t) => t.name === s.dataViewTable)?.rowCount.toLocaleString('it-IT')} righe)</span>}
+      {s.view === 'data' && s.dataViewTable && <span>TABELLA: {s.dataViewTable} ({s.tables.find((t) => t.name === s.dataViewTable)?.rowCount.toLocaleString(locale())} righe)</span>}
       {s.crossFilter && <span>Filtro incrociato attivo: {s.crossFilter.column} = {s.crossFilter.value === '__NULL__' ? '(Vuoto)' : s.crossFilter.value}</span>}
       {s.view === 'report' && (
         <div className="zoom">

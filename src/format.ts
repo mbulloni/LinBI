@@ -20,7 +20,55 @@ export function fieldLabel(f: FieldRef): string {
   return f.agg === 'none' || f.agg === 'measure' ? f.column : `${AGG_PREFIX[f.agg]} ${f.column}`;
 }
 
-const nf = (d: number) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: d, minimumFractionDigits: 0, useGrouping: 'always' });
+/** Impostazioni internazionali (Opzioni): locale of numbers and dates shown in visuals. */
+let LOCALE = 'it-IT';
+export const locale = () => LOCALE;
+export function setLocale(l: string) { LOCALE = l || 'it-IT'; }
+/** Month names (January = 0) and weekday names (Sunday = 0) in the current locale, lower case like Power BI Italian. */
+export const monthNames = (short = false) => Array.from({ length: 12 }, (_, m) => new Intl.DateTimeFormat(LOCALE, { month: short ? 'short' : 'long', timeZone: 'UTC' }).format(Date.UTC(2020, m, 1)).replace('.', ''));
+export const dayNames = (short = false) => Array.from({ length: 7 }, (_, d) => new Intl.DateTimeFormat(LOCALE, { weekday: short ? 'short' : 'long', timeZone: 'UTC' }).format(Date.UTC(2020, 2, 1 + d)).replace('.', ''));
+/** Quarter label prefix of the date hierarchy ("Trim 1" in Italian, "Qtr 1" in English). */
+export const quarterPrefix = () => (LOCALE.startsWith('it') ? 'Trim ' : LOCALE.startsWith('de') ? 'Quartal ' : LOCALE.startsWith('fr') ? 'Trim. ' : LOCALE.startsWith('es') ? 'Trim. ' : 'Qtr ');
+
+const nf = (d: number) => new Intl.NumberFormat(LOCALE, { maximumFractionDigits: d, minimumFractionDigits: 0, useGrouping: 'always' });
+
+/** Value with a Power BI / Excel number format string ("#,0.00", "0.0%", "€ #,0", sections "pos;neg;zero"). */
+export function fmtWith(v: unknown, format: string | undefined): string {
+  if (v === null || v === undefined || v === '') return '(Vuoto)';
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  const f = (format ?? '').trim();
+  if (!f || /^(general|g)$/i.test(f)) return fmtFull(n);
+  if (/^percent$/i.test(f)) return fmtWith(n, '0.00%');
+  // Sections outside quotes.
+  const sections: string[] = [];
+  let cur = '', q = false;
+  for (const ch of f) { if (ch === '"') q = !q; if (ch === ';' && !q) { sections.push(cur); cur = ''; } else cur += ch; }
+  sections.push(cur);
+  let sec = sections[0], x = n;
+  if (n < 0 && sections[1] !== undefined) { sec = sections[1]; x = -n; } else if (n === 0 && sections[2] !== undefined) sec = sections[2];
+  // Literal text (quoted, escaped, or any char that is not a placeholder) before and after the number.
+  const parts: { lit: boolean; t: string }[] = [];
+  for (let i = 0; i < sec.length; i++) {
+    const ch = sec[i];
+    if (ch === '"') { const j = sec.indexOf('"', i + 1); parts.push({ lit: true, t: sec.slice(i + 1, j < 0 ? undefined : j) }); i = j < 0 ? sec.length : j; }
+    else if (ch === '\\') { parts.push({ lit: true, t: sec[i + 1] ?? '' }); i++; }
+    else parts.push({ lit: !/[0#,.%]/.test(ch), t: ch });
+  }
+  const first = parts.findIndex((p) => !p.lit && /[0#]/.test(p.t));
+  if (first < 0) return parts.map((p) => p.t).join('');
+  let last = first;
+  parts.forEach((p, i) => { if (!p.lit && /[0#.,]/.test(p.t)) last = i; });
+  const body = parts.slice(first, last + 1).filter((p) => !p.lit).map((p) => p.t).join('');
+  const pct = parts.some((p) => !p.lit && p.t === '%');
+  const [int, dec = ''] = body.split('.');
+  const minF = (dec.match(/0/g) ?? []).length, maxF = (dec.match(/[0#]/g) ?? []).length;
+  const scale = /,+$/.exec(int)?.[0].length ?? 0;
+  const value = (pct ? x * 100 : x) / 1000 ** scale;
+  const num = new Intl.NumberFormat(LOCALE, { minimumFractionDigits: minF, maximumFractionDigits: maxF, useGrouping: int.replace(/,+$/, '').includes(',') ? 'always' : false, minimumIntegerDigits: Math.max(1, (int.match(/0/g) ?? []).length) }).format(value);
+  const text = (from: number, to: number) => parts.slice(from, to).map((p) => (!p.lit && p.t === '%' ? '%' : p.lit ? p.t : '')).join('');
+  return text(0, first) + num + text(last + 1, parts.length);
+}
 
 /** Power BI "Auto" display units: K, Mln, Mld. */
 export function fmtAuto(v: unknown, digits = 2): string {

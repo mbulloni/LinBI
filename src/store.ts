@@ -5,6 +5,7 @@ import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Pa
 import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, modelExtras, NULL_KEY, qi, ql } from './query';
+import { daxShow, daxStore } from './dax/separators';
 import { calcColumnSql, calcTableSql, checkCalcItem, checkMeasure, rlsWhere, type Model } from './dax';
 import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
 import { inlineFromM } from './pq/mparse';
@@ -138,6 +139,21 @@ function renameTableInReport(r: Report, from: string, to: string) {
     m.expression = m.expression.split(quoted(from) + '[').join(target + '[');
     if (bare) m.expression = m.expression.replace(bare, (_x, pre) => `${pre}${target}[`);
   }
+}
+
+/** Renames 'Table'[old] / Table[old] in every DAX expression of the report (measures, calculation items, role filters). */
+function renameColumnInDax(r: Report, table: string, from: string, to: string) {
+  const quoted = `'${table.replace(/'/g, "''")}'`;
+  const col = (n: string) => `[${n.replace(/]/g, ']]')}]`;
+  const bare = /^[A-Za-z_]\w*$/.test(table) ? new RegExp(`(^|[^\\w'\\]])${reEscape(table)}${reEscape(col(from))}`, 'gi') : null;
+  const fix = (e: string) => {
+    let x = e.split(quoted + col(from)).join(quoted + col(to));
+    if (bare) x = x.replace(bare, (_m, pre) => `${pre}${table}${col(to)}`);
+    return x;
+  };
+  for (const m of r.measures) m.expression = fix(m.expression);
+  for (const g of r.calcGroups ?? []) for (const i of g.items) { i.expression = fix(i.expression); if (i.formatString) i.formatString = fix(i.formatString); }
+  for (const role of r.roles ?? []) for (const f of role.filters) f.expression = fix(f.expression);
 }
 
 /** Formula bar edit of a measure, calculated column or calculated table. */
@@ -401,6 +417,13 @@ export const useStore = create<State>((set, get) => {
     }
     if (!well) return;
     const agg: FieldRef['agg'] = measure ? 'measure' : ['table', 'multiRowCard', 'pythonVisual', 'rVisual'].includes(v.type) ? (num ? 'sum' : 'none') : well.measure ? (num ? 'sum' : 'count') : 'none';
+    // Models with calculation groups discourage implicit measures (Power BI: columns are never summarized).
+    if (agg !== 'none' && agg !== 'measure' && get().report.calcGroups?.length) {
+      if (well.measure) { implicitBlocked = true; return undefined; }
+      const list = (v.fields[well.key] ??= []);
+      if (!list.some((x) => x.table === f.table && x.column === f.column)) list.push({ ...f, agg: 'none' });
+      return well.key;
+    }
     const list = (v.fields[well.key] ??= []);
     if (list.some((x) => x.table === f.table && x.column === f.column && x.agg === agg && !x.datePart)) return well.key;
     if (well.max && list.length >= well.max) list.splice(well.max - 1);
@@ -413,6 +436,7 @@ export const useStore = create<State>((set, get) => {
     return well.key;
   };
 
+  let implicitBlocked = false;
   const nextPosition = (p: Page, w: number, h: number) => {
     const n = p.visuals.length;
     return { x: 20 + ((n * 30) % 400), y: 20 + ((n * 30) % 240), w, h };
@@ -590,7 +614,7 @@ export const useStore = create<State>((set, get) => {
             fromTable: swap ? r.toTable : r.fromTable, fromColumn: swap ? r.toColumn : r.fromColumn,
             toTable: swap ? r.fromTable : r.toTable, toColumn: swap ? r.fromColumn : r.toColumn,
             cardinality: r.cardinality === 'oneToOne' ? 'oneToOne' : r.cardinality === 'manyToMany' ? 'manyToMany' : 'manyToOne',
-            crossFilter: r.crossFilter, active: r.active,
+            crossFilter: r.crossFilter, active: r.active, ...(r.securityBoth ? { securityBoth: true } : {}),
           };
         });
         const measures = model.measures.map((m) => ({ table: m.table, name: m.name, expression: m.expression, formatString: m.formatString || undefined }));
@@ -602,7 +626,10 @@ export const useStore = create<State>((set, get) => {
         // Hierarchies, display folders, date tables, calculation groups and roles.
         const known = (t: string) => get().tables.some((x) => x.name === t) || calcNames.has(t) || measures.some((m) => m.table === t);
         const extrasReport: Partial<Report> = {};
-        const hs = (mx?.hierarchies ?? []).filter((h) => known(h.table) && h.levels.length).map((h) => ({ table: h.table, name: h.name, levels: h.levels.map((l) => l.column) }));
+        const hs = (mx?.hierarchies ?? []).filter((h) => known(h.table) && h.levels.length).map((h) => {
+          const names = Object.fromEntries(h.levels.filter((l) => l.name !== l.column).map((l) => [l.column, l.name]));
+          return { table: h.table, name: h.name, levels: h.levels.map((l) => l.column), ...(Object.keys(names).length ? { levelNames: names } : {}) };
+        });
         if (hs.length) extrasReport.hierarchies = hs;
         const folders = Object.fromEntries((mx?.folders ?? []).filter((f) => known(f.table)).map((f) => [f.table + '\u0001' + f.name, f.folder]));
         if (Object.keys(folders).length) extrasReport.displayFolders = folders;
@@ -752,6 +779,16 @@ export const useStore = create<State>((set, get) => {
     updateHierarchy: (table, name, patch) => get().mut((r) => {
       const h = r.hierarchies?.find((x) => x.table === table && x.name === name);
       if (!h) return;
+      if (patch.name && patch.name !== name) {
+        // Visual fields that are levels of the hierarchy follow the rename.
+        const walk = (o: any) => {
+          if (!o || typeof o !== 'object') return;
+          if (Array.isArray(o)) { o.forEach(walk); return; }
+          if (o.table === table && o.hierarchy === name) o.hierarchy = patch.name;
+          Object.values(o).forEach(walk);
+        };
+        walk(r.pages);
+      }
       if (patch.name && patch.name !== name && r.displayFolders?.[table + '\u0001' + name]) {
         r.displayFolders[table + '\u0001' + patch.name] = r.displayFolders[table + '\u0001' + name];
         delete r.displayFolders[table + '\u0001' + name];
@@ -827,6 +864,7 @@ export const useStore = create<State>((set, get) => {
             Object.values(o).forEach(walk);
           };
           walk(r.pages); walk(r.reportFilters); walk(r.bookmarks);
+          renameColumnInDax(r, table, old, col);
         }
         Object.assign(r.calcGroups!.find((x) => x.table === table)!, patch);
       });
@@ -874,13 +912,13 @@ export const useStore = create<State>((set, get) => {
         while (taken(name)) name = `${DAX_KIND[kind]} ${i++}`;
         text = `${name} = `;
       }
-      set({ daxEdit: { kind, table: home, original: original ?? null, text, formatString }, fileMenu: false });
+      set({ daxEdit: { kind, table: home, original: original ?? null, text: daxShow(text), formatString }, fileMenu: false });
     },
     saveDax: async () => {
       const ed = get().daxEdit;
       if (!ed) return false;
       const fail = (error: string) => { set({ daxEdit: { ...ed, error } }); return false; };
-      const parts = splitDax(ed.text);
+      const parts = splitDax(daxStore(ed.text));
       if (!parts) return fail('Sintassi: Nome = espressione');
       if (!parts.expr) return fail("Manca l'espressione dopo =");
       const { name, expr } = parts;
@@ -930,6 +968,14 @@ export const useStore = create<State>((set, get) => {
                 for (const f of p.filters) if (f.table === ed.table) fix(f.values);
               }
               for (const f of r.reportFilters) if (f.table === ed.table) fix(f.values);
+              // Bookmarks keep slicer selections and filters too.
+              for (const b of r.bookmarks ?? []) {
+                for (const f of [...(b.state.reportFilters ?? []), ...(b.state.pageFilters ?? [])]) if (f.table === ed.table) fix(f.values);
+                for (const [vid, vals] of Object.entries(b.state.slicers ?? {})) {
+                  const sv = r.pages.flatMap((p) => p.visuals).find((x) => x.id === vid);
+                  if (sv?.fields.category?.[0]?.table === ed.table) fix(vals);
+                }
+              }
             }
           });
           await get().syncCalcTables();
@@ -1423,7 +1469,9 @@ export const useStore = create<State>((set, get) => {
         set({ past: past });
         return;
       }
+      implicitBlocked = false;
       get().mut((r) => { const v = findVisual(r, id!); if (v) placeField(v, field, well); });
+      if (implicitBlocked) get().notify('Il modello ha gruppi di calcolo: le colonne non vengono aggregate (misure implicite disattivate). Creare una misura esplicita, es. Totale = SUM(…).', 9000);
     },
     removeField: (visualId, well, idx) => get().mut((r) => { const v = findVisual(r, visualId); v?.fields[well]?.splice(idx, 1); }),
     setFieldAgg: (visualId, well, idx, agg) => get().mut((r) => { const f = findVisual(r, visualId)?.fields[well]?.[idx]; if (f) f.agg = agg; }),

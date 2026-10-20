@@ -116,6 +116,18 @@ def from_pbixray(path, outdir, out):
             "crossFilter": "both" if str(r["CrossFilteringBehavior"]).lower().startswith("both") else "single",
             "active": bool(r["IsActive"]),
         })
+    # "Apply security filter in both directions" (SecurityFilteringBehavior 2) is only in metadata.sqlitedb.
+    try:
+        q = model._metadata.source._db.query(
+            "SELECT ft.Name AS FT, fc.ExplicitName AS FC, tt.Name AS TT, tc.ExplicitName AS TC FROM [Relationship] r "
+            "JOIN [Table] ft ON r.FromTableID = ft.ID JOIN [Column] fc ON r.FromColumnID = fc.ID "
+            "JOIN [Table] tt ON r.ToTableID = tt.ID JOIN [Column] tc ON r.ToColumnID = tc.ID WHERE r.SecurityFilteringBehavior = 2")
+        both = {(x["FT"], x["FC"], x["TT"], x["TC"]) for _, x in q.iterrows()}
+        for rel in out["relationships"]:
+            if (rel["fromTable"], rel["fromColumn"], rel["toTable"], rel["toColumn"]) in both:
+                rel["securityBoth"] = True
+    except Exception:  # noqa: BLE001 - optional metadata
+        pass
     try:
         for _, r in model.m_parameters.iterrows():
             out["parameters"].append({"name": r["ParameterName"], "expression": r["Expression"],
@@ -261,6 +273,7 @@ def from_schema(z, out):
             "cardinality": cardinality,
             "crossFilter": "both" if r.get("crossFilteringBehavior") == "bothDirections" else "single",
             "active": r.get("isActive", True),
+            "securityBoth": r.get("securityFilteringBehavior") == "bothDirections",
         })
 
 

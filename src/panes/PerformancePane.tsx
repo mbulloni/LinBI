@@ -5,8 +5,9 @@ import { useStore, type PerfEntry } from '../store';
 import { PaneShell } from './SelectionPane';
 import { autoTitle } from '../components/VisualContainer';
 import { visualDef } from '../visuals/catalog';
+import { locale } from '../format';
 
-const ms = (x: number) => Math.round(x).toLocaleString('it-IT');
+const ms = (x: number) => Math.round(x).toLocaleString(locale());
 
 export function PerformancePane() {
   const s = useStore();
@@ -46,7 +47,7 @@ export function PerformancePane() {
                 <div className="perf-detail">
                   <div><span>Query</span><b>{ms(e.queryMs)}</b></div>
                   <div><span>Visualizzazione oggetto visivo</span><b>{ms(e.renderMs)}</b></div>
-                  <div><span>Righe</span><b>{e.rows.toLocaleString('it-IT')}</b></div>
+                  <div><span>Righe</span><b>{e.rows.toLocaleString(locale())}</b></div>
                   {e.error && <div className="perf-error">{e.error}</div>}
                   <button className="link" onClick={() => copy(e.sql)}>Copia query</button>
                 </div>

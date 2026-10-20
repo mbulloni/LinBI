@@ -8,6 +8,7 @@ import { pqTypeOf } from '../pq/steps';
 import { resolveSource } from '../pq/params';
 import { useStore } from '../store';
 import { Icon } from './icons';
+import { locale } from '../format';
 
 export type DialogState =
   | { kind: 'choose' }
@@ -367,7 +368,7 @@ function Merge(p: Props) {
     setStats('');
     if (!preview || !res || !lk || !rk) return;
     api.query(`SELECT count(*) AS n, count(*) FILTER (WHERE l.${qi(lk)} IN (SELECT r.${qi(rk)} FROM (${res.sql}) r)) AS m FROM (${preview.sql}) l`)
-      .then((r) => setStats(`La selezione corrisponde a ${Number(r.rows[0].m).toLocaleString('it-IT')} di ${Number(r.rows[0].n).toLocaleString('it-IT')} righe della prima tabella.`))
+      .then((r) => setStats(`La selezione corrisponde a ${Number(r.rows[0].m).toLocaleString(locale())} di ${Number(r.rows[0].n).toLocaleString(locale())} righe della prima tabella.`))
       .catch((e) => setStats('⚠ ' + e.message.split('\n')[0]));
   }, [preview?.sql, res?.sql, lk, rk]);
   const exp = expand ?? new Set((res?.columns ?? []).filter((c) => c !== rk));

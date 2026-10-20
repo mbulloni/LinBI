@@ -19,6 +19,9 @@ export function PublishDialog() {
   const [tenant, setTenant] = useState('organizations');
   const [confirmDel, setConfirmDel] = useState(false);
   const [login, setLogin] = useState<{ userCode: string; verificationUri: string } | null>(null);
+  const [browser, setBrowser] = useState(false);
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('linbi.pbiEmail') ?? ''; } catch { return ''; } });
+  const [wsQuery, setWsQuery] = useState('');
   const [spaces, setSpaces] = useState<PbiWorkspace[] | null>(null);
   const [ws, setWs] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('push');
@@ -39,7 +42,7 @@ export function PublishDialog() {
     if (!open) return;
     setLog([]); setResult(null); setError(null); setFrac(null); setName(base);
     setConfirmDel(false);
-    api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(x.clientId ? false : 'edit'); }).catch((e) => setError(e.message));
+    api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(x.clientId || x.builtin ? false : 'edit'); }).catch((e) => setError(e.message));
     return api.pbi.onProgress((msg, f) => { setLog((l) => [...l.slice(-200), msg]); if (f !== null) setFrac(f); });
   }, [open]);
 
@@ -48,9 +51,10 @@ export function PublishDialog() {
     api.pbi.workspaces().then((list) => {
       setSpaces(list);
       if (!list.length) { setWs(null); return; }
-      const pick = list.find((w) => w.id === st.lastWorkspace) ?? list.find((w) => w.dedicated) ?? list[0];
-      setWs(pick.id);
-      setMode(pick.dedicated ? 'fabric' : 'push');
+      // The last workspace used is preselected; otherwise the user picks one (nothing chosen for them).
+      const pick = list.find((w) => w.id === st.lastWorkspace && !w.readOnly);
+      setWs(pick?.id ?? null);
+      if (pick) setMode(pick.dedicated ? 'fabric' : 'push');
     }).catch((e) => setError(e.message));
   }, [open, st?.profileId, st?.account]);
 
@@ -60,7 +64,7 @@ export function PublishDialog() {
   }
 
   if (!open) return null;
-  const close = () => { if (login) api.pbi.loginCancel(); setLogin(null); s.set({ publishDialog: false }); };
+  const close = () => { if (login) api.pbi.loginCancel(); if (browser) api.pbi.loginBrowserCancel(); setLogin(null); setBrowser(false); s.set({ publishDialog: false }); };
   const go = (fn: () => void) => () => { close(); fn(); };
   const empty = !s.tables.length;
   const space = spaces?.find((w) => w.id === ws);
@@ -79,8 +83,15 @@ export function PublishDialog() {
   const editProfile = () => { fillSetup(st); setSetup('edit'); setConfirmDel(false); };
   const pickProfile = (id: string) => wrap(async () => { if (login) { await api.pbi.loginCancel(); setLogin(null); } fresh(await api.pbi.selectProfile(id)); });
   const removeProfile = () => wrap(async () => { const x = await api.pbi.removeProfile(); fresh(x); fillSetup(x); if (!x.clientId) setSetup('edit'); });
+  const remember = () => { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } };
+  const signInBrowser = () => wrap(async () => {
+    remember();
+    setBrowser(true);
+    try { setSt(await api.pbi.loginBrowser(email.trim() || undefined)); } finally { setBrowser(false); }
+  });
   const signIn = () => wrap(async () => {
-    const code = await api.pbi.loginStart();
+    remember();
+    const code = await api.pbi.loginStart(email.trim() || undefined);
     setLogin(code);
     api.openExternal(code.verificationUri).catch(() => {});
     try { setSt(await api.pbi.loginWait()); } finally { setLogin(null); }
@@ -113,7 +124,7 @@ export function PublishDialog() {
       <div className="dialog" style={{ width: 720, maxHeight: '90vh' }}>
         <div className="dh"><h2>Pubblica in Power BI</h2><button onClick={close}><Icon name="close" /></button></div>
         <div className="db pq-db">
-          {!setup && st && st.profiles.length > 0 && (
+          {!setup && st && st.profiles.length > 1 && (
             <div className="pq-row">
               <label className="pq-field" style={{ flex: 1 }}>Profilo (tenant)
                 <select value={st.profileId ?? ''} disabled={busy} onChange={(e) => pickProfile(e.target.value)}>
@@ -132,8 +143,8 @@ export function PublishDialog() {
               <div className="pq-note">
                 LinBI accede a Power BI con un'<b>app registrata nel tenant Microsoft Entra</b> della propria organizzazione (serve un account aziendale con licenza Power BI Pro, PPU o capacità Fabric). Una volta sola, in <i>portal.azure.com › Microsoft Entra ID › Registrazioni app</i>:
                 <ol className="pbi-steps">
-                  <li><b>Nuova registrazione</b>: nome a scelta (es. LinBI), «Solo account in questa directory organizzativa», nessun URI di reindirizzamento.</li>
-                  <li><b>Autenticazione</b> › «Consenti flussi client pubblici»: <b>Sì</b>.</li>
+                  <li><b>Nuova registrazione</b>: nome a scelta (es. LinBI), «Solo account in questa directory organizzativa» (oppure «in qualsiasi directory organizzativa» per usarla con più aziende).</li>
+                  <li><b>Autenticazione</b> › Aggiungi piattaforma › <b>App per dispositivi mobili e desktop</b> › URI <code>http://localhost</code> (accesso dal browser), e «Consenti flussi client pubblici»: <b>Sì</b> (codice dispositivo).</li>
                   <li><b>Autorizzazioni API</b> › Aggiungi › <b>Power BI Service</b> › Autorizzazioni delegate: Workspace.Read.All, Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create; per il modello completo anche Item.ReadWrite.All. Se richiesto, far concedere il consenso dall'amministratore.</li>
                   <li>Copiare qui <b>ID applicazione (client)</b> e <b>ID directory (tenant)</b>.</li>
                 </ol>
@@ -147,20 +158,28 @@ export function PublishDialog() {
               </div>
             </>
           ) : !st?.account ? (
-            <div className="publish-opt" style={{ alignItems: 'center' }}>
+            <div className="publish-opt" style={{ alignItems: 'flex-start', cursor: 'default' }}>
               <Icon name="user" size={28} box={32} />
               <span className="txt" style={{ flex: 1 }}>
                 {login ? <>
-                  <b>Accesso in corso</b>
+                  <b>Accesso con codice dispositivo</b>
                   <span>Nel browser aperto su <a href="#" onClick={(e) => { e.preventDefault(); api.openExternal(login.verificationUri); }}>{login.verificationUri}</a> inserire il codice:</span>
                   <span className="pbi-code" style={{ userSelect: 'text' }}>{login.userCode}</span>
+                </> : browser ? <>
+                  <b>Completare l'accesso nel browser</b>
+                  <span>Scegliere l'account aziendale nella pagina Microsoft che si è aperta: al termine LinBI cerca tutte le aree di lavoro.</span>
                 </> : <>
-                  <b>Non connesso a Power BI</b>
-                  <span>Accesso con il codice dispositivo: si completa nel browser, la password non passa da LinBI.</span>
+                  <b>1. Accedere con l'account aziendale</b>
+                  <span>Come in Power BI Desktop: l'accesso avviene nella pagina Microsoft della propria organizzazione (anche con autenticazione a più fattori); la password non passa da LinBI.</span>
+                  <label className="pq-field" style={{ marginTop: 8 }}>Indirizzo e-mail aziendale
+                    <input type="email" value={email} placeholder="nome.cognome@azienda.it" onChange={(e) => setEmail(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') signInBrowser(); }} /></label>
+                  <span style={{ marginTop: 6 }}><a href="#" onClick={(e) => { e.preventDefault(); if (!busy) signIn(); }}>Usare invece un codice dispositivo</a> (accesso da un altro dispositivo)</span>
                 </>}
               </span>
               {login ? <button className="btn" onClick={() => { api.pbi.loginCancel(); setLogin(null); }}>Annulla</button>
-                : <button className="btn primary" disabled={busy} onClick={signIn}>Accedi</button>}
+                : browser ? <button className="btn" onClick={() => api.pbi.loginBrowserCancel()}>Annulla</button>
+                  : <button className="btn primary" disabled={busy} onClick={signInBrowser}>Accedi</button>}
             </div>
           ) : (
             <>
@@ -168,16 +187,25 @@ export function PublishDialog() {
                 <Icon name="user" size={16} /><span style={{ flex: 1 }}>Connesso come <b>{st.account}</b>{st.persistent ? '' : ' (solo per questa sessione: portachiavi non disponibile)'}</span>
                 <button className="btn" style={{ minWidth: 0 }} disabled={busy} onClick={signOut}>Esci</button>
               </div>
-              <div className="pq-row">
-                <label className="pq-field" style={{ flex: 2 }}>Area di lavoro
-                  <select value={ws ?? ''} disabled={!spaces || busy} onChange={(e) => { const w = spaces!.find((x) => x.id === e.target.value)!; setWs(w.id); setMode(w.dedicated ? 'fabric' : 'push'); }}>
-                    {!spaces && <option>Caricamento…</option>}
-                    {spaces?.map((w) => <option key={w.id} value={w.id}>{w.name}{w.dedicated ? ' ◆ capacità' : ''}</option>)}
-                  </select>
-                </label>
-                <label className="pq-field" style={{ flex: 2 }}>Nome del report e del modello<input type="text" value={name} disabled={busy} onChange={(e) => setName(e.target.value)} /></label>
+              <div className="pq-field">2. Su quale area di lavoro pubblicare?
+                <div className="ws-search"><Icon name="search" size={14} /><input type="search" placeholder="Cerca aree di lavoro" value={wsQuery} disabled={!spaces} onChange={(e) => setWsQuery(e.target.value)} />
+                  <span className="hint">{spaces ? `${spaces.length} aree di lavoro` : 'Ricerca delle aree di lavoro…'}</span></div>
+                <div className="ws-list">
+                  {spaces?.filter((w) => !wsQuery || w.name.toLowerCase().includes(wsQuery.toLowerCase())).map((w) => (
+                    <button key={w.id || 'me'} className={'ws-item' + (w.id === ws ? ' sel' : '')} disabled={busy || w.readOnly}
+                      title={w.readOnly ? 'Accesso in sola lettura (ruolo Visualizzatore): non si può pubblicare' : undefined}
+                      onClick={() => { setWs(w.id); setMode(w.dedicated ? 'fabric' : 'push'); }}>
+                      <Icon name={w.id ? 'tableSmall' : 'user'} size={14} /><span>{w.name}</span>
+                      {w.dedicated && <span className="ws-badge">◆ capacità</span>}{w.readOnly && <span className="ws-badge">sola lettura</span>}
+                    </button>
+                  ))}
+                  {spaces && !spaces.some((w) => !wsQuery || w.name.toLowerCase().includes(wsQuery.toLowerCase())) && <div className="hint" style={{ padding: 8 }}>Nessuna area di lavoro corrisponde alla ricerca.</div>}
+                </div>
               </div>
-              <label className={'publish-opt' + (mode === 'fabric' ? ' sel' : '')} style={{ opacity: space?.dedicated ? 1 : 0.55 }}>
+              {space && <div className="pq-row">
+                <label className="pq-field" style={{ flex: 2 }}>3. Nome del report e del modello in «{space.name}»<input type="text" value={name} disabled={busy} onChange={(e) => setName(e.target.value)} /></label>
+              </div>}
+              {space && <><label className={'publish-opt' + (mode === 'fabric' ? ' sel' : '')} style={{ opacity: space?.dedicated ? 1 : 0.55 }}>
                 <input type="radio" checked={mode === 'fabric'} disabled={!space?.dedicated || busy} onChange={() => setMode('fabric')} />
                 <span className="txt"><b>Modello semantico completo</b><span>Area di lavoro su capacità Fabric, Premium o PPU. Il servizio costruisce il modello (relazioni, misure, colonne e tabelle calcolate) e lo aggiorna; i dati locali vengono incorporati nel modello, senza gateway.</span>
                   {mode === 'fabric' && hasDb && <span className="pq-check"><input type="checkbox" checked={keepDb} disabled={busy} onChange={(e) => setKeepDb(e.target.checked)} />Mantieni le connessioni ai database (server raggiungibile dal servizio o gateway) invece di incorporare i dati</span>}
@@ -186,7 +214,7 @@ export function PublishDialog() {
               <label className={'publish-opt' + (mode === 'push' ? ' sel' : '')}>
                 <input type="radio" checked={mode === 'push'} disabled={busy} onChange={() => setMode('push')} />
                 <span className="txt"><b>Dataset push + report (Power BI Pro)</b><span>Qualsiasi area di lavoro. LinBI invia tabelle, relazioni, misure DAX e righe; colonne calcolate come valori fissi, max 5 milioni di righe per tabella. Per aggiornare i dati si ripubblica.</span></span>
-              </label>
+              </label></>}
             </>
           )}
           {(log.length > 0 || busy && st?.account) && (

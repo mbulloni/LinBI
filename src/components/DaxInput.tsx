@@ -3,8 +3,9 @@
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useStore } from '../store';
 import { DAX_FUNCTIONS, DAX_KEYWORDS, type DaxFn } from '../dax/functions';
+import { daxLocal } from '../dax/separators';
 
-interface Suggestion { label: string; kind: 'fn' | 'table' | 'column' | 'measure' | 'kw'; insert: string; detail?: string; }
+interface Suggestion { label: string; kind: 'fn' | 'table' | 'column' | 'measure' | 'kw' | 'var'; insert: string; detail?: string; }
 interface Ctx { from: number; to: number; items: Suggestion[]; }
 
 const FN = new Map(DAX_FUNCTIONS.map((f) => [f.name, f]));
@@ -45,7 +46,10 @@ function context(text: string, pos: number, model: { tables: { name: string; col
   const w = /([A-Za-z_][\w.]*)$/.exec(before);
   if (!w || /[\w.]/.test(text[pos] ?? '')) return null;
   const prefix = w[1].toUpperCase();
+  // Variables declared earlier in the expression (VAR name = …).
+  const vars = [...new Set([...before.slice(0, pos - w[1].length).matchAll(/\bVAR\s+([A-Za-z_][\w]*)/gi)].map((m) => m[1]))];
   const items: Suggestion[] = [
+    ...vars.filter((v) => v.toUpperCase().startsWith(prefix) && v.toUpperCase() !== prefix).map((v): Suggestion => ({ label: v, kind: 'var', insert: v, detail: 'variabile' })),
     ...DAX_FUNCTIONS.filter((f) => f.name.startsWith(prefix)).map((f): Suggestion => ({ label: f.name, kind: 'fn', insert: f.name + '(', detail: f.desc })),
     ...model.tables.filter((t) => t.name.toUpperCase().startsWith(prefix)).map((t): Suggestion => ({ label: t.name, kind: 'table', insert: tableRef(t.name) })),
     ...DAX_KEYWORDS.filter((k) => k.startsWith(prefix) && k !== prefix).map((k): Suggestion => ({ label: k, kind: 'kw', insert: k + ' ' })),
@@ -68,7 +72,7 @@ function signatureAt(text: string, pos: number): { fn: DaxFn; arg: number } | nu
       const m = /([A-Za-z_][\w.]*)\s*$/.exec(text.slice(0, i));
       const fn = m && FN.get(m[1].toUpperCase());
       return fn ? { fn, arg } : null;
-    } else if (c === ',' && depth === 0) arg++;
+    } else if (c === (daxLocal() ? ';' : ',') && depth === 0) arg++;
   }
   return null;
 }
@@ -145,18 +149,18 @@ export const DaxInput = forwardRef<HTMLTextAreaElement | null, DaxInputProps>(fu
           {ctx.items.map((it, i) => (
             <div key={it.kind + it.label} className={'dax-sg' + (i === Math.min(sel, ctx.items.length - 1) ? ' active' : '')} onMouseDown={(e) => { e.preventDefault(); accept(it); }}
               ref={(el) => { if (el && i === sel) el.scrollIntoView({ block: 'nearest' }); }}>
-              <span className={'dax-sg-k ' + it.kind}>{it.kind === 'fn' ? 'ƒ' : it.kind === 'table' ? '▦' : it.kind === 'measure' ? '∑' : it.kind === 'column' ? '▤' : '·'}</span>
+              <span className={'dax-sg-k ' + it.kind}>{it.kind === 'fn' ? 'ƒ' : it.kind === 'table' ? '▦' : it.kind === 'measure' ? '∑' : it.kind === 'column' ? '▤' : it.kind === 'var' ? 'x' : '·'}</span>
               <span className="dax-sg-l">{it.label}</span>
               {it.detail && it.kind !== 'fn' && <span className="dax-sg-d">{it.detail}</span>}
             </div>
           ))}
-          {(() => { const it = ctx.items[Math.min(sel, ctx.items.length - 1)]; const f = it.kind === 'fn' ? FN.get(it.label) : undefined; return f ? <div className="dax-sg-doc"><b>{f.name}({f.params.join(', ')})</b><br />{f.desc}</div> : null; })()}
+          {(() => { const it = ctx.items[Math.min(sel, ctx.items.length - 1)]; const f = it.kind === 'fn' ? FN.get(it.label) : undefined; return f ? <div className="dax-sg-doc"><b>{f.name}({f.params.join(daxLocal() ? '; ' : ', ')})</b><br />{f.desc}</div> : null; })()}
         </div>
       )}
       {pos && ta.current && !ctx && sig && (
         <div className="dax-sig" style={{ left: ta.current.offsetLeft + pos.x, top: ta.current.offsetTop + pos.y + pos.h + 2 }}>
           <span>{sig.fn.name}(</span>
-          {sig.fn.params.map((p, i) => <span key={i}>{i ? ', ' : ''}{i === Math.min(sig.arg, sig.fn.params.length - 1) ? <b>{p}</b> : p}</span>)}
+          {sig.fn.params.map((p, i) => <span key={i}>{i ? (daxLocal() ? '; ' : ', ') : ''}{i === Math.min(sig.arg, sig.fn.params.length - 1) ? <b>{p}</b> : p}</span>)}
           <span>)</span>
           <div className="dax-sig-d">{sig.fn.desc}</div>
         </div>

@@ -49,6 +49,7 @@ export function RelationshipEditor() {
   const [card, setCard] = useState<Card>('*:1');
   const [both, setBoth] = useState(false);
   const [active, setActive] = useState(true);
+  const [secBoth, setSecBoth] = useState(false);
   const [uniq, setUniq] = useState<[boolean, boolean] | null>(null);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export function RelationshipEditor() {
     const d = ed.draft;
     setT1(d.fromTable); setC1(d.fromColumn); setT2(d.toTable); setC2(d.toColumn);
     setCard(d.cardinality === 'oneToOne' ? '1:1' : d.cardinality === 'manyToMany' ? '*:*' : '*:1');
-    setBoth(d.crossFilter === 'both'); setActive(d.active);
+    setBoth(d.crossFilter === 'both'); setActive(d.active); setSecBoth(!!d.securityBoth);
   }, [ed]);
 
   // Profile both columns; for new relationships also suggest cardinality like Power BI does.
@@ -86,6 +87,7 @@ export function RelationshipEditor() {
       cardinality: card === '1:1' ? 'oneToOne' : card === '*:*' ? 'manyToMany' : 'manyToOne',
       crossFilter: card === '1:1' || both ? 'both' : 'single',
       active,
+      ...((card === '1:1' || both) && secBoth ? { securityBoth: true } : {}),
     };
   };
 
@@ -134,6 +136,7 @@ export function RelationshipEditor() {
             </label>
           </div>
           <label className="rcheck" style={{ paddingLeft: 0 }}><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />Rendi attiva questa relazione</label>
+          <label className="rcheck" style={{ paddingLeft: 0, opacity: card === '1:1' || both ? 1 : 0.5 }}><input type="checkbox" disabled={!(card === '1:1' || both)} checked={(card === '1:1' || both) && secBoth} onChange={(e) => setSecBoth(e.target.checked)} />Applica filtro di sicurezza in entrambe le direzioni</label>
           {uniq && !error && <div style={{ color: 'var(--text2)' }}>
             {c1 && `${t1}[${c1}]: ${uniq[0] ? 'valori univoci' : 'valori ripetuti'}`} · {c2 && `${t2}[${c2}]: ${uniq[1] ? 'valori univoci' : 'valori ripetuti'}`}
           </div>}

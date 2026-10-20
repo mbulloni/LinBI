@@ -77,10 +77,10 @@ function useInputFields(): { label: string; f: FieldRef }[] {
   ];
 }
 
-function InputPick({ value, onChange, self }: { value?: FieldRef; onChange: (f?: FieldRef) => void; self?: string }) {
+function InputPick({ value, onChange, self, label }: { value?: FieldRef; onChange: (f?: FieldRef) => void; self?: string; label?: string }) {
   const opts = useInputFields();
   const cur = value ? opts.findIndex((o) => fieldKey(o.f) === fieldKey(value)) : -1;
-  return <label className="fmt-row"><span>In base al campo</span>
+  return <label className="fmt-row"><span>{label ?? 'In base al campo'}</span>
     <select value={cur} onChange={(e) => onChange(+e.target.value < 0 ? undefined : opts[+e.target.value].f)}>
       <option value={-1}>{self ?? '(campo stesso)'}</option>
       {opts.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
@@ -339,7 +339,11 @@ function AnalyticsPane({ v }: { v: Visual }) {
     <div>
       {analyticsKinds(v, legend).map((kind) => {
         const own = lines.filter((l) => l.kind === kind);
-        const add = () => save([...lines, { id: uid(), kind, ...(kind === 'constant' || kind === 'xConstant' ? { value: 0 } : {}), ...(kind === 'percentile' ? { percentile: 50 } : {}), ...(measures[0] && kind !== 'constant' && kind !== 'trend' ? { measure: fieldKey(measures[0]) } : {}), color: '#252423', style: 'dashed' }]);
+        const add = () => save([...lines, {
+          id: uid(), kind, ...(kind === 'constant' || kind === 'xConstant' ? { value: 0 } : {}), ...(kind === 'percentile' ? { percentile: 50 } : {}),
+          ...(measures[0] && kind !== 'constant' && kind !== 'trend' && kind !== 'forecast' ? { measure: fieldKey(measures[0]) } : {}),
+          ...(kind === 'forecast' ? { forecastLength: 10, confidence: 95, style: 'solid' as const } : kind === 'errorBars' ? { errMode: 'percent' as const, errValue: 10, color: '#252423', style: 'solid' as const } : { color: '#252423', style: 'dashed' as const }),
+        }]);
         return (
           <Card key={kind} title={KIND_LABEL[kind] + (own.length ? ` (${own.length})` : '')} defaultOpen={own.length > 0}>
             {own.map((l, i) => (
@@ -349,20 +353,50 @@ function AnalyticsPane({ v }: { v: Visual }) {
                 <label className="fmt-row"><span>Nome</span><input type="text" value={l.name ?? ''} placeholder={`${KIND_LABEL[kind]} ${i + 1}`} onChange={(e) => edit(l.id, { name: e.target.value || undefined })} /></label>
                 {(kind === 'constant' || kind === 'xConstant') && <label className="fmt-row"><span>Valore</span><input type="number" value={l.value ?? 0} onChange={(e) => edit(l.id, { value: +e.target.value })} /></label>}
                 {kind === 'percentile' && <label className="fmt-row"><span>Percentile</span><input type="number" min={0} max={100} value={l.percentile ?? 50} onChange={(e) => edit(l.id, { percentile: Math.min(100, Math.max(0, +e.target.value)) })} /></label>}
-                {measures.length > 1 && kind !== 'constant' && kind !== 'trend' && <label className="fmt-row"><span>Serie</span>
+                {kind === 'forecast' && <>
+                  <label className="fmt-row"><span>Lunghezza previsione (punti)</span><input type="number" min={1} max={500} value={l.forecastLength ?? 10} onChange={(e) => edit(l.id, { forecastLength: Math.max(1, +e.target.value) })} /></label>
+                  <label className="fmt-row"><span>Ignora gli ultimi</span><input type="number" min={0} value={l.ignoreLast ?? 0} onChange={(e) => edit(l.id, { ignoreLast: Math.max(0, +e.target.value) || undefined })} /></label>
+                  <label className="fmt-row"><span>Intervallo di confidenza</span>
+                    <select value={l.confidence ?? 95} onChange={(e) => edit(l.id, { confidence: +e.target.value })}>{[75, 80, 85, 90, 95, 99].map((c) => <option key={c} value={c}>{c}%</option>)}</select></label>
+                  <label className="fmt-row"><span>Stagionalità (punti, 0 = automatica)</span><input type="number" min={0} value={l.seasonality ?? 0} onChange={(e) => edit(l.id, { seasonality: Math.max(0, +e.target.value) || undefined })} /></label>
+                  <div className="hint" style={{ fontSize: 11, color: 'var(--text2)' }}>Richiede un asse X continuo (data o numero) e una sola misura.</div>
+                </>}
+                {kind === 'errorBars' && <>
+                  <label className="fmt-row"><span>Tipo</span>
+                    <select value={l.errMode ?? 'percent'} onChange={(e) => edit(l.id, { errMode: e.target.value as AnalyticsLine['errMode'] })}>
+                      <option value="field">Per campo (limiti superiore e inferiore)</option><option value="percent">Percentuale del valore</option><option value="stdev">Deviazione standard</option>
+                    </select></label>
+                  {l.errMode === 'field' ? <>
+                    <InputPick label="Limite superiore" value={l.upper} self="(nessuno)" onChange={(f) => edit(l.id, { upper: f ?? undefined })} />
+                    <InputPick label="Limite inferiore" value={l.lower} self="(nessuno)" onChange={(f) => edit(l.id, { lower: f ?? undefined })} />
+                  </> : <label className="fmt-row"><span>{l.errMode === 'stdev' ? 'Numero di deviazioni standard' : 'Percentuale (±)'}</span>
+                    <input type="number" min={0} step={l.errMode === 'stdev' ? 0.5 : 1} value={l.errValue ?? (l.errMode === 'stdev' ? 1 : 10)} onChange={(e) => edit(l.id, { errValue: Math.max(0, +e.target.value) })} /></label>}
+                </>}
+                {measures.length > 1 && kind !== 'constant' && kind !== 'trend' && kind !== 'forecast' && <label className="fmt-row"><span>Serie</span>
                   <select value={l.measure ?? fieldKey(measures[0])} onChange={(e) => edit(l.id, { measure: e.target.value })}>
                     {measures.map((m) => <option key={fieldKey(m)} value={fieldKey(m)}>{fieldLabel(m)}</option>)}
                   </select></label>}
                 {v.type === 'scatter' && !['constant', 'xConstant', 'trend'].includes(kind) && <label className="fmt-row"><span>Misura</span>
                   <select value={l.axis ?? 'y'} onChange={(e) => edit(l.id, { axis: e.target.value as 'x' | 'y' })}><option value="y">Asse Y</option><option value="x">Asse X</option></select></label>}
-                <ColorPick label="Colore" value={l.color ?? '#252423'} onChange={(color) => edit(l.id, { color })} />
+                <ColorPick label="Colore" value={l.color ?? (kind === 'forecast' ? '#118DFF' : '#252423')} onChange={(color) => edit(l.id, { color })} />
                 <label className="fmt-row"><span>Trasparenza (%)</span><input type="number" min={0} max={100} value={l.transparency ?? 0} onChange={(e) => edit(l.id, { transparency: +e.target.value })} /></label>
                 <label className="fmt-row"><span>Stile</span>
                   <select value={l.style ?? 'dashed'} onChange={(e) => edit(l.id, { style: e.target.value as AnalyticsLine['style'] })}>
                     <option value="dashed">Tratteggiato</option><option value="solid">Continuo</option><option value="dotted">Punteggiato</option>
                   </select></label>
                 <label className="fmt-row"><span>Larghezza</span><input type="number" min={1} max={10} value={l.width ?? 1.5} onChange={(e) => edit(l.id, { width: +e.target.value })} /></label>
-                <div className="fmt-row inline"><span>Etichetta dati</span><Toggle on={!!l.label} onChange={(b) => edit(l.id, { label: b || undefined })} /></div>
+                {!['trend', 'forecast', 'errorBars'].includes(kind) && <div className="fmt-row inline"><span>Etichetta dati</span><Toggle on={!!l.label} onChange={(b) => edit(l.id, { label: b || undefined })} /></div>}
+                {!['trend', 'forecast', 'errorBars'].includes(kind) && <>
+                  <label className="fmt-row"><span>Area ombreggiata</span>
+                    <select value={l.shade ?? ''} onChange={(e) => edit(l.id, { shade: (e.target.value || undefined) as AnalyticsLine['shade'] })}>
+                      <option value="">Nessuna</option><option value="before">Prima (sotto la linea)</option><option value="after">Dopo (sopra la linea)</option>
+                    </select></label>
+                  {l.shade && <>
+                    <ColorPick label="Colore area" value={l.shadeColor ?? l.color ?? '#252423'} onChange={(shadeColor) => edit(l.id, { shadeColor })} />
+                    <label className="fmt-row"><span>Trasparenza area (%)</span><input type="number" min={0} max={100} value={l.shadeTransparency ?? 80} onChange={(e) => edit(l.id, { shadeTransparency: +e.target.value })} /></label>
+                  </>}
+                </>}
+                {kind === 'forecast' && <label className="fmt-row"><span>Trasparenza intervallo (%)</span><input type="number" min={0} max={100} value={l.shadeTransparency ?? 80} onChange={(e) => edit(l.id, { shadeTransparency: +e.target.value })} /></label>}
               </div>
             ))}
             <button className="an-add" onClick={add}><Icon name="plus" size={12} /> Aggiungi riga</button>

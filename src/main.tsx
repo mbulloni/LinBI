@@ -1,6 +1,10 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import './styles.css';
+import { setLocale } from './format';
+import { globalOptions } from './options';
+
+setLocale(globalOptions().locale ?? 'it-IT');
 
 createRoot(document.getElementById('root')!).render(<App />);
 

@@ -6,7 +6,7 @@ export interface PowerBIModel {
   file: string;
   kind: 'pbix' | 'pbit' | 'pbip' | 'live';
   tables: { name: string; parquet: string | null; rows: number; m: string | null; columns?: { name: string; dataType: string }[]; sortBy?: Record<string, string>; dataCategory?: Record<string, string>; dax?: string; calcColumns?: { name: string; expression: string }[] }[];
-  relationships: { fromTable: string; fromColumn: string; toTable: string; toColumn: string; cardinality: string; crossFilter: 'single' | 'both'; active: boolean }[];
+  relationships: { fromTable: string; fromColumn: string; toTable: string; toColumn: string; cardinality: string; crossFilter: 'single' | 'both'; active: boolean; securityBoth?: boolean }[];
   measures: { table: string; name: string; expression: string; formatString?: string }[];
   layout: string | null;
   /** Enhanced report format (PBIR): JSON files under Report/definition/. */
@@ -41,8 +41,8 @@ export interface QnaSpec {
   restatement: string;
 }
 export interface PbiProfile { id: string; name: string; tenant: string; account: string | null; }
-export interface PbiStatus { profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
-export interface PbiWorkspace { id: string; name: string; dedicated: boolean; }
+export interface PbiStatus { /** LinBI ships an app registration: sign-in works without configuring one. */ builtin?: boolean; profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
+export interface PbiWorkspace { id: string; name: string; dedicated: boolean; readOnly?: boolean; }
 export interface PbiResult { datasetId: string; reportId: string | null; webUrl: string | null; warnings: string[]; }
 type TableInfo = { name: string; rowCount: number; columns: ColumnMeta[] };
 
@@ -91,7 +91,11 @@ interface Api {
     selectProfile(id: string): Promise<PbiStatus>;
     removeProfile(): Promise<PbiStatus>;
     signOut(): Promise<void>;
-    loginStart(): Promise<{ userCode: string; verificationUri: string; message: string }>;
+    /** Device code sign-in; `email` picks the tenant from its domain. */
+    loginStart(email?: string): Promise<{ userCode: string; verificationUri: string; message: string }>;
+    /** Sign-in in the system browser (authorization code + PKCE, loopback redirect). */
+    loginBrowser(email?: string): Promise<PbiStatus>;
+    loginBrowserCancel(): Promise<void>;
     loginWait(): Promise<PbiStatus>;
     loginCancel(): Promise<void>;
     workspaces(): Promise<PbiWorkspace[]>;

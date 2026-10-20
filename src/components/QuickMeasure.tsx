@@ -7,6 +7,7 @@ import { qi } from '../query';
 import type { Agg, FieldRef } from '../types';
 import { isNumeric } from '../format';
 import { Icon } from './icons';
+import { daxShow } from '../dax/separators';
 
 type Slot = 'value' | 'value2' | 'category' | 'date' | 'filter' | 'number' | 'unit' | 'max';
 interface Tpl { id: string; group: string; name: string; slots: Slot[]; dax: (x: Ctx) => string; title: (x: Ctx) => string; format?: string; help: string }
@@ -106,7 +107,7 @@ export function QuickMeasureDialog() {
     let name = t.title(ctx).replace(/[[\]]/g, ''), i = 2;
     const base = name;
     while (taken(name)) name = `${base} ${i++}`;
-    s.set({ daxEdit: { kind: 'measure', table: home, original: null, text: `${name} = ${dax}`, ...(t.format ? { formatString: t.format } : {}) } });
+    s.set({ daxEdit: { kind: 'measure', table: home, original: null, text: daxShow(`${name} = ${dax}`), ...(t.format ? { formatString: t.format } : {}) } });
     close();
     // Saved like the formula bar does; on errors the bar stays open with the message.
     await useStore.getState().saveDax();

@@ -92,7 +92,9 @@ handle('pbi:addProfile', (clientId, tenant, name) => powerbi.addProfile(clientId
 handle('pbi:selectProfile', (id) => powerbi.selectProfile(id));
 handle('pbi:removeProfile', () => powerbi.removeProfile());
 handle('pbi:signOut', () => powerbi.signOut());
-handle('pbi:loginStart', () => powerbi.loginStart());
+handle('pbi:loginStart', (email) => powerbi.loginStart(typeof email === 'string' ? email : undefined));
+handle('pbi:loginBrowser', (email) => powerbi.loginBrowser(typeof email === 'string' ? email : undefined));
+handle('pbi:loginBrowserCancel', () => powerbi.loginBrowserCancel());
 handle('pbi:loginWait', () => powerbi.loginWait());
 handle('pbi:loginCancel', () => powerbi.loginCancel());
 handle('pbi:workspaces', () => powerbi.workspaces());

@@ -6,6 +6,7 @@ import { rlsWhere } from '../dax';
 import type { RoleDef } from '../types';
 import { Icon } from './icons';
 import { DaxInput } from './DaxInput';
+import { daxShow, daxStore } from '../dax/separators';
 
 export function RolesDialog() {
   const s = useStore();
@@ -93,7 +94,7 @@ export function RolesDialog() {
             <div className="roles-hd">Filtra dati {role && table ? <>— {table}</> : null}</div>
             {role && table ? <>
               <span className="hint">Espressione DAX valutata riga per riga: le righe per cui è TRUE sono visibili ai membri del ruolo (es. <code>[Country] = "Italy"</code> o <code>[Email] = USERPRINCIPALNAME()</code>). Il filtro si propaga alle tabelle collegate dal lato uno al lato molti.</span>
-              <DaxInput className="roles-dax" value={expr} onChange={setExpr} home={table} rows={7} placeholder={`[Colonna] = "valore"`} />
+              <DaxInput className="roles-dax" value={daxShow(expr)} onChange={(t) => setExpr(daxStore(t))} home={table} rows={7} placeholder={`[Colonna] = "valore"`} />
               <div><button className="btn" onClick={verify}>✓ Verifica DAX</button></div>
             </> : <span className="hint">Creare o selezionare un ruolo.</span>}
             {msg && <div className={msg.ok ? 'roles-ok' : 'daxbar-err'}><Icon name={msg.ok ? 'info' : 'warning'} size={14} />{msg.text}</div>}

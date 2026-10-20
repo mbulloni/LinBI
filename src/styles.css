@@ -824,3 +824,18 @@ thead .pq-rn { z-index: 2; }
 .viewas-dlg .chk { display: flex; align-items: center; gap: 8px; }
 .viewas-bar { display: flex; align-items: center; gap: 10px; padding: 4px 12px; background: #FFF4CE; border-bottom: 1px solid #F2C811; font-size: 12px; }
 .viewas-bar span { flex: 1; }
+
+.ws-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line2); padding: 0 8px; height: 30px; font-weight: 400; }
+.ws-search input { flex: 1; border: 0; outline: none; height: 26px; }
+.ws-search .hint { color: var(--text2); font-size: 11px; white-space: nowrap; }
+.ws-list { border: 1px solid var(--line2); border-top: 0; max-height: 200px; overflow: auto; font-weight: 400; }
+.ws-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; text-align: left; background: #fff; }
+.ws-item:hover:not(:disabled) { background: var(--hover); }
+.ws-item.sel { background: #DEECF9; }
+.ws-item:disabled { opacity: .5; }
+.ws-item span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-badge { font-size: 11px; color: var(--text2); border: 1px solid var(--line2); border-radius: 8px; padding: 0 6px; }
+.hier-level .hier-name { flex: 1; min-width: 0; border: 1px solid transparent; padding: 2px 4px; }
+.hier-level .hier-name:hover, .hier-level .hier-name:focus { border-color: var(--line2); }
+.hier-level .hint { flex: 0 0 auto; }
+.mtable .mt-b .mt-extra { color: var(--text2); cursor: default; }

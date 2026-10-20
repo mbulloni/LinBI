@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import * as echarts from 'echarts';
 import type { CrossFilter, Visual } from '../types';
 import type { VisualData } from './useVisualData';
-import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE } from '../format';
+import { fieldLabel, fmtAuto, fmtFull, fmtPct, PALETTE, locale } from '../format';
 import { NULL_KEY, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { cfInput, fieldKey, rangeOf, ruleValue, scaleColor } from './condfmt';
@@ -64,8 +64,8 @@ export function continuousAxis(v: Visual, items: QueryItem[]): 'time' | 'value' 
   return null;
 }
 
-const IT_MONTH = new Intl.DateTimeFormat('it-IT', { month: 'short' });
-const IT_DAY = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short' });
+const IT_MONTH = { format: (d: Date) => new Intl.DateTimeFormat(locale(), { month: 'short' }).format(d) };
+const IT_DAY = { format: (d: Date) => new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'short' }).format(d) };
 /** Time-axis tick label in Italian, coarser as the visible span grows (anno › mese › giorno). */
 function timeTick(span: number) {
   return (t: number) => {
@@ -308,7 +308,7 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
         type: 'pie', radius: v.type === 'donut' ? ['45%', '72%'] : [0, '72%'],
         center: [f.legendShow && lg.side === 'right' ? '42%' : f.legendShow && lg.side === 'left' ? '58%' : '50%', f.legendShow && lg.side === 'top' ? '55%' : f.legendShow && lg.side === 'bottom' ? '45%' : '50%'],
         avoidLabelOverlap: true, itemStyle: { borderColor: '#fff', borderWidth: 1 },
-        label: { show: f.dataLabels, color: lb.color ?? AXIS_TEXT, fontSize: lb.size ?? 11, formatter: (p: any) => `${units(p.value, lb.units, lb.precision) ?? fmtAuto(p.value)} (${p.percent.toLocaleString('it-IT', { maximumFractionDigits: 2 })}%)` },
+        label: { show: f.dataLabels, color: lb.color ?? AXIS_TEXT, fontSize: lb.size ?? 11, formatter: (p: any) => `${units(p.value, lb.units, lb.precision) ?? fmtAuto(p.value)} (${p.percent.toLocaleString(locale(), { maximumFractionDigits: 2 })}%)` },
         data,
       }],
     },

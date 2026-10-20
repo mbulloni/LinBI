@@ -4,7 +4,8 @@
  * Power Query (M) per table, relationships, DAX measures and the report layout; Power BI
  * reloads the data from the sources when the template is opened.
  */
-import type { ColumnMeta, Report, TableMeta } from '../types';
+import { locale, quarterPrefix } from '../format';
+import { levelName, type ColumnMeta, type Report, type TableMeta } from '../types';
 import { appendSteps, mName, mStr, mText } from '../pq/m';
 import { buildLayout, DATE_HIERARCHY } from './layout';
 
@@ -124,8 +125,8 @@ function dateTable(name: string, expression: string, local: boolean) {
       calc('MonthNo', 'MONTH([Date])', 'int64', 'MonthOfYear', 'MonthNumber'),
       calc('Month', 'FORMAT([Date], "MMMM")', 'string', 'Months', 'Month', { sortByColumn: 'MonthNo' }),
       calc('QuarterNo', 'INT(([MonthNo] + 2) / 3)', 'int64', 'QuarterOfYear', 'QuarterNumber'),
-      // Labels as LinBI shows them (filters on levels compare these values): "Trim 1", month names in it-IT.
-      calc('Quarter', '"Trim " & [QuarterNo]', 'string', 'Quarters', 'Quarter', { sortByColumn: 'QuarterNo' }),
+      // Labels as LinBI shows them (filters on levels compare these values): "Trim 1", month names of the model culture.
+      calc('Quarter', `"${quarterPrefix()}" & [QuarterNo]`, 'string', 'Quarters', 'Quarter', { sortByColumn: 'QuarterNo' }),
       calc('Day', 'DAY([Date])', 'int64', 'DayOfMonth', 'Day'),
     ],
     partitions: [{ name: `${name}-${crypto.randomUUID()}`, mode: 'import', source: { type: 'calculated', expression } }],
@@ -152,7 +153,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
   const folderOf = (t: string, f: string) => report.displayFolders?.[t + '\u0001' + f];
   const hierarchiesOf = (t: string) => (report.hierarchies ?? []).filter((h) => h.table === t).map((h) => ({
     name: h.name, lineageTag: crypto.randomUUID(), ...(folderOf(t, h.name) ? { displayFolder: folderOf(t, h.name) } : {}),
-    levels: h.levels.map((c, ordinal) => ({ name: c, ordinal, column: c, lineageTag: crypto.randomUUID() })),
+    levels: h.levels.map((c, ordinal) => ({ name: levelName(h, c), ordinal, column: c, lineageTag: crypto.randomUUID() })),
   }));
   const dateOf = (t: string, c: string) => dates.find((d) => d.table === t && d.column === c);
   const daxTable = (n: string) => `'${n.replace(/'/g, "''")}'`, daxCol = (n: string) => `[${n.replace(/]/g, ']]')}]`;
@@ -182,10 +183,10 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
     name: crypto.randomUUID(),
     compatibilityLevel: 1550,
     model: {
-      culture: 'it-IT',
+      culture: locale(),
       dataAccessOptions: { legacyRedirects: true, returnErrorValuesAsNull: true },
       defaultPowerBIDataSourceVersion: 'powerBI_V3',
-      sourceQueryCulture: 'it-IT',
+      sourceQueryCulture: locale(),
       ...(report.calcGroups?.length ? { discourageImplicitMeasures: true } : {}),
       tables: tables.map((t): any => (calcOf(t.name) ? calcTable(t, calcOf(t.name)!) : {
         name: t.name,
@@ -240,6 +241,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
         fromTable: r.fromTable, fromColumn: r.fromColumn, toTable: r.toTable, toColumn: r.toColumn,
         ...(r.active ? {} : { isActive: false }),
         ...(r.crossFilter === 'both' || r.cardinality === 'oneToOne' ? { crossFilteringBehavior: 'bothDirections' } : {}),
+        ...(r.securityBoth ? { securityFilteringBehavior: 'bothDirections' } : {}),
         ...(r.cardinality === 'oneToOne' ? { fromCardinality: 'one' } : {}),
         ...(r.cardinality === 'manyToMany' ? { toCardinality: 'many' } : {}),
       })).concat(dates.map((d) => ({ name: d.rel, fromTable: d.table, fromColumn: d.column, toTable: d.local, toColumn: 'Date', joinOnDateBehavior: 'datePartOnly' }) as any)),
@@ -260,7 +262,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
 
 /** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}) });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies });
   const j = (o: unknown) => JSON.stringify(o, null, 2);
   const platform = (type: string) => ({
     $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
@@ -294,7 +296,7 @@ function labelParts(report: Report): PbitPart[] {
 }
 
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}) });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies });
   const diagram = {
     version: '1.1.0',
     diagrams: [{
@@ -374,8 +376,9 @@ export function buildPushSchema(report: Report, tables: TableMeta[]) {
 }
 
 /** Report part of a publication: report.json and images, paths relative to the report item. */
-export function buildReportParts(report: Report, dateHierarchies = autoDateOn(report)): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies, dateTables: Object.keys(report.dateTables ?? {}) });
+/** `full` = false for push datasets: no date tables nor user hierarchies in the model, plain columns in the report. */
+export function buildReportParts(report: Report, full = true): { path: string; text?: string; dataUrl?: string }[] {
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, full ? { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies } : { dateHierarchies: false });
   return [
     { path: 'report.json', text: layout },
     ...Object.entries(resources).map(([n, d]) => ({ path: `StaticResources/RegisteredResources/${n}`, dataUrl: d })),

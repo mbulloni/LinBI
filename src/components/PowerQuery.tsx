@@ -13,6 +13,7 @@ import { Icon } from './icons';
 import { Menu } from './Menu';
 import { Big, Group, Small } from './Ribbon';
 import { FILTER_OPS, PQDialog, srcExpr, vtypeOf, type DialogState, type Preview } from './PowerQueryDialogs';
+import { locale } from '../format';
 
 type Tab = 'home' | 'transform' | 'add' | 'view';
 const TABS: [Tab, string][] = [['home', 'Home'], ['transform', 'Trasforma'], ['add', 'Aggiungi colonna'], ['view', 'Visualizza']];
@@ -40,7 +41,7 @@ const fmtCell = (v: any, c: ColumnMeta) => {
   const t = pqTypeOf(c.type);
   if (t === 'int' || t === 'decimal') {
     const n = Number(v);
-    return Number.isFinite(n) ? n.toLocaleString('it-IT', { useGrouping: false, maximumFractionDigits: 10 }) : String(v);
+    return Number.isFinite(n) ? n.toLocaleString(locale(), { useGrouping: false, maximumFractionDigits: 10 }) : String(v);
   }
   if (t === 'bool') return v ? 'TRUE' : 'FALSE';
   return String(v);
@@ -638,7 +639,7 @@ function Editor() {
             <div className="pq-profile">
               <div>
                 <h4>Statistiche colonna · {profileCol.name}</h4>
-                <table><tbody>{stats.rows.map(([k, v]) => <tr key={k}><td>{k}</td><td>{typeof v === 'number' ? v.toLocaleString('it-IT', { maximumFractionDigits: 4 }) : v}</td></tr>)}</tbody></table>
+                <table><tbody>{stats.rows.map(([k, v]) => <tr key={k}><td>{k}</td><td>{typeof v === 'number' ? v.toLocaleString(locale(), { maximumFractionDigits: 4 }) : v}</td></tr>)}</tbody></table>
               </div>
               <div className="vd">
                 <h4>Distribuzione valori</h4>
@@ -676,7 +677,7 @@ function Editor() {
         <span>{error ? 'ERRORE' : `${cols.length} COLONNE, ${preview?.rows.length ?? 0}${(preview?.rows.length ?? 0) >= 1000 ? '+' : ''} RIGHE`}</span>
         <span>Profilatura colonne basata sulle prime 1000 righe</span>
         <span style={{ flex: 1 }} />
-        {preview && <span>ANTEPRIMA SCARICATA ALLE {preview.at.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}</span>}
+        {preview && <span>ANTEPRIMA SCARICATA ALLE {preview.at.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}</span>}
       </div>
 
       {menu?.kind === 'newsource' && (

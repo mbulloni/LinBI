@@ -4,13 +4,16 @@
 //  - "fabric": workspaces on Fabric / Premium / PPU capacity. Semantic model (TMSL) and report
 //    (report.json) created from their text definitions; the service builds and refreshes the model.
 //    Local data is embedded in the M of each table (like "Immetti dati"), so no gateway is needed.
-// Sign-in: OAuth 2.0 device code flow against the user's own Entra ID app registration (public client).
+// Sign-in: OAuth 2.0 authorization code + PKCE in the system browser (loopback redirect http://localhost),
+// or device code, against an Entra ID app registration (public client): the organization's own, or the
+// one LinBI is distributed with (LINBI_PBI_CLIENT_ID / electron/pbi-app.json, multi-tenant).
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const crypto = require('crypto');
 const JSZip = require('jszip');
-const { app, safeStorage } = require('electron');
+const http = require('http');
+const { app, safeStorage, shell } = require('electron');
 const db = require('./db.cjs');
 
 // Endpoints can be redirected for tests (LINBI_PBI_* = local mock server).
@@ -90,12 +93,110 @@ function resetSession() {
   pending = null;
 }
 
+/** App registration LinBI ships with (multi-tenant public client), used when no profile is configured. */
+function builtinApp() {
+  if (process.env.LINBI_PBI_CLIENT_ID) return process.env.LINBI_PBI_CLIENT_ID.trim();
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'pbi-app.json'), 'utf8')).clientId?.trim() || null; } catch { return null; }
+}
+
+/** Tenant for an e-mail address: its domain (Entra resolves verified domains), else the profile's. */
+function tenantFor(email, cfg) {
+  const d = /@([A-Za-z0-9.-]+\.[A-Za-z]{2,})$/.exec(String(email ?? '').trim())?.[1];
+  return d ? d.toLowerCase() : cfg.tenant || 'organizations';
+}
+
+/** Entra errors explained: what to ask the organization's IT. */
+function aadError(j) {
+  const d = String(j.error_description ?? j.error ?? 'Accesso non riuscito').split('\r\n')[0];
+  const code = /AADSTS(\d+)/.exec(d)?.[1];
+  const hint = {
+    '65001': "L'app LinBI non ha ancora il consenso nel tenant: accettare la richiesta di autorizzazioni, oppure chiedere all'amministratore IT di concederlo (Microsoft Entra › Applicazioni aziendali).",
+    '90094': "Il tenant richiede l'approvazione dell'amministratore per le app esterne: chiedere all'IT di approvare LinBI (Applicazioni aziendali › Consenso amministratore) o di registrare un'app aziendale (Impostazioni app).",
+    '90095': "Il tenant richiede l'approvazione dell'amministratore per le app esterne: inviare la richiesta di approvazione proposta da Microsoft.",
+    '700016': "L'app non esiste in questo tenant: con un'app registrata solo in un'altra organizzazione serve un'app multi-tenant, o un'app registrata dall'IT del proprio tenant (Impostazioni app).",
+    '7000218': "L'app deve consentire i flussi client pubblici (Autenticazione › Consenti flussi client pubblici: Sì).",
+    '50011': "Manca l'URI di reindirizzamento: in Autenticazione aggiungere la piattaforma «App per dispositivi mobili e desktop» con http://localhost.",
+    '500113': "Manca l'URI di reindirizzamento: in Autenticazione aggiungere la piattaforma «App per dispositivi mobili e desktop» con http://localhost.",
+    '53003': "Bloccato da un criterio di accesso condizionale dell'organizzazione (es. solo dispositivi gestiti): chiedere all'IT.",
+    '50105': "L'account non è assegnato all'app LinBI nel tenant: chiedere all'IT di assegnarlo.",
+  }[code];
+  return new Error(hint ? `${hint} (${d})` : d);
+}
+
+/** Profile to sign in with: the active one, or a new one on the built-in app. */
+function ensureProfile() {
+  const cfg = loadCfg();
+  if (cfg.clientId) return cfg;
+  const id = builtinApp();
+  if (!id) throw new Error("Configurare prima l'app (Impostazioni app).");
+  addProfile(id, 'organizations', 'Account aziendale');
+  return loadCfg();
+}
+
+async function signedIn(j, tenantUsed) {
+  const c = claims(j.id_token || '');
+  tokens.set('pbi', { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
+  keepRefresh(j.refresh_token);
+  // Refreshes go to the account's own tenant (domain names and "organizations" resolve to it).
+  saveCfg({ account: c.preferred_username || c.upn || c.email || c.name || 'account Microsoft', ...(c.tid ? { tenant: c.tid } : tenantUsed ? { tenant: tenantUsed } : {}) });
+  return status();
+}
+
+let browserLogin = null;
+
+/**
+ * Sign-in in the system browser like Power BI Desktop: the user picks the work account (SSO when already
+ * signed in), Entra redirects to a loopback port of LinBI with the code (PKCE, no secret, no code to type).
+ */
+async function loginBrowser(email) {
+  const cfg = ensureProfile();
+  const tenant = tenantFor(email, cfg);
+  if (browserLogin) browserLogin.cancel();
+  const verifier = crypto.randomBytes(32).toString('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+  const state = crypto.randomBytes(16).toString('hex');
+  const scope = `${SCOPES.pbi} offline_access openid profile`;
+  let done;
+  const result = new Promise((res, rej) => { done = { res, rej }; });
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://localhost');
+    if (u.pathname !== '/') { res.writeHead(404); res.end(); return; }
+    const ok = u.searchParams.get('state') === state && u.searchParams.get('code');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`<!doctype html><meta charset="utf-8"><title>LinBI</title><body style="font-family:sans-serif;padding:40px">${ok ? '<h2>Accesso completato</h2><p>Tornare a LinBI: questa scheda si può chiudere.</p>' : `<h2>Accesso non riuscito</h2><p>${String(u.searchParams.get('error_description') ?? 'Risposta non valida').replace(/[<>&]/g, '')}</p>`}</body>`);
+    if (u.searchParams.get('state') !== state) return;
+    if (ok) done.res(u.searchParams.get('code'));
+    else done.rej(aadError({ error: u.searchParams.get('error'), error_description: u.searchParams.get('error_description') }));
+  });
+  await new Promise((r, j) => { server.once('error', j); server.listen(0, '127.0.0.1', r); });
+  const redirect = `http://localhost:${server.address().port}`;
+  const timer = setTimeout(() => done.rej(new Error('Accesso annullato o scaduto.')), 5 * 60 * 1000);
+  browserLogin = { cancel: () => done.rej(new Error('Accesso annullato.')) };
+  const q = new URLSearchParams({ client_id: cfg.clientId, response_type: 'code', redirect_uri: redirect, scope, state, code_challenge: challenge, code_challenge_method: 'S256', prompt: 'select_account', ...(email?.includes('@') ? { login_hint: email.trim() } : {}) });
+  try {
+    const url = `${LOGIN}/${tenant}/oauth2/v2.0/authorize?${q}`;
+    // Tests (mock server): follow the redirect with fetch instead of opening a browser.
+    if (process.env.LINBI_PBI_BROWSER_FETCH) fetch(url).catch((e) => done.rej(e)); else await shell.openExternal(url);
+    const code = await result;
+    const { ok, j } = await form(`${LOGIN}/${tenant}/oauth2/v2.0/token`, { grant_type: 'authorization_code', client_id: cfg.clientId, code, redirect_uri: redirect, code_verifier: verifier, scope });
+    if (!ok) throw aadError(j);
+    return await signedIn(j, tenant);
+  } finally {
+    clearTimeout(timer);
+    server.close();
+    browserLogin = null;
+  }
+}
+
+function loginBrowserCancel() { browserLogin?.cancel(); }
+
 /** Public state for the dialog: active profile (configuration, signed-in account, last workspace) and all profiles. */
 function status() {
   const f = readFile();
   const cfg = f.profiles.find((p) => p.id === f.active) ?? {};
   return {
     profileId: cfg.id ?? null, profileName: cfg.name ?? '',
+    builtin: !!builtinApp(),
     clientId: cfg.clientId ?? '', tenant: cfg.tenant ?? 'organizations', account: storedRefresh() ? cfg.account ?? null : null, lastWorkspace: cfg.lastWorkspace ?? null, persistent: safeStorage.isEncryptionAvailable(),
     profiles: f.profiles.map((p) => ({ id: p.id, name: p.name, tenant: p.tenant ?? 'organizations', account: p.refresh ? p.account ?? null : null })),
   };
@@ -162,14 +263,14 @@ async function form(url, params) {
 }
 
 /** Starts the device code flow: the user types `user_code` at `verification_uri` in any browser. */
-async function loginStart() {
-  const cfg = loadCfg();
-  if (!cfg.clientId) throw new Error('Configurare prima l\'ID applicazione.');
-  const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/devicecode`, {
+async function loginStart(email) {
+  const cfg = ensureProfile();
+  const tenant = tenantFor(email, cfg);
+  const { ok, j } = await form(`${LOGIN}/${tenant}/oauth2/v2.0/devicecode`, {
     client_id: cfg.clientId, scope: `${SCOPES.pbi} offline_access openid profile`,
   });
-  if (!ok) throw new Error(j.error_description?.split('\r\n')[0] || j.error || 'Accesso non riuscito');
-  pending = { device: j.device_code, interval: (j.interval || 5) * 1000, until: Date.now() + (j.expires_in || 900) * 1000 };
+  if (!ok) throw aadError(j);
+  pending = { device: j.device_code, tenant, interval: (j.interval || 5) * 1000, until: Date.now() + (j.expires_in || 900) * 1000 };
   return { userCode: j.user_code, verificationUri: j.verification_uri, message: j.message };
 }
 
@@ -180,22 +281,18 @@ async function loginWait() {
   if (!p) throw new Error('Nessun accesso in corso.');
   while (Date.now() < p.until && pending === p) {
     await sleep(p.interval);
-    const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/token`, {
+    const { ok, j } = await form(`${LOGIN}/${p.tenant}/oauth2/v2.0/token`, {
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: cfg.clientId, device_code: p.device,
     });
     if (pending !== p) break; // cancelled, or another profile selected meanwhile
     if (ok) {
       pending = null;
-      tokens.set('pbi', { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });
-      const c = claims(j.id_token || '');
-      keepRefresh(j.refresh_token);
-      saveCfg({ account: c.preferred_username || c.upn || c.name || 'account Microsoft' });
-      return status();
+      return signedIn(j, p.tenant);
     }
     if (j.error === 'authorization_pending') continue;
     if (j.error === 'slow_down') { p.interval += 5000; continue; }
     pending = null;
-    throw new Error(j.error_description?.split('\r\n')[0] || j.error);
+    throw aadError(j);
   }
   throw new Error('Accesso annullato o scaduto.');
 }
@@ -270,10 +367,17 @@ async function fabricLro(method, url, body) {
 
 const group = (ws) => (ws ? `${PBI}/groups/${ws}` : PBI);
 
+/** Every workspace the account can see (paged), the personal one first, then by name. */
 async function workspaces() {
-  const r = await call('pbi', 'GET', `${PBI}/groups?$top=5000`);
-  return [{ id: '', name: 'Area di lavoro personale', dedicated: false },
-    ...(r.value ?? []).map((g) => ({ id: g.id, name: g.name, dedicated: !!g.isOnDedicatedCapacity }))];
+  const out = [];
+  for (let skip = 0; ; skip += 5000) {
+    const r = await call('pbi', 'GET', `${PBI}/groups?$top=5000&$skip=${skip}`);
+    const page = r.value ?? [];
+    out.push(...page.map((g) => ({ id: g.id, name: g.name, dedicated: !!g.isOnDedicatedCapacity, readOnly: !!g.isReadOnly })));
+    if (page.length < 5000) break;
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name, 'it'));
+  return [{ id: '', name: 'Area di lavoro personale', dedicated: false }, ...out];
 }
 
 // ---------- data access ----------
@@ -545,4 +649,5 @@ async function labels() {
   throw new Error('Etichette di riservatezza non disponibili per questo account.');
 }
 
-module.exports = { status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token, labels };
+module.exports = {
+  loginBrowser, loginBrowserCancel, status, configure, addProfile, selectProfile, removeProfile, signOut, loginStart, loginWait, loginCancel, workspaces, publishPush, publishFabric, token, labels };
