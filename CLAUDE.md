@@ -7,6 +7,11 @@ Educational Power BI Desktop clone for Linux. Electron 44 + React 19 + TypeScrip
 - Electron's binary download may be blocked by npm 12 install-script policy: `node node_modules/electron/install.js`.
 - Visual smoke test: `LINBI_SHOT=out.png LINBI_SCRIPT=steps.js npx electron . --no-sandbox` (store as `window.__linbi`, query builder as `window.__linbiQuery`, Power Query compiler as `window.__linbiPQ`, DAX as `window.__linbiDax`; a returned value is printed as `SCRIPT_RESULT`; `LINBI_PBIT_OUT`/`LINBI_PBIP_OUT`/`LINBI_PDF_OUT`/`LINBI_SAVE_PATH`/`LINBI_OPEN_PATH` skip the file dialogs).
 
+## Claude Code setup (`.claude/`)
+- Hooks (`.claude/settings.json`): `block-dangerous-commands.mjs` (force push, hard reset, git clean, history rewrite, reads of `~/.config/linbi/{powerbi,claude,web-credentials}.json`) and `protect-critical-paths.mjs` (.env/keys, stored credentials, generated `src/geo/*.json`, LICENSE). Overrides: `CLAUDE_LINBI_DISABLE_DANGEROUS_GATE=1` / `CLAUDE_LINBI_DISABLE_PATH_GATE=1`, or touch `/tmp/linbi-dangerous-unlock` / `/tmp/linbi-path-unlock` (10 min).
+- Agent `linbi-reviewer`: review a commit/range before pushing (read-only).
+- After each block of work: update README (features + `docs/screenshots/*.png` taken with `LINBI_SHOT`) and this file, then push.
+
 ## Layout
 - `electron/` (CommonJS): `main.cjs` window/IPC/dialogs, `db.cjs` DuckDB, `sample.cjs` Financials generator, `preload.cjs` → `window.api`.
 - `src/store.ts` — all report state + actions; mutations go through `mut()` (undo snapshot of `report`).
