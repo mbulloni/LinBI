@@ -194,6 +194,179 @@ function binned(groups: Group[], numeric: boolean): Group[] {
   return out;
 }
 
+/* Top segments: a small regression/classification tree over the "Spiega per" factors. */
+interface Combo { keys: (string | null)[]; n: number; s: number; ss: number }
+interface Cond { f: number; op: 'eq' | 'ne' | 'le' | 'gt'; key?: string | null; t?: number }
+interface Segment { conds: Cond[]; n: number; mean: number; z: number }
+
+const statsOf = (rows: Combo[]) => rows.reduce((a, r) => ({ n: a.n + r.n, s: a.s + r.s, ss: a.ss + r.ss }), { n: 0, s: 0, ss: 0 });
+const sseOf = (x: { n: number; s: number; ss: number }) => (x.n ? x.ss - (x.s * x.s) / x.n : 0);
+
+/** Equal-count cut points (≤ 4) of a numeric factor, weighted by rows. */
+function cuts(rows: Combo[], f: number): number[] {
+  const vals = rows.map((r) => ({ x: Number(r.keys[f]), n: r.n })).filter((x) => Number.isFinite(x.x)).sort((a, b) => a.x - b.x);
+  const total = vals.reduce((a, x) => a + x.n, 0);
+  const out: number[] = [];
+  let acc = 0;
+  for (const v of vals) { acc += v.n; if (acc >= ((out.length + 1) * total) / 5 && out.length < 4 && v.x !== out[out.length - 1]) out.push(v.x); }
+  return out.filter((x, i) => i < out.length - 1 || x < vals[vals.length - 1]?.x);
+}
+
+/** Greedy tree (depth ≤ 3): splits maximizing the variance reduction, leaves = candidate segments. */
+function grow(rows: Combo[], numeric: boolean[], minSize: number): { conds: Cond[]; rows: Combo[] }[] {
+  const edges = numeric.map((isNum, f) => (isNum ? cuts(rows, f) : []));
+  const leaves: { conds: Cond[]; rows: Combo[] }[] = [];
+  const rec = (part: Combo[], conds: Cond[], depth: number) => {
+    const all = statsOf(part);
+    let best: { gain: number; l: Combo[]; r: Combo[]; lc: Cond; rc: Cond } | null = null;
+    if (depth < 3 && all.n >= 2 * minSize) {
+      numeric.forEach((isNum, f) => {
+        const tests: [Cond, Cond, (c: Combo) => boolean][] = isNum
+          ? edges[f].map((t) => [{ f, op: 'le', t }, { f, op: 'gt', t }, (c: Combo) => Number(c.keys[f]) <= t])
+          : [...new Set(part.map((c) => c.keys[f]))].slice(0, 40).map((key) => [{ f, op: 'eq', key }, { f, op: 'ne', key }, (c: Combo) => c.keys[f] === key]);
+        for (const [lc, rc, inL] of tests) {
+          const l = part.filter(inL), r = part.filter((c) => !inL(c));
+          const ls = statsOf(l), rs = statsOf(r);
+          if (ls.n < minSize || rs.n < minSize) continue;
+          const gain = sseOf(all) - sseOf(ls) - sseOf(rs);
+          if (gain > 1e-9 && (!best || gain > best.gain)) best = { gain, l, r, lc, rc };
+        }
+      });
+    }
+    if (!best) { leaves.push({ conds, rows: part }); return; }
+    const b = best as { l: Combo[]; r: Combo[]; lc: Cond; rc: Cond };
+    rec(b.l, [...conds, b.lc], depth + 1);
+    rec(b.r, [...conds, b.rc], depth + 1);
+  };
+  rec(rows, [], 0);
+  return leaves;
+}
+
+/** Conditions of a segment, merged per factor ("Prezzo > 10 e ≤ 50", "Paese non è A, B"). */
+function condText(conds: Cond[], explain: FieldRef[]): string[] {
+  const out: string[] = [];
+  const byF = new Map<number, Cond[]>();
+  for (const c of conds) (byF.get(c.f) ?? byF.set(c.f, []).get(c.f)!).push(c);
+  for (const [f, cs] of byF) {
+    const name = explain[f].column;
+    const eq = cs.find((c) => c.op === 'eq');
+    if (eq) { out.push(`${name} è ${label(eq.key)}`); continue; }
+    const ne = cs.filter((c) => c.op === 'ne').map((c) => label(c.key));
+    if (ne.length) out.push(`${name} non è ${ne.join(', ')}`);
+    const lo = Math.max(...cs.filter((c) => c.op === 'gt').map((c) => c.t!), -Infinity), hi = Math.min(...cs.filter((c) => c.op === 'le').map((c) => c.t!), Infinity);
+    if (lo > -Infinity && hi < Infinity) out.push(`${name} è compreso tra ${fmtAuto(lo)} (escluso) e ${fmtAuto(hi)}`);
+    else if (lo > -Infinity) out.push(`${name} è maggiore di ${fmtAuto(lo)}`);
+    else if (hi < Infinity) out.push(`${name} è minore o uguale a ${fmtAuto(hi)}`);
+  }
+  return out;
+}
+
+function TopSegments({ v, target, explain, numericTarget, targetValue, dir, tLabel }: {
+  v: Visual; target: FieldRef; explain: FieldRef[]; numericTarget: boolean; targetValue?: string; dir: 'up' | 'down'; tLabel: string;
+}) {
+  const updateVisual = useStore((s) => s.updateVisual);
+  const tables = useStore((s) => s.tables);
+  const colType = (f: FieldRef) => tables.find((t) => t.name === f.table)?.columns.find((c) => c.name === f.column);
+  // The analyzed column itself is never a factor (it would explain itself).
+  const factors = useMemo(() => explain.filter((f) => !(f.table === target.table && f.column === target.column)).slice(0, 5), [JSON.stringify(explain), target.table, target.column]);
+  const st = useLive(async () => {
+    if ((!numericTarget && targetValue === undefined) || !factors.length) return null;
+    const dims = factors.map(dim);
+    const col = dim(target);
+    // One row per combination of factor values, with the target's count/sum/sum of squares.
+    const q = (fields: FieldRef[], extra: Filter[] = []) => runVisualQuery({ ...v, type: 'pythonVisual', fields: { values: [...dims, ...fields] }, format: { ...v.format, sortBy: undefined } }, extra);
+    const key = (r: Record<string, any>, items: { alias: string }[]) => JSON.stringify(dims.map((_, i) => r[items[i].alias] ?? null));
+    let combos: Combo[];
+    if (!numericTarget) {
+      const cnt = { ...col, agg: 'count' as const };
+      const [all, hit] = await Promise.all([q([cnt]), q([cnt], [asFilter(col, targetValue!)])]);
+      const hits = new Map(hit.rows.map((r) => [key(r, hit.items), Number(r[hit.items[dims.length].alias] ?? 0)]));
+      combos = all.rows.map((r) => { const h = hits.get(key(r, all.items)) ?? 0; return { keys: dims.map((_, i) => r[all.items[i].alias] ?? null), n: Number(r[all.items[dims.length].alias] ?? 0), s: h, ss: h }; });
+    } else if (target.agg === 'measure') {
+      const r0 = await q([target, { ...dims[0], agg: 'count' }]);
+      combos = r0.rows.map((r) => { const n = Number(r[r0.items[dims.length + 1].alias] ?? 0), m = Number(r[r0.items[dims.length].alias] ?? 0); return { keys: dims.map((_, i) => r[r0.items[i].alias] ?? null), n, s: m * n, ss: m * m * n }; });
+    } else {
+      const r0 = await q([{ ...col, agg: 'avg' }, { ...col, agg: 'count' }, { ...col, agg: 'stdev' }]);
+      combos = r0.rows.map((r) => {
+        const a = Number(r[r0.items[dims.length].alias] ?? 0), n = Number(r[r0.items[dims.length + 1].alias] ?? 0), sd = Number(r[r0.items[dims.length + 2].alias] ?? 0);
+        return { keys: dims.map((_, i) => r[r0.items[i].alias] ?? null), n, s: a * n, ss: sd * sd * Math.max(0, n - 1) + n * a * a };
+      });
+    }
+    combos = combos.filter((c) => c.n > 0);
+    const tot = statsOf(combos);
+    if (!tot.n) return { segments: [] as Segment[], overall: 0, N: 0 };
+    const overall = tot.s / tot.n;
+    const sign = numericTarget && dir === 'down' ? -1 : 1;
+    const minSize = Math.max(5, Math.ceil(tot.n * 0.03));
+    const leaves = grow(combos, factors.map((f) => isNumeric(colType(f))), minSize);
+    const segments: Segment[] = [];
+    for (const l of leaves) {
+      const x = statsOf(l.rows), rest = { n: tot.n - x.n, s: tot.s - x.s, ss: tot.ss - x.ss };
+      if (!rest.n) continue;
+      const m = x.s / x.n, rm = rest.s / rest.n;
+      const va = Math.max(0, sseOf(x) / Math.max(1, x.n - 1)), vb = Math.max(0, sseOf(rest) / Math.max(1, rest.n - 1));
+      const se = Math.sqrt(va / x.n + vb / rest.n);
+      const z = se > 0 ? ((m - rm) / se) * sign : (m - rm) * sign > 0 ? 3 : 0;
+      if (z >= 1.96) segments.push({ conds: l.conds, n: x.n, mean: m, z });
+    }
+    segments.sort((a, b) => (b.mean - a.mean) * sign);
+    return { segments: segments.slice(0, 10), overall, N: tot.n };
+  }, [target.table, target.column, target.agg, JSON.stringify(factors), targetValue, dir, numericTarget]);
+
+  if (st.error) return <div className="ki-empty">{st.error}</div>;
+  const d = st.data;
+  const segs = d?.segments ?? [];
+  const metric = (x: number) => (numericTarget ? fmtAuto(x) : (x * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%');
+  const selIdx = /^seg:(\d+)$/.exec(v.ki?.selected ?? '')?.[1];
+  const sel = selIdx !== undefined ? segs[+selIdx] : undefined;
+  const pick = (i: number | null) => updateVisual(v.id, { ki: { ...v.ki, tab: 'segments', selected: i === null ? undefined : `seg:${i}` } });
+  if (!segs.length) return <div className="ki-empty" style={{ opacity: st.loading ? 0.6 : 1 }}>{st.loading ? 'Ricerca dei segmenti…' : !factors.length ? 'Aggiungere in Spiega per un campo diverso da quello analizzato.' : numericTarget
+          ? `Nessun segmento con ${tLabel} significativamente ${dir === 'down' ? 'più basso' : 'più alto'} della media.`
+          : `Nessun segmento in cui ${tLabel} è significativamente più spesso ${targetValue}.`}</div>;
+  if (sel) {
+    const diff = sel.mean - d!.overall;
+    return (
+      <div className="ki-seg" style={{ opacity: st.loading ? 0.6 : 1 }}>
+        <button className="ki-back" onClick={() => pick(null)}>← Segmenti principali</button>
+        <div className="ki-dtitle"><b>Segmento {+selIdx! + 1}</b></div>
+        <div className="ki-dtitle">
+          {numericTarget
+            ? <>{target.agg === 'measure' ? tLabel : target.column} {target.agg === 'measure' ? 'è in media' : 'medio è'} <b>{metric(sel.mean)}</b>, {diff >= 0 ? <><b>{metric(diff)}</b> in più</> : <><b>{metric(-diff)}</b> in meno</>} rispetto alla media complessiva ({metric(d!.overall)}).</>
+            : <>{tLabel} è <b>{targetValue}</b> nel <b>{metric(sel.mean)}</b> dei casi (media complessiva {metric(d!.overall)}).</>}
+        </div>
+        <div className="ki-dtitle">Il segmento contiene <b>{sel.n.toLocaleString('it-IT')}</b> {target.agg === 'measure' ? 'righe' : 'record'} ({((sel.n / d!.N) * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 })}% dei dati).</div>
+        <div className="ki-conds"><div className="hdr">Caratteristiche del segmento</div>{condText(sel.conds, factors).map((t, i) => <div key={i} className="ki-cond">{t}</div>)}</div>
+      </div>
+    );
+  }
+  // Bubbles: height = value of the segment, size = population (like Power BI's segment chart).
+  const W = 100, H = 100;
+  const vals = [...segs.map((x) => x.mean), d!.overall];
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = hi - lo || 1;
+  const maxN = Math.max(...segs.map((x) => x.n));
+  const y = (m: number) => H - 12 - ((m - lo) / span) * (H - 24);
+  return (
+    <div className="ki-segs" style={{ opacity: st.loading ? 0.6 : 1 }}>
+      <div className="ki-dtitle">Segmenti in cui {numericTarget ? <>{tLabel} {dir === 'up' ? 'è più alto' : 'è più basso'}</> : <>{tLabel} è più probabilmente <b>{targetValue}</b></>}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="ki-bubbles">
+        <line x1="0" x2={W} y1={y(d!.overall)} y2={y(d!.overall)} stroke="#252423" strokeDasharray="1.5 1.5" strokeWidth="0.3" />
+      </svg>
+      <div className="ki-bubble-layer">
+        {segs.map((x, i) => {
+          const r = 16 + 20 * Math.sqrt(x.n / maxN);
+          return (
+            <div key={i} className="ki-bubble" title={condText(x.conds, factors).join(' e ')} onClick={() => pick(i)}
+              style={{ left: `${((i + 0.5) / segs.length) * 100}%`, top: `${y(x.mean)}%`, width: r * 2, height: r * 2 }}>
+              <b>{metric(x.mean)}</b><span>Segmento {i + 1}</span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="ki-note">Linea tratteggiata: {numericTarget ? 'media' : 'percentuale'} complessiva ({metric(d!.overall)}). Dimensione della bolla: numero di record. Fare clic su un segmento per i dettagli.</div>
+    </div>
+  );
+}
+
 export function KeyInfluencersVisual({ v }: { v: Visual }) {
   const updateVisual = useStore((s) => s.updateVisual);
   const tables = useStore((s) => s.tables);
@@ -288,8 +461,13 @@ export function KeyInfluencersVisual({ v }: { v: Visual }) {
   const effectText = (x: Influencer) => (numericTarget ? `${dir === 'up' ? '+' : '-'}${fmtAuto(x.effect)}` : `${x.effect === Infinity ? '∞' : x.effect.toLocaleString('it-IT', { maximumFractionDigits: 2 })}x`);
   const maxEffect = Math.max(1e-9, ...list.map((x) => (x.effect === Infinity ? 0 : x.effect)));
 
+  const tab = ki.tab ?? 'influencers';
   return (
-    <div className="ki" style={{ opacity: st.loading ? 0.6 : 1 }}>
+    <div className="ki" style={{ opacity: st.loading && tab === 'influencers' ? 0.6 : 1 }}>
+      <div className="ki-tabs">
+        <button className={tab === 'influencers' ? 'active' : ''} onClick={() => set({ tab: 'influencers' })}>Influenzatori chiave</button>
+        <button className={tab === 'segments' ? 'active' : ''} onClick={() => set({ tab: 'segments', selected: undefined })}>Segmenti principali</button>
+      </div>
       <div className="ki-head">
         Che cosa influenza <b>{tLabel}</b> a{' '}
         {numericTarget ? (
@@ -299,7 +477,7 @@ export function KeyInfluencersVisual({ v }: { v: Visual }) {
         )}
         ?
       </div>
-      <div className="ki-body">
+      {tab === 'segments' ? <div className="ki-body"><TopSegments v={v} target={target} explain={explain} numericTarget={numericTarget} targetValue={targetValue} dir={dir} tLabel={tLabel} /></div> : <div className="ki-body">
         <div className="ki-list">
           {!st.loading && !list.length && <div className="ki-empty">Nessun fattore influenza in modo significativo {tLabel}.</div>}
           {list.map((x) => {
@@ -335,7 +513,7 @@ export function KeyInfluencersVisual({ v }: { v: Visual }) {
             </>;
           })()}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
@@ -380,21 +558,102 @@ async function describe(v: Visual): Promise<string[]> {
   return out;
 }
 
-export function SmartNarrativeVisual({ v }: { v: Visual }) {
+/** Dynamic value token of an edited narrative: {{Tabella[Colonna]:sum}} or {{Tabella[Misura]}}. */
+const TOKEN = /\{\{([^\[\]{}]+)\[([^\]{}]+)\](?::(\w+))?\}\}/g;
+const tokenField = (t: string, c: string, agg?: string): FieldRef => ({ table: t.trim(), column: c, agg: (agg as FieldRef['agg']) ?? 'measure' });
+export const tokenOf = (f: FieldRef) => `{{${f.table}[${f.column}]${f.agg === 'measure' ? '' : ':' + f.agg}}}`;
+
+/** Generated sentences → editable text (bold kept as **…**). */
+const toEditable = (blocks: { lines: string[] }[]) => blocks.map((b) => b.lines.join(' ').replace(/<\/?b>/g, '**')).join('\n\n');
+
+export function SmartNarrativeVisual({ v, selected }: { v: Visual; selected?: boolean }) {
   const pages = useStore((s) => s.report.pages);
+  const tables = useStore((s) => s.tables);
+  const measures = useStore((s) => s.report.measures);
+  const updateVisual = useStore((s) => s.updateVisual);
+  const [editing, setEditing] = useState<string | null>(null);
   const page = pages.find((p) => p.visuals.some((x) => x.id === v.id));
   const others = useMemo(() => (page?.visuals ?? []).filter((x) => x.id !== v.id && !['decompositionTree', 'keyInfluencers', 'smartNarrative', 'slicer'].includes(x.type)
     && Object.values(x.fields).some((f) => f.length)), [page]);
+  const custom = v.narrative;
   const st = useLive(async () => {
+    if (custom !== undefined) return [];
     const out: { title: string; lines: string[] }[] = [];
     for (const o of others) {
       try { const lines = await describe(o); if (lines.length) out.push({ title: o.format.titleText || autoTitle(o), lines }); } catch { /* skip visuals that fail */ }
     }
     return out;
-  }, [others]);
-  if (!others.length) return <div className="vc-placeholder ai-hint">La narrazione intelligente riassume gli oggetti visivi della pagina: aggiungerne qualcuno.</div>;
+  }, [others, custom]);
+  // Dynamic values of the edited text, evaluated with the visual's filters like any visual.
+  const tokens = useMemo(() => [...new Set([...(custom ?? '').matchAll(TOKEN)].map((m) => m[0]))], [custom]);
+  const vals = useLive(async () => {
+    const out: Record<string, string> = {};
+    for (const t of tokens) {
+      const [, tb, col, agg] = /\{\{([^\[\]{}]+)\[([^\]{}]+)\](?::(\w+))?\}\}/.exec(t)!;
+      try {
+        const f = tokenField(tb, col, agg);
+        const r = await runVisualQuery({ ...v, type: 'card', fields: { values: [f] } });
+        const x = r.rows[0]?.[r.items[0]?.alias];
+        const pct = f.agg === 'measure' && measures.find((m) => m.name === f.column)?.formatString?.includes('%');
+        out[t] = typeof x === 'number' || (x !== null && x !== undefined && !isNaN(Number(x))) ? (pct ? (Number(x) * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 }) + '%' : fmtAuto(Number(x))) : label(x);
+      } catch { out[t] = '(errore)'; }
+    }
+    return out;
+  }, [tokens.join('|')]);
+
+  const fields = useMemo(() => [
+    ...measures.map((m) => ({ label: m.name, f: { table: m.table, column: m.name, agg: 'measure' as const } })),
+    ...tables.flatMap((t) => t.columns.filter((c) => isNumeric(c)).map((c) => ({ label: `Somma di ${c.name} (${t.name})`, f: { table: t.name, column: c.name, agg: 'sum' as const } }))),
+  ], [measures, tables]);
+  const insert = (i: number) => {
+    const ta = document.getElementById('sn-edit-' + v.id) as HTMLTextAreaElement | null;
+    const tok = tokenOf(fields[i].f);
+    const text = editing ?? '';
+    const at = ta ? ta.selectionStart : text.length;
+    setEditing(text.slice(0, at) + tok + text.slice(at));
+  };
+
+  if (editing !== null) {
+    return (
+      <div className="sn sn-editing" onMouseDown={(e) => e.stopPropagation()}>
+        <textarea id={'sn-edit-' + v.id} value={editing} onChange={(e) => setEditing(e.target.value)} />
+        <div className="sn-tools">
+          <select value="" onChange={(e) => e.target.value !== '' && insert(+e.target.value)}>
+            <option value="">+ Valore</option>
+            {fields.map((x, i) => <option key={i} value={i}>{x.label}</option>)}
+          </select>
+          <span className="sn-help">**grassetto** · valori dinamici tra {'{{ }}'}</span>
+          <button className="btn" onClick={() => setEditing(null)}>Annulla</button>
+          <button className="btn primary" onClick={() => { updateVisual(v.id, { narrative: editing }); setEditing(null); }}>Fine</button>
+        </div>
+      </div>
+    );
+  }
+  const toolbar = selected && (
+    <div className="sn-bar" onMouseDown={(e) => e.stopPropagation()}>
+      <button onClick={() => setEditing(custom ?? toEditable(st.data ?? []))}>Modifica</button>
+      {custom !== undefined && <button onClick={() => updateVisual(v.id, { narrative: undefined })} title="Torna al riepilogo automatico">Rigenera</button>}
+    </div>
+  );
+  if (custom !== undefined) {
+    // Tokens become placeholders, the text is escaped, **bold** applied, then the (escaped) values put back highlighted.
+    const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const html = (para: string) => {
+      const found: string[] = [];
+      const body = esc(para.replace(TOKEN, (t) => `\u0002${found.push(t) - 1}\u0003`)).replace(/\*\*(.+?)\*\*/gs, '<b>$1</b>');
+      return body.replace(/\u0002(\d+)\u0003/g, (_m, i) => `<b class="sn-val">${esc(vals.data?.[found[+i]] ?? '…')}</b>`);
+    };
+    return (
+      <div className="sn" style={{ opacity: vals.loading ? 0.6 : 1 }}>
+        {toolbar}
+        {custom.split(/\n{2,}/).map((p, i) => <p key={i} dangerouslySetInnerHTML={{ __html: html(p).replace(/\n/g, '<br/>') }} />)}
+      </div>
+    );
+  }
+  if (!others.length) return <div className="vc-placeholder ai-hint">{toolbar}La narrazione intelligente riassume gli oggetti visivi della pagina: aggiungerne qualcuno.</div>;
   return (
     <div className="sn" style={{ opacity: st.loading ? 0.6 : 1 }}>
+      {toolbar}
       {(st.data ?? []).map((b, i) => (
         <p key={i}>{b.lines.map((l, k) => <span key={k} dangerouslySetInnerHTML={{ __html: escapeKeepB(l) + ' ' }} />)}</p>
       ))}

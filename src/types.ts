@@ -123,6 +123,8 @@ export interface Visual {
   tree?: { dim: number; value?: string | null }[];
   /** Key influencers: categorical target value, numeric direction, selected influencer. */
   ki?: { target?: string; dir?: 'up' | 'down'; selected?: string; tab?: 'influencers' | 'segments' };
+  /** Smart narrative edited by hand: text with **bold** and dynamic values {{Tabella[Campo]:agg}} (none = automatic summary). */
+  narrative?: string;
   /** Python/R visual script. */
   script?: string;
   /** Q&A: question and the answer's visual spec (kept so Claude is not asked again). */

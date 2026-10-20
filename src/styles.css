@@ -659,3 +659,28 @@ thead .pq-rn { z-index: 2; }
 .coltools { display: flex; align-items: center; gap: 16px; padding: 6px 12px; border-bottom: 1px solid var(--border, #E1DFDD); background: var(--panel, #FAF9F8); font-size: 12px; }
 .coltools label { display: flex; align-items: center; gap: 6px; }
 .coltools select { height: 24px; }
+
+/* Key influencers: tabs and top segments */
+.ki-tabs { display: flex; gap: 2px; padding: 4px 6px 0; }
+.ki-tabs button { border: 0; background: transparent; padding: 4px 8px; font-size: 12px; color: #605E5C; border-bottom: 2px solid transparent; cursor: pointer; }
+.ki-tabs button.active { color: #252423; font-weight: 600; border-bottom-color: #118DFF; }
+.ki-segs, .ki-seg { flex: 1; position: relative; background: #fff; padding: 8px; overflow: auto; display: flex; flex-direction: column; }
+.ki-bubbles { position: absolute; left: 8px; right: 8px; top: 34px; bottom: 34px; width: calc(100% - 16px); height: calc(100% - 68px); }
+.ki-bubble-layer { position: absolute; left: 8px; right: 8px; top: 34px; bottom: 34px; }
+.ki-bubble { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; background: #118DFFCC; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; cursor: pointer; text-align: center; line-height: 1.1; }
+.ki-bubble:hover { background: #0B6BC7; }
+.ki-bubble span { font-size: 9px; opacity: .9; }
+.ki-segs .ki-note { position: absolute; bottom: 6px; left: 8px; right: 8px; }
+.ki-back { align-self: flex-start; border: 0; background: none; color: #118DFF; cursor: pointer; padding: 0 0 6px; }
+.ki-conds .hdr { font-weight: 600; margin: 6px 0 4px; }
+.ki-cond { padding: 4px 6px; background: #F3F2F1; margin-bottom: 3px; border-left: 3px solid #118DFF; }
+
+/* Smart narrative editing */
+.sn-bar { position: absolute; top: 2px; right: 4px; display: flex; gap: 4px; z-index: 2; }
+.sn-bar button { font-size: 11px; padding: 2px 8px; border: 1px solid #C8C6C4; background: #fff; border-radius: 2px; cursor: pointer; }
+.sn-editing { display: flex; flex-direction: column; gap: 6px; }
+.sn-editing textarea { flex: 1; resize: none; font: inherit; font-size: 12px; padding: 6px; border: 1px solid #C8C6C4; }
+.sn-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sn-tools select { flex: 1; min-width: 0; height: 26px; }
+.sn-tools .btn { height: 26px; min-width: 0; padding: 0 10px; flex: none; }
+.sn-help { flex-basis: 100%; order: 3; font-size: 10px; color: var(--text2); }

@@ -142,7 +142,7 @@ export function VisualBody({ v, selected }: { v: Visual; selected: boolean }) {
   if (v.type === 'unsupported') return <div className="vc-error"><b>Oggetto visivo non supportato</b><span>{v.text}</span></div>;
   if (v.type === 'decompositionTree') return <DecompositionTreeVisual v={v} />;
   if (v.type === 'keyInfluencers') return <KeyInfluencersVisual v={v} />;
-  if (v.type === 'smartNarrative') return <SmartNarrativeVisual v={v} />;
+  if (v.type === 'smartNarrative') return <SmartNarrativeVisual v={v} selected={selected} />;
   if (v.type === 'qna') return <QnaVisual v={v} selected={selected} />;
   // Custom visuals draw even without fields (empty dataViews), like Power BI.
   if (v.type === 'custom') return <CustomVisual v={v} data={data} />;
