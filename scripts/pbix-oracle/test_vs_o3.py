@@ -23,7 +23,7 @@ for col, kind in [('I (13)', 'long'), ('C (14)', 'string'), ('V (15)', 'real'), 
     keys = {i + 3: (1, v) for i, v in enumerate(vals)}
     last = len(vals) + 2
     if col in ('C (14)', 'V (15)'): keys[2] = (0, '')
-    p, i, per = V.hierarchy(keys, last)
+    p, i, per = V.hierarchy(sorted(keys, key=keys.get), last)
     cmp(f'0.H$T (10)${col}.POS_TO_ID.0.idfx', V.raw32_idfx(p, per))
     cmp(f'0.H$T (10)${col}.ID_TO_POS.0.idfx', V.raw32_idfx(i, per))
 cmp('1.T (10).RowNumber 2662979B 1795 4F74 8F37 6A1BA8059B61 (11).0.idfx', V.rownumber_idfx(2500))

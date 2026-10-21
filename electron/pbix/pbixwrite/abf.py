@@ -81,3 +81,20 @@ def write_abf(db_id, db_files, db_xml, root='\\\\?\\C:\\LinBI\\Data', language=1
     out[0:len(SIG)] = SIG
     out[72:72 + len(header)] = header
     return bytes(out)
+
+
+XPRESS9_SIGNATURE = 'This backup was created using XPress9 compression.\x00'.encode('utf-16le')  # 102 bytes
+XPRESS9_CHUNK = 2 << 20
+
+
+def compress_xpress9(abf):
+    """DataModel stream as Power BI Desktop writes it: signature, then 2 MiB chunks (u32 size, u32 compressed size,
+    data) compressed with one XPress9 context (the history window carries over between chunks)."""
+    from xpress9 import Xpress9
+    x = Xpress9()
+    out = bytearray(XPRESS9_SIGNATURE)
+    for i in range(0, len(abf), XPRESS9_CHUNK):
+        chunk = abf[i:i + XPRESS9_CHUNK]
+        c = x.compress(chunk, len(chunk) + 65536)
+        out += len(chunk).to_bytes(4, 'little') + len(c).to_bytes(4, 'little') + c
+    return bytes(out)

@@ -11,11 +11,12 @@ import os
 import re
 import sys
 
+import pandas as pd
 import pyarrow.parquet as pq
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pbixwrite import model  # noqa: E402
-from pbixwrite.abf import write_abf  # noqa: E402
+from pbixwrite.abf import compress_xpress9, write_abf  # noqa: E402
 
 CAL_MINMAX = re.compile(r"Calendar\(Date\(Year\(MIN\((.+?)\)\), 1, 1\), Date\(Year\(MAX\((.+?)\)\), 12, 31\)\)")
 CAL_FIXED = re.compile(r"Calendar\(Date\((\d+),\s*(\d+),\s*(\d+)\),\s*Date\((\d+),\s*(\d+),\s*(\d+)\)\)")
@@ -32,7 +33,7 @@ def read_parquet(path, columns):
     for c in columns:
         if c not in t.column_names:
             raise ValueError(f'colonna mancante nei dati: {c}')
-        out[c] = t.column(c).to_pylist()
+        out[c] = t.column(c).to_pandas()
     return out
 
 
@@ -40,8 +41,8 @@ def date_table(tom, expr, data, job):
     m = CAL_MINMAX.search(expr)
     if m:
         ref = COLREF.match(m.group(1).strip())
-        values = [v for v in data.get(ref.group(1), {}).get(ref.group(2), []) if v is not None] if ref else []
-        years = [v.year for v in values]
+        col = data.get(ref.group(1), {}).get(ref.group(2)) if ref else None
+        years = pd.to_datetime(pd.Series(col), errors='coerce').dropna().dt.year.tolist() if col is not None else []
         y0, y1 = (min(years), max(years)) if years else (datetime.date.today().year,) * 2
         start, end = datetime.date(y0, 1, 1), datetime.date(y1, 12, 31)
     else:
@@ -81,7 +82,7 @@ def main():
             data[t['name']] = d
     db_id, files, dbxml = model.build(schema, data)
     with open(job['out'], 'wb') as f:
-        f.write(write_abf(db_id, files, dbxml))
+        f.write(compress_xpress9(write_abf(db_id, files, dbxml)))
     print(json.dumps({'ok': True, 'tables': len(data)}))
 
 

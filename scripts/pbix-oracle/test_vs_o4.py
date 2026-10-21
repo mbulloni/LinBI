@@ -29,6 +29,6 @@ if len(sys.argv) > 3:
                                   ('M (16)', 'currency', [12500, -35000, 10000001234], {2: (0,), 3: (1, 12500), 4: (1, -35000), 5: (1, 10000001234)}),
                                   ('OneN (17)', 'string', ['y'], {2: (0,), 3: (1, 'y')})]:
         cmp(o6, f'1.S (10).{col}.dictionary', V.dictionary(kind, vals))
-        p, i, per = V.hierarchy(keys, max(keys))
+        p, i, per = V.hierarchy(sorted(keys, key=keys.get), max(keys))
         cmp(o6, f'0.H$S (10)${col}.POS_TO_ID.0.idfx', V.raw32_idfx(p, per))
         cmp(o6, f'0.H$S (10)${col}.ID_TO_POS.0.idfx', V.raw32_idfx(i, per))

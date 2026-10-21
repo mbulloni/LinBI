@@ -219,13 +219,17 @@ Le misure DAX importate passano dal motore della fase 5; una funzione non suppor
 Il `DataModel` di un `.pbix` è il backup di un database Analysis Services (ABF) con `metadata.sqlitedb` (il modello
 TOM) e i file colonna VertiPaq. LinBI lo scrive da zero in `electron/pbix/pbixwrite/` (Python, ambiente `pbix-venv`):
 
-- **`abf.py`** — contenitore ABF (non compresso, senza checksum: entrambi accettati dal motore);
+- **`abf.py`** — contenitore ABF (senza checksum, accettato dal motore) e compressione **XPress9** come Power BI Desktop
+  (firma + blocchi da 2 MiB);
 - **`vertipaq.py`** — colonne tutte a **codifica hash** (dizionario + id compressi a bit; i null sono run RLE), così
   non serve l'indice hash `.hidx` delle colonne a codifica valore; gerarchie di attributo `H$` (POS_TO_ID/ID_TO_POS),
   gerarchie utente `U$`, indici delle relazioni `R$`, tabelle vuote;
 - **`model.py`** — dal database TMSL di `pbit.ts#buildModelSchema` + i dati: tabelle, colonne (anche calcolate),
   tabelle calcolate, misure, relazioni (attive/inattive, bidirezionali, molti-a-molti, solo data), gerarchie,
-  ordinamento per colonna, ruoli RLS, parametri, gruppi di calcolo, tabelle date automatiche con *variations*.
+  ordinamento per colonna, ruoli RLS, parametri, gruppi di calcolo, tabelle date automatiche con *variations*;
+- tabelle grandi in **segmenti da 1.048.576 righe** (codifica vettoriale numpy/pandas: 2,5 milioni di righe in ~8 s),
+  dizionari di testo in pagine da 512K caratteri, nomi con qualsiasi carattere (`/ : " [ € è` e Unicode: nei nomi dei
+  file del modello diventano spazi come fa il motore).
 
 *File › Salva come file Power BI (.pbix)*: il main esporta ogni tabella DuckDB in Parquet, `write_pbix.py` scrive il
 DataModel (calcolando le tabelle date automatiche) e lo zip contiene le stesse parti del `.pbit` con `DataModel` al
@@ -235,7 +239,8 @@ finestra di dialogo (l'originale non viene sostituito senza chiederlo).
 Verifica: `scripts/pbix-oracle/` usa una seconda istanza del motore di Power BI Desktop (`msmdsrv.exe` in modalità con
 disco) in una VM Windows: crea modelli di riferimento via TMSL, ne fa il **Backup** e confronta byte per byte gli
 encoder (`test_vs_o3.py`, `test_vs_o4.py`), poi fa il **Restore** dei database generati e confronta le query DAX
-(`test_g4.py`, `test_g7.py`). I `.pbix` di LinBI sono stati aperti in Power BI Desktop 2.159 (ottobre 2026).
+(`test_g4.py`, `test_g7.py`, `test_big.py`: 2,5 milioni di righe, 300.000 testi distinti, nomi speciali; `test_vs_o9.py`:
+segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power BI Desktop 2.159 (ottobre 2026).
 
 ### File, temi e PDF (fase 6)
 
@@ -375,8 +380,6 @@ IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio 
 - Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`).
 
 **Limiti noti**:
-- `.pbix` salvato: tabelle in un solo segmento (oltre ~1 milione di righe da verificare), dati non compressi
-  (file più grandi di quelli di Power BI Desktop, che li ricomprime al primo salvataggio);
 - dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);
 - previsione e barre di errore: nei file Power BI solo aspetto e attivazione (lunghezza, confidenza e limiti da campi
   restano nel `.lbix`, nomi non presenti nello schema ufficiale);

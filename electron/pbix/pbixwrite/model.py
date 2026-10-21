@@ -14,6 +14,9 @@ import sqlite3
 import tempfile
 import uuid
 
+import numpy as np
+import pandas as pd
+
 from . import vertipaq as V
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,41 +54,47 @@ def _text(v):
     return v or ''
 
 
+def _storage_name(name):
+    """Name used in storage objects and file names: every UTF-16 unit that is not a letter or digit becomes a space
+    (what the engine does; '-' and '_' included)."""
+    return ''.join(c if c.isalnum() and ord(c) < 0x10000 else (' ' if ord(c) < 0x10000 else '  ') for c in str(name))
+
+
 def _isnull(v):
     return v is None or (isinstance(v, float) and v != v)
 
 
-def _ole(v):
-    if isinstance(v, str):
-        v = datetime.datetime.fromisoformat(v.replace('Z', ''))
-    if isinstance(v, datetime.datetime):
-        return (v - OLE_EPOCH).total_seconds() / 86400.0
-    if isinstance(v, datetime.date):
-        return float((v - OLE_EPOCH.date()).days)
-    return float(v)
-
-
-def _norm(v, typ):
-    if typ in ('dateTime',):
-        return _ole(v)
-    if typ == 'double':
-        return float(v)
-    if typ == 'decimal':
-        return int(round(float(v) * V.CURRENCY_SCALE))
-    if typ == 'int64':
-        return int(v)
+def _normalize(s, typ):
+    """Series of raw values -> Series of storage values (NaN/None = null)."""
+    if typ == 'string':
+        s = s.astype(object)
+        mask = s.isna()
+        if (~mask).any():
+            s = s.where(mask, s.map(lambda v: v if isinstance(v, str) else str(v)))
+        return s.where(~mask, None)
+    if typ == 'dateTime':
+        t = pd.to_datetime(s, errors='coerce', utc=False)
+        if getattr(t.dt, 'tz', None) is not None:
+            t = t.dt.tz_localize(None)
+        return (t - pd.Timestamp(OLE_EPOCH)) / pd.Timedelta(days=1)
     if typ == 'boolean':
-        return 1 if (v is True or v in (1, 'true', 'True')) else 0
-    return str(v)
+        return s.map(lambda v: None if _isnull(v) else (1 if v is True or v in (1, 'true', 'True') else 0)).astype('Int64')
+    num = pd.to_numeric(s, errors='coerce')
+    if typ == 'int64':
+        return num.round().astype('Int64')
+    if typ == 'decimal':
+        return (num.astype(float) * V.CURRENCY_SCALE).round().astype('Int64')
+    return num.astype(float)
 
 
 def _fmt(v, typ):
     if typ == 'dateTime':
-        d = OLE_EPOCH + datetime.timedelta(days=v)
+        d = OLE_EPOCH + datetime.timedelta(days=float(v))
         return f'{d.month}/{d.day}/{d.year}' + ('' if d.time() == datetime.time() else d.strftime(' %-I:%M:%S %p'))
     if typ == 'decimal':
         v = v / V.CURRENCY_SCALE
     if typ in ('double', 'decimal'):
+        v = float(v)
         return str(int(v)) if v == int(v) else repr(v)
     if typ == 'boolean':
         return 'TRUE' if v else 'FALSE'
@@ -93,39 +102,42 @@ def _fmt(v, typ):
 
 
 class Encoded:
-    """One column: per-row data ids, dictionary values in id order, null flag."""
+    """One column: per-row data ids (numpy), dictionary values in id order, null flag."""
 
     def __init__(self, typ, values):
         self.typ = typ
-        self.ids, self.values, index = [], [], {}
-        self.has_null = False
-        for v in values:
-            if _isnull(v):
-                self.ids.append(V.NULL_ID)
-                self.has_null = True
-                continue
-            v = _norm(v, typ)
-            i = index.get(v)
-            if i is None:
-                i = index[v] = V.FIRST_ID + len(self.values)
-                self.values.append(v)
-            self.ids.append(i)
-        self.index = index
+        s = values if isinstance(values, pd.Series) else pd.Series(list(values), dtype=object)
+        codes, uniques = pd.factorize(_normalize(s.reset_index(drop=True), typ), sort=False, use_na_sentinel=True)
+        self.ids = np.where(codes < 0, V.NULL_ID, codes + V.FIRST_ID).astype(np.int64)
+        u = np.asarray(uniques, dtype=object if typ == 'string' else None)
+        self.values = [str(v) for v in u] if typ == 'string' else (u.astype(np.int64) if typ in ('int64', 'boolean', 'decimal') else u.astype(float))
+        self.has_null = bool((codes < 0).any())
         self.last = V.FIRST_ID + len(self.values) - 1
 
-    def sort_keys(self, by=None):
-        """{data id: key}; `by` = Encoded of the sort-by column (same rows)."""
+    def value_of(self, i):
+        return self.values[i - V.FIRST_ID]
+
+    def order(self, by=None):
+        """Data ids in position order (null first): by value (case-insensitive for text, like the engine's collation)
+        or by the value of the sort-by column `by` (Encoded over the same rows) on each id's first row."""
+        n = len(self.values)
         if by is None:
-            keys = {i: (1, v) for v, i in self.index.items()}
+            if self.typ == 'string':
+                idx = sorted(range(n), key=lambda k: (self.values[k].casefold(), self.values[k]))
+            else:
+                idx = np.argsort(np.asarray(self.values), kind='stable').tolist()
         else:
-            keys = {}
-            for i, j in zip(self.ids, by.ids):
-                if i not in keys and i != V.NULL_ID:
-                    keys[i] = (1, by.values[j - V.FIRST_ID] if j != V.NULL_ID else None, i)
-            keys = {i: (k[0], (0, 0) if k[1] is None else (1, k[1]), k[2]) for i, k in keys.items()}
-        if self.has_null:
-            keys[V.NULL_ID] = (0,)
-        return keys
+            first_rows = pd.Series(np.arange(len(self.ids))).groupby(self.ids).first()
+            key_ids = by.ids[first_rows.reindex(range(V.FIRST_ID, self.last + 1)).to_numpy(dtype=np.int64)] if n else np.array([], dtype=np.int64)
+            def key(k):
+                j = int(key_ids[k])
+                if j == V.NULL_ID:
+                    return (0, 0, k)
+                v = by.value_of(j)
+                return (1, v.casefold() if isinstance(v, str) else v, k)
+            idx = sorted(range(n), key=key)
+        ids = [k + V.FIRST_ID for k in idx]
+        return ([V.NULL_ID] if self.has_null else []) + ids
 
 
 class Db:
@@ -185,8 +197,15 @@ class Builder:
         self.files.append((f'{folder_path}\\{name}', data))
         return fid
 
+    def store(self, stored, cps, seg, folder_id, folder_path, base):
+        """Column partition file(s): ('x', idfx) or ('s', idf, idfmeta) -> (idf file id, idfmeta file id or 0)."""
+        if stored[0] == 'x':
+            return self.file(cps, 23, folder_id, folder_path, f'{base}.0.idfx', stored[1]), 0
+        return (self.file(cps, 23, folder_id, folder_path, f'{base}.0.idf', stored[1]),
+                self.file(seg, 24, folder_id, folder_path, f'{base}.0.idfmeta', stored[2]))
+
     def system_table(self, kind, name, tpl_table, tpl_ts, tpl_part, tpl_smap, records, columns):
-        """H$/R$/U$ table: columns = [(name, column tpl, columnstorage tpl, idfx bytes, records per segment)]."""
+        """H$/R$/U$ table: columns = [(name, column tpl, columnstorage tpl, stored files, segment count)]."""
         db, now = self.db, self.db.now
         tid, ts, pid, ps, sm = db.id(), db.id(), db.id(), db.id(), db.id()
         db.ins('Table', tpl_table, ID=tid, Name=name, TableStorageID=ts, ModifiedTime=now, StructureModifiedTime=now)
@@ -206,10 +225,10 @@ class Builder:
             over = {'Settings': 7 if pos == 0 else 5} if ctpl == 'Column_H' else {}
             db.ins('ColumnStorage', cstpl, ID=cs, ColumnID=col, Name=cname, StoragePosition=pos, DictionaryStorageID=ds, **over)
             db.ins('DictionaryStorage', 'DictionaryStorage_H', ID=ds, ColumnStorageID=cs)
-            f = self.file(cps, 23, pf, pfolder, f'0.{name}.{cname}.0.idfx', data)
+            f, m = self.store(data, cps, seg, pf, pfolder, f'0.{name}.{cname}')
             db.ins('ColumnPartitionStorage', 'ColumnPartitionStorage_H', ID=cps, ColumnStorageID=cs, PartitionStorageID=ps,
                    SegmentStorageID=seg, StorageFileID=f)
-            db.ins('SegmentStorage', 'SegmentStorage_H', ID=seg, ColumnPartitionStorageID=cps, SegmentCount=segs)
+            db.ins('SegmentStorage', 'SegmentStorage_H', ID=seg, ColumnPartitionStorageID=cps, SegmentCount=segs, StorageFileID=m)
         return tid
 
     # ---- tables --------------------------------------------------------------------------------------------
@@ -225,18 +244,21 @@ class Builder:
         n = len(next(iter(values.values()))) if values else 0
         if not values:
             values = {c['name']: [] for c in cols}
-        # free row order inside a segment: group rows by null pattern so null runs stay few
-        order = sorted(range(n), key=lambda r: tuple(not _isnull(values.get(c['name'], [None] * n)[r]) for c in cols))
-        enc = {}
+        series = {}
         for c in cols:
             vals = values.get(c['name'])
             if vals is None or len(vals) != n:
-                raise ValueError(f"missing data for {name}[{c['name']}]")
-            enc[c['name']] = Encoded(c.get('dataType', 'string'), [vals[r] for r in order])
+                raise ValueError(f"dati mancanti per {name}[{c['name']}]")
+            series[c['name']] = (vals if isinstance(vals, pd.Series) else pd.Series(list(vals), dtype=object)).reset_index(drop=True)
+        # free row order inside a segment: group rows by null pattern so null runs stay few
+        masks = [series[c['name']].isna().to_numpy() for c in cols]
+        order = np.lexsort([~m for m in reversed(masks)]) if masks and n else np.arange(n)
+        enc = {c['name']: Encoded(c.get('dataType', 'string'), series[c['name']].iloc[order]) for c in cols}
+        segments = max(1, -(-n // V.SEGMENT_ROWS))
 
         tid = db.id()
-        tname = f'{name} ({tid})'
-        info = {'id': tid, 'tname': tname, 'cols': {}, 'enc': enc, 'n': n, 'json': t}
+        tname = f'{_storage_name(name)} ({tid})'
+        info = {'id': tid, 'tname': tname, 'cols': {}, 'enc': enc, 'n': n, 'json': t, 'segments': segments}
         self.tables[name] = info
         rn_id, rn_ah = db.id(), db.id()
         col_ids = {c['name']: (db.id(), db.id()) for c in cols}
@@ -258,14 +280,14 @@ class Builder:
         tf_id = self.folder(ts_id, 18, tfolder)
         db.ins('TableStorage', 'TableStorage', ID=ts_id, TableID=tid, Name=tname, StorageFolderID=tf_id)
         pf_id = self.folder(ps_id, 20, pfolder)
-        db.ins('PartitionStorage', 'PartitionStorage', ID=ps_id, PartitionID=pid, Name=f"{part.get('name', name)} ({pid})",
+        db.ins('PartitionStorage', 'PartitionStorage', ID=ps_id, PartitionID=pid, Name=f"{_storage_name(part.get('name', name))} ({pid})",
                SegmentMapStorageID=smap_id, StorageFolderID=pf_id)
         db.ins('SegmentMapStorage', 'SegmentMapStorage', ID=smap_id, PartitionStorageID=ps_id, RecordCount=n,
-               SegmentCount=1, RecordsPerSegment=n)
+               SegmentCount=segments, RecordsPerSegment=V.SEGMENT_ROWS if segments > 1 else n, Type=1 if segments > 1 else 3)
         info.update(tf_id=tf_id, tfolder=tfolder, pf_id=pf_id, pfolder=pfolder, ps_id=ps_id)
 
         # RowNumber
-        self.column_storage(info, rn_id, rn_ah, RN_NAME.replace('-', ' '), 0, V.rownumber_idfx(n),
+        self.column_storage(info, rn_id, rn_ah, f'{_storage_name(RN_NAME)} ({rn_id})', 0, V.rownumber_store(n),
                             ctpl='Column_RN_CT' if calc_table else 'Column_RN', cover={'ExplicitName': RN_NAME},
                             cstpl='ColumnStorage_RN', dstpl='DictionaryStorage_RN', ahtpl='AttributeHierarchy_RN',
                             ahstpl='AttributeHierarchyStorage_RN',
@@ -296,7 +318,7 @@ class Builder:
                     Expression=_text(fs.get('expression')), ModifiedTime=self.db.now)
         return fid
 
-    def column_storage(self, info, col_id, ah_id, csname, pos, idfx, ctpl, cover, cstpl, dstpl, ahtpl, ahstpl,
+    def column_storage(self, info, col_id, ah_id, csname, pos, stored, ctpl, cover, cstpl, dstpl, ahtpl, ahstpl,
                        ahs_over, cs_over, ds_over=None):
         db, now = self.db, self.db.now
         cs_id, ds_id, cps_id, seg_id, ahs_id = db.id(), db.id(), db.id(), db.id(), db.id()
@@ -312,11 +334,11 @@ class Builder:
             f_id = self.file(cps_id, 23, info['pf_id'], info['pfolder'], f"1.{info['tname']}.{csname}.0.idf", idf)
             m_id = self.file(seg_id, 24, info['pf_id'], info['pfolder'], f"1.{info['tname']}.{csname}.0.idfmeta", idfmeta)
         else:
-            f_id = self.file(cps_id, 23, info['pf_id'], info['pfolder'], f"1.{info['tname']}.{csname}.0.idfx", idfx)
-            m_id = 0
+            f_id, m_id = self.store(stored, cps_id, seg_id, info['pf_id'], info['pfolder'], f"1.{info['tname']}.{csname}")
         db.ins('ColumnPartitionStorage', 'ColumnPartitionStorage', ID=cps_id, ColumnStorageID=cs_id,
                PartitionStorageID=info['ps_id'], SegmentStorageID=seg_id, StorageFileID=f_id)
-        db.ins('SegmentStorage', 'SegmentStorage', ID=seg_id, ColumnPartitionStorageID=cps_id, StorageFileID=m_id)
+        db.ins('SegmentStorage', 'SegmentStorage', ID=seg_id, ColumnPartitionStorageID=cps_id, StorageFileID=m_id,
+               SegmentCount=info['segments'])
         if info['n'] == 0:
             db.set('ColumnStorage', cs_id, Statistics_DistinctStates=1, Statistics_MinDataID=2, Statistics_MaxDataID=2, Statistics_RowCount=0)
             db.set('AttributeHierarchyStorage', ahs_id, MaterializationType=2, DistinctDataCount=0, SystemTableID=0, MinValue=None, MaxValue=None)
@@ -331,11 +353,11 @@ class Builder:
         e = info['enc'][c['name']]
         vals = e.values
         dict_bytes = V.dictionary(kind, vals)
-        small = kind == 'long' and typ != 'decimal' and all(-2**31 <= v < 2**31 for v in vals)
+        small = kind == 'long' and (len(vals) == 0 or (int(np.min(vals)) >= -2**31 and int(np.max(vals)) < 2**31))
         ctype = c.get('type', 'data')
         is_calc_col = ctype == 'calculated'
         is_ct_col = ctype == 'calculatedTableColumn'
-        csname = f"{c['name']} ({col_id})"
+        csname = f"{_storage_name(c['name'])} ({col_id})"
         cover = {
             'ExplicitName': '' if c.get('isNameInferred') else c['name'],
             'InferredName': c['name'] if c.get('isNameInferred') else '',
@@ -357,16 +379,17 @@ class Builder:
         if is_ct_col:
             self.origins.append((col_id, c.get('sourceColumn', '')))
         ctpl = ('Column_CC_CT' if calc_table else 'Column_CC') if is_calc_col else ('Column_CTC' if is_ct_col else 'Column')
-        nonnull = sorted(vals)
         info.setdefault('pending_sort', []).append((col_id, c.get('sortByColumn')))
+        stored, stats = V.column_store(e.ids) if info['n'] else (None, {'runs': 0, 'others': 0})
         cs_id, ds_id, ahs_id = self.column_storage(
-            info, col_id, ah_id, csname, pos, V.column_idfx(e.ids, e.has_null), ctpl=ctpl, cover=cover,
+            info, col_id, ah_id, csname, pos, stored, ctpl=ctpl, cover=cover,
             cstpl='ColumnStorage_CC' if is_calc_col else 'ColumnStorage', dstpl='DictionaryStorage',
             ahtpl='AttributeHierarchy', ahstpl='AttributeHierarchyStorage',
             ahs_over={'DistinctDataCount': len(vals) + (1 if e.has_null else 0), 'SystemTableID': 0,
                       'StringValueMaxLength': max((len(v) for v in vals), default=0) if kind == 'string' else 0},
             cs_over={'Statistics_DistinctStates': len(vals), 'Statistics_MaxDataID': e.last, 'Statistics_RowCount': info['n'],
-                     'Statistics_HasNulls': 1 if e.has_null else 0, 'Statistics_RLERuns': 0,
+                     'Statistics_HasNulls': 1 if e.has_null else 0, 'Statistics_RLERuns': stats['runs'],
+                     'Statistics_OthersRLERuns': stats['others'],
                      'Statistics_DBType': dbtype, 'Statistics_XMType': xmtype},
             ds_over={'DataType': {9: 8, 10: 6, 11: 6}.get(edt, edt), 'LastId': e.last, 'IsNullable': 1 if e.has_null else 0,
                      'IsOperatingOn32': 1 if small else 0, 'DictionaryFlags': 3 if kind == 'string' else 0,
@@ -387,27 +410,28 @@ class Builder:
             if sort_by:
                 db.set('Column', col_id, SortByColumnID=info['cols'][sort_by])
         if info['n'] == 0:
-            info['keys'] = {c: {} for c in info['enc']}
+            info['pos'] = {}
             return
+        split = info['segments'] > 1
         for c in [c for c in t.get('columns', []) if c.get('type') != 'rowNumber']:
             e = info['enc'][c['name']]
             by = info['enc'].get(c.get('sortByColumn')) if c.get('sortByColumn') else None
-            keys = e.sort_keys(by)
-            ordered = [i for i in sorted(keys, key=lambda i: keys[i]) if i != V.NULL_ID]
+            order = e.order(by)
+            ordered = [i for i in order if i != V.NULL_ID]
             cs_id, ds_id, ahs_id, csname = info['storage'][c['name']]
             typ = c.get('dataType', 'string')
             if ordered:
-                db.set('AttributeHierarchyStorage', ahs_id, MinValue=_fmt(e.values[ordered[0] - V.FIRST_ID], typ),
-                       MaxValue=_fmt(e.values[ordered[-1] - V.FIRST_ID], typ))
-            pos_to_id, id_to_pos, per = V.hierarchy(keys, e.last)
+                db.set('AttributeHierarchyStorage', ahs_id, MinValue=_fmt(e.value_of(ordered[0]), typ),
+                       MaxValue=_fmt(e.value_of(ordered[-1]), typ))
+            pos_to_id, id_to_pos, per = V.hierarchy(order, e.last)
             segs = -(-(e.last + 1) // per)
             hname = f"H${info['tname']}${csname}"
             hid = self.system_table('H', hname, 'Table_H', 'TableStorage_H', 'Partition_H', 'SegmentMapStorage_H',
                                     (e.last + 1, segs, per),
-                                    [('POS_TO_ID', 'Column_H', 'ColumnStorage_H', V.raw32_idfx(pos_to_id, per), segs),
-                                     ('ID_TO_POS', 'Column_H', 'ColumnStorage_H', V.raw32_idfx(id_to_pos, per), segs)])
+                                    [('POS_TO_ID', 'Column_H', 'ColumnStorage_H', V.raw32_store(pos_to_id, per, split), segs),
+                                     ('ID_TO_POS', 'Column_H', 'ColumnStorage_H', V.raw32_store(id_to_pos, per, split), segs)])
             db.set('AttributeHierarchyStorage', ahs_id, SystemTableID=hid)
-            info.setdefault('keys', {})[c['name']] = keys
+            info.setdefault('pos', {})[c['name']] = id_to_pos
 
     def measures(self, info):
         db, now = self.db, self.db.now
@@ -443,8 +467,8 @@ class Builder:
                        ColumnID=info['cols'][lv['column']], LineageTag=lv.get('lineageTag', ''), ModifiedTime=now)
             # members level by level, children grouped under their parent in parent order
             encs = [info['enc'][lv['column']] for lv in levels]
-            keys = [info['keys'][lv['column']] for lv in levels]
-            paths = sorted({tuple(e.ids[r] for e in encs) for r in range(info['n'])})
+            keys = [info['pos'][lv['column']] for lv in levels]
+            paths = [tuple(p) for p in np.unique(np.stack([e.ids for e in encs], axis=1), axis=0).tolist()] if info['n'] else []
             members, pos_of, starts = [], {}, []
             for depth in range(len(levels)):
                 starts.append(len(members))
@@ -464,14 +488,14 @@ class Builder:
             fcp = [first_child.get(pre, 0) for pre in members]
             cc = [child_count[pre] + 1 if pre in child_count else 0 for pre in members]
             n = len(members)
-            uname = f"U${info['tname']}${h['name']} ({hid})"
-            cols = [(c, 'Column_U_' + c, 'ColumnStorage_U_' + c, V.raw32_single(vals, first), 1)
+            uname = f"U${info['tname']}${_storage_name(h['name'])} ({hid})"
+            cols = [(c, 'Column_U_' + c, 'ColumnStorage_U_' + c, V.raw32_store(vals, max(n, 1), info['segments'] > 1, first), 1)
                     for c, vals, first in (('MULTI_LEVEL_ID', mlid, 0), ('PARENT_POS', parent, 0xFFFFFFFF),
                                            ('FIRST_CHILD_POS', fcp, 0xFFFFFFFF), ('CHILD_COUNT', cc, 0xFFFFFFFF))]
             uid = self.system_table('U', uname, 'Table_U', 'TableStorage_U', 'Partition_U', 'SegmentMapStorage_U', (n, 1, n), cols)
             cs_names = [info['storage'][lv['column']][3] for lv in levels]
             leveldef = '$' + ''.join(f'{nm}${s}$' for nm, s in zip(cs_names, starts))
-            db.ins('HierarchyStorage', 'HierarchyStorage', ID=hs, HierarchyID=hid, Name=f"{h['name']} ({hid})",
+            db.ins('HierarchyStorage', 'HierarchyStorage', ID=hs, HierarchyID=hid, Name=f"{_storage_name(h['name'])} ({hid})",
                    LevelDefinition=leveldef, SystemTableID=uid)
 
     def relationships(self):
@@ -503,19 +527,20 @@ class Builder:
             date_only = r.get('joinOnDateBehavior') == 'datePartOnly'
             key = (lambda v: float(int(v))) if date_only else (lambda v: v)
             # INDEX: data id of the from column -> row of the to table + 1 (0 = no match / blank)
-            row_of = {}
-            for row, i in enumerate(te.ids):
-                if i != V.NULL_ID:
-                    row_of.setdefault(key(te.values[i - V.FIRST_ID]), row + 1)
-            index = [0] * (fe.last + 1)
-            for v, i in fe.index.items():
-                index[i] = row_of.get(key(v), 0)
-            unmatched = fe.has_null or any(index[i] == 0 for i in fe.index.values())
-            rname = f"R${ft['tname']}${r.get('name')} ({rid})"
+            first_row = pd.Series(np.arange(len(te.ids)) + 1).groupby(te.ids).first()   # data id -> first row + 1
+            first_row = first_row[first_row.index != V.NULL_ID]
+            to_keys = pd.Series(first_row.to_numpy(), index=[key(te.value_of(int(i))) for i in first_row.index])
+            to_keys = to_keys[~to_keys.index.duplicated()]
+            from_keys = [key(v) for v in fe.values]
+            matched = pd.Series(from_keys, dtype=object).map(to_keys).fillna(0).astype(np.int64).to_numpy() if from_keys else np.zeros(0, np.int64)
+            index = np.zeros(fe.last + 1, dtype=np.int64)
+            index[V.FIRST_ID:] = matched
+            unmatched = fe.has_null or bool((matched == 0).any())
+            rname = f"R${ft['tname']}${_storage_name(r.get('name'))} ({rid})"
             rtid = self.system_table('R', rname, 'Table_R', 'TableStorage_R', 'Partition_R', 'SegmentMapStorage_R',
                                      (len(index), 1, len(index)),
-                                     [('INDEX', 'Column_R', 'ColumnStorage_R', V.bitpacked_idfx(index), 1)])
-            db.ins('RelationshipStorage', 'RelationshipStorage', ID=rs, RelationshipID=rid, Name=f"{r.get('name')} ({rid})",
+                                     [('INDEX', 'Column_R', 'ColumnStorage_R', V.bitpacked_store(index, ft['segments'] > 1), 1)])
+            db.ins('RelationshipStorage', 'RelationshipStorage', ID=rs, RelationshipID=rid, Name=f"{_storage_name(r.get('name'))} ({rid})",
                    DefinitionType=2 if date_only else 0, RelationshipIndexStorageID=ris)
             db.ins('RelationshipIndexStorage', 'RelationshipIndexStorage', ID=ris, RelationshipStorageID=rs,
                    RecordCount=len(index), SystemTableID=rtid, Flags=1 if unmatched else 0)
