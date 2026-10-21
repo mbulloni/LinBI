@@ -12,7 +12,10 @@ export const CONNECTORS: Connector[] = [
   { id: 'synapse', label: 'Azure Synapse Analytics (SQL DW)', kind: 'sqlserver', variant: 'synapse', port: '1433', group: 'Azure' },
   { id: 'fabric', label: 'Endpoint SQL di Microsoft Fabric / Warehouse', kind: 'sqlserver', variant: 'fabric', port: '1433', group: 'Azure' },
   { id: 'oracle', label: 'Database Oracle', kind: 'oracle', port: '1521', group: 'Database' },
-  { id: 'mysql', label: 'Database MySQL / MariaDB', kind: 'mysql', port: '3306', group: 'Database' },
+  { id: 'mysql', label: 'Database MySQL', kind: 'mysql', port: '3306', group: 'Database' },
+  { id: 'mariadb', label: 'MariaDB', kind: 'mysql', variant: 'mariadb', port: '3306', group: 'Database' },
+  { id: 'azurepg', label: 'Database di Azure per PostgreSQL', kind: 'postgres', variant: 'azurepg', port: '5432', group: 'Azure' },
+  { id: 'azuremysql', label: 'Database di Azure per MySQL', kind: 'mysql', variant: 'azuremysql', port: '3306', group: 'Azure' },
   { id: 'postgres', label: 'Database PostgreSQL', kind: 'postgres', port: '5432', group: 'Database' },
   { id: 'redshift', label: 'Amazon Redshift', kind: 'postgres', variant: 'redshift', port: '5439', group: 'Database' },
   { id: 'sqlite', label: 'Database SQLite (file)', kind: 'sqlite', port: '', group: 'Database' },
@@ -20,6 +23,8 @@ export const CONNECTORS: Connector[] = [
   { id: 'snowflake', label: 'Snowflake', kind: 'snowflake', port: '', group: 'Database' },
   { id: 'bigquery', label: 'Google BigQuery', kind: 'bigquery', port: '', group: 'Database' },
   { id: 'databricks', label: 'Azure Databricks / Databricks', kind: 'databricks', port: '', group: 'Azure' },
+  { id: 'kusto', label: 'Azure Data Explorer (Kusto)', kind: 'kusto', port: '', group: 'Azure' },
+  { id: 'dataverse', label: 'Dataverse (Power Platform, Dynamics 365)', kind: 'dataverse', port: '', group: 'Azure' },
   { id: 'clickhouse', label: 'ClickHouse', kind: 'clickhouse', port: '8123', group: 'Database' },
   { id: 'mongodb', label: 'MongoDB', kind: 'mongodb', port: '27017', group: 'Altro' },
   { id: 'odbc', label: 'ODBC (SAP HANA, Db2, Teradata, Informix, Vertica…)', kind: 'odbc', port: '', group: 'Altro' },
@@ -83,8 +88,8 @@ export function DatabaseDialog() {
     if (form.advanced && form.query.trim()) base.query = form.query.trim();
     return base;
   };
-  const needsSecret = !fileKind && kind !== 'bigquery' && !(kind === 'sqlserver' && form.auth === 'token') && !(kind === 'snowflake' && form.auth === 'browser');
-  const sqlCapable = !['mongodb', 'access', 'sqlite'].includes(kind);
+  const needsSecret = !fileKind && !['bigquery', 'kusto', 'dataverse'].includes(kind) && !(kind === 'sqlserver' && form.auth === 'token') && !(kind === 'snowflake' && form.auth === 'browser');
+  const sqlCapable = !['mongodb', 'access', 'sqlite', 'dataverse'].includes(kind);
 
   const doConnect = async () => {
     setBusy(true); setError(null);
@@ -133,15 +138,16 @@ export function DatabaseDialog() {
             )}
             {!fileKind && <>
               <div className="pq-row" style={{ alignItems: 'flex-start' }}>
-                <label className="pq-field" style={{ flex: 3 }}>{kind === 'snowflake' ? 'Server (account.snowflakecomputing.com)' : kind === 'databricks' ? 'Nome host del server' : kind === 'bigquery' ? 'Endpoint (facoltativo, es. emulatore)' : kind === 'oracle' ? 'Server (host:porta/servizio)' : kind === 'mongodb' ? 'Server o stringa di connessione' : kind === 'odbc' ? 'Nome origine dati (DSN) o stringa di connessione' : 'Server'}
-                  <input type="text" value={kind === 'bigquery' && form.host === 'localhost' ? '' : form.host} onChange={(e) => set({ host: e.target.value })} placeholder={conn0.variant === 'azuresql' ? 'server.database.windows.net' : conn0.variant === 'fabric' ? 'xxxx.datawarehouse.fabric.microsoft.com' : kind === 'sqlserver' ? 'server\\istanza' : ''} />
+                <label className="pq-field" style={{ flex: 3 }}>{kind === 'snowflake' ? 'Server (account.snowflakecomputing.com)' : kind === 'databricks' ? 'Nome host del server' : kind === 'bigquery' ? 'Endpoint (facoltativo, es. emulatore)' : kind === 'oracle' ? 'Server (host:porta/servizio)' : kind === 'mongodb' ? 'Server o stringa di connessione' : kind === 'odbc' ? 'Nome origine dati (DSN) o stringa di connessione' : kind === 'kusto' ? 'Cluster' : kind === 'dataverse' ? 'URL dell\'ambiente' : 'Server'}
+                  <input type="text" value={kind === 'bigquery' && form.host === 'localhost' ? '' : form.host} onChange={(e) => set({ host: e.target.value })} placeholder={kind === 'kusto' ? 'https://cluster.westeurope.kusto.windows.net' : kind === 'dataverse' ? 'https://organizzazione.crm4.dynamics.com' : conn0.variant === 'azuresql' ? 'server.database.windows.net' : conn0.variant === 'fabric' ? 'xxxx.datawarehouse.fabric.microsoft.com' : kind === 'sqlserver' ? 'server\\istanza' : ''} />
                 </label>
                 {conn0.port && kind !== 'oracle' && <label className="pq-field" style={{ flex: 1 }}>Porta<input type="text" value={form.port} placeholder={conn0.port} onChange={(e) => set({ port: e.target.value })} /></label>}
               </div>
               {kind === 'databricks' && <label className="pq-field">Percorso HTTP<input type="text" value={form.httpPath} onChange={(e) => set({ httpPath: e.target.value })} placeholder="/sql/1.0/warehouses/…" /></label>}
               {kind === 'snowflake' && <label className="pq-field">Warehouse<input type="text" value={form.warehouse} onChange={(e) => set({ warehouse: e.target.value })} /></label>}
               {kind === 'odbc' && <div className="pq-note">Esempi: <code>DSN=Vendite</code> oppure <code>Driver={'{'}HDBODBC{'}'};ServerNode=host:30015</code>. Richiede unixODBC e il driver ODBC del database installati nel sistema (<code>odbcinst -q -d</code> li elenca).</div>}
-              {kind !== 'oracle' && kind !== 'odbc' && <label className="pq-field">{kind === 'bigquery' ? 'ID progetto' : kind === 'databricks' ? 'Catalogo (facoltativo)' : 'Database (facoltativo)'}<input type="text" value={form.database} onChange={(e) => set({ database: e.target.value })} /></label>}
+              {(kind === 'kusto' || kind === 'dataverse') && <div className="pq-note">{TOKEN_HINT.replace('Azure SQL Database › user_impersonation', kind === 'kusto' ? 'Azure Data Explorer › user_impersonation' : 'Dynamics CRM › user_impersonation')}</div>}
+              {kind !== 'oracle' && kind !== 'odbc' && kind !== 'dataverse' && <label className="pq-field">{kind === 'bigquery' ? 'ID progetto' : kind === 'databricks' ? 'Catalogo (facoltativo)' : 'Database (facoltativo)'}<input type="text" value={form.database} onChange={(e) => set({ database: e.target.value })} /></label>}
               {kind === 'oracle' && <div className="pq-note">Esempi: <code>db.azienda.it:1521/ORCLPDB1</code> oppure una descrizione TNS completa.</div>}
               {AUTHS[kind] && (
                 <label className="pq-field">Autenticazione

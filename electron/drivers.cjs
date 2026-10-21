@@ -177,6 +177,8 @@ function flatten(doc, prefix = '', out = {}) {
   return out;
 }
 
+const ISO_DATETIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?(Z|[+-]\d\d:\d\d)?$/;
+
 function mongoType(values) {
   const vs = values.filter((v) => v !== null && v !== undefined);
   if (!vs.length) return 'VARCHAR';
@@ -184,6 +186,7 @@ function mongoType(values) {
   if (vs.every((v) => typeof v === 'number' && Number.isInteger(v)) || vs.every((v) => v?._bsontype === 'Long')) return 'BIGINT';
   if (vs.every((v) => typeof v === 'number' || ['Double', 'Int32', 'Long', 'Decimal128'].includes(v?._bsontype))) return 'DOUBLE';
   if (vs.every((v) => v instanceof Date)) return 'TIMESTAMP';
+  if (vs.every((v) => typeof v === 'string' && ISO_DATETIME.test(v))) return 'TIMESTAMP';
   return 'VARCHAR';
 }
 
@@ -430,7 +433,79 @@ const odbc = {
   close: (conn) => conn.close(),
 };
 
-const ADAPTERS = { sqlserver, oracle, clickhouse, mongodb, access, snowflake, bigquery, databricks, odbc };
+// ---------- Azure Data Explorer (Kusto) and Dataverse: REST with the Microsoft account of LinBI ----------
+
+// LINBI_MS_TOKEN (tests against mock servers) replaces the Entra token.
+const msToken = (resource) => process.env.LINBI_MS_TOKEN || require('./powerbi.cjs').token(`${resource.replace(/\/$/, '')}/.default`);
+const httpsUrl = (h) => (/^https?:\/\//.test(h) ? h : `https://${h}`).replace(/\/$/, '');
+
+function kustoType(t) {
+  // ColumnType (Kusto names) or DataType (.NET names in REST v1)
+  return { bool: 'BOOLEAN', boolean: 'BOOLEAN', int: 'INTEGER', int32: 'INTEGER', sbyte: 'INTEGER', int16: 'INTEGER', long: 'BIGINT', int64: 'BIGINT',
+    real: 'DOUBLE', double: 'DOUBLE', single: 'DOUBLE', decimal: 'DOUBLE', sqldecimal: 'DOUBLE', datetime: 'TIMESTAMP', date: 'TIMESTAMP' }[String(t).toLowerCase()] || 'VARCHAR';
+}
+
+const kusto = {
+  label: 'Azure Data Explorer', port: '',
+  async open(c) {
+    const url = httpsUrl(c.host);
+    return { url, db: c.database, token: await msToken(url) };
+  },
+  async run(h, csl, mgmt = false) {
+    const r = await fetch(`${h.url}/v1/rest/${mgmt ? 'mgmt' : 'query'}`, { method: 'POST', headers: { Authorization: `Bearer ${h.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ db: h.db, csl }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Azure Data Explorer: ${j.error?.['@message'] || j.error?.message || r.status}`);
+    return j.Tables[0];
+  },
+  async list(h) {
+    const t = await kusto.run(h, '.show tables', true);
+    const i = t.Columns.findIndex((c) => c.ColumnName === 'TableName');
+    return t.Rows.map((r) => ({ schema: h.db, table: r[i], view: false }));
+  },
+  select: (schema, table) => `['${String(table).replace(/'/g, "\\'")}']`,
+  async query(h, text, limit, onColumns, onRow) {
+    const t = await kusto.run(h, limit ? `${text}\n| take ${limit}` : text);
+    onColumns(t.Columns.map((c) => ({ name: c.ColumnName, type: kustoType(c.DataType || c.ColumnType) })));
+    for (const r of t.Rows) onRow(r.map((v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v)));
+  },
+  close: () => {},
+};
+
+const dataverse = {
+  label: 'Dataverse', port: '',
+  async open(c) {
+    const url = httpsUrl(c.host);
+    return { url, token: await msToken(url) };
+  },
+  async get(h, path) {
+    const r = await fetch(path.startsWith('http') ? path : `${h.url}/api/data/v9.2/${path}`, { headers: { Authorization: `Bearer ${h.token}`, Accept: 'application/json', 'OData-Version': '4.0', Prefer: 'odata.maxpagesize=5000' } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`Dataverse: ${j.error?.message || r.status}`);
+    return j;
+  },
+  async list(h) {
+    const j = await dataverse.get(h, "EntityDefinitions?$select=LogicalName,EntitySetName&$filter=IsValidForAdvancedFind eq true and IsPrivate eq false");
+    return j.value.map((e) => ({ schema: 'dbo', table: e.EntitySetName, view: false })).sort((a, b) => a.table.localeCompare(b.table));
+  },
+  select: (schema, table) => table,
+  async query(h, text, limit, onColumns, onRow) {
+    let next = `${text}${limit ? `?$top=${limit}` : ''}`, cols = null, n = 0;
+    while (next) {
+      const j = await dataverse.get(h, next);
+      const rows = j.value.map((d) => Object.fromEntries(Object.entries(d).filter(([k]) => !k.includes('@'))));
+      if (!cols) { const names = [...new Set(rows.flatMap((r) => Object.keys(r)))]; cols = names.map((name) => ({ name, type: mongoType(rows.map((r) => r[name])) })); onColumns(cols); }
+      for (const r of rows) {
+        onRow(cols.map((c) => (c.type === 'TIMESTAMP' && typeof r[c.name] === 'string' ? new Date(r[c.name]) : r[c.name] ?? null)));
+        if (limit && ++n >= limit) return;
+      }
+      next = j['@odata.nextLink'];
+    }
+    if (!cols) onColumns([]);
+  },
+  close: () => {},
+};
+
+const ADAPTERS = { sqlserver, oracle, clickhouse, mongodb, access, snowflake, bigquery, databricks, odbc, kusto, dataverse };
 
 // ---------- CSV bridge ----------
 

@@ -259,7 +259,7 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 |---|---|---|
 | SQL Server, SQL di Azure, Azure Synapse, Microsoft Fabric (endpoint SQL / Warehouse) | driver `mssql` (tedious, JavaScript) | database, Windows (NTLM con dominio), account Microsoft di LinBI (token Entra), Entra ID utente+password; crittografia e certificato |
 | Oracle | `oracledb` in modalità thin (senza Instant Client) | utente e password; `host:porta/servizio` o descrittore TNS |
-| MySQL / MariaDB, PostgreSQL, Amazon Redshift, SQLite | estensioni DuckDB (`ATTACH … READ_ONLY`) | utente e password |
+| MySQL, MariaDB, PostgreSQL, Database di Azure per PostgreSQL/MySQL, Amazon Redshift, SQLite | estensioni DuckDB (`ATTACH … READ_ONLY`) | utente e password |
 | Snowflake | `snowflake-sdk` | password, coppia di chiavi, SSO nel browser |
 | Google BigQuery | `@google-cloud/bigquery` | file di chiave JSON dell'account di servizio o credenziali `gcloud` |
 | Databricks / Azure Databricks | `@databricks/sql` | token di accesso personale |
@@ -267,6 +267,8 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 | MongoDB | driver `mongodb` (collezioni → tabelle, campi annidati `a.b`, array come JSON) | utente e password o stringa di connessione |
 | Access (`.accdb`, `.mdb`) | `mdb-reader` (JavaScript, nessun driver) | — |
 | ODBC (SAP HANA, Db2, Teradata, Informix, Vertica, Exasol…) | modulo `odbc` su unixODBC: DSN o stringa di connessione | quella del driver |
+| Azure Data Explorer (Kusto) | API REST v1 (tabelle e query KQL) | account Microsoft di LinBI |
+| Dataverse (Power Platform, Dynamics 365) | Web API OData v4 con paginazione | account Microsoft di LinBI |
 
 Lo **Strumento di navigazione** elenca tabelle e viste con anteprima; *Opzioni avanzate › Istruzione SQL* importa il
 risultato di una query nativa (`Query1`), come in Power BI. I driver Node leggono i dati in streaming in un CSV
@@ -279,8 +281,9 @@ Nei file Power BI l'origine diventa la funzione M che usa Power BI Desktop (`Sql
 
 Verificati con database reali in container Docker (`scripts/connectors/`): SQL Server 2022 (anche dentro LinBI:
 navigatore, istruzione SQL, Aggiorna, export `.pbit`/`.pbix`), ClickHouse 24, MongoDB 7, emulatore BigQuery, Access
-e ODBC (driver SQLite). Oracle: verifica in corso. Snowflake e Databricks non hanno un equivalente locale:
-implementati sulle API ufficiali, da verificare su un account reale.
+e ODBC (driver SQLite). Oracle: verifica in corso. Azure Data Explorer e Dataverse: provati contro un server che riproduce le loro API
+(`scripts/connectors/mock-rest.cjs`). Snowflake e Databricks non hanno un equivalente locale: implementati sulle API
+ufficiali; questi quattro restano da verificare su un account reale.
 
 ### Pubblica
 

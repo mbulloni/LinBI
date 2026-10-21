@@ -32,7 +32,7 @@ const cacheDir = () => { const d = path.join(app.getPath('userData'), 'db-cache'
 
 async function secretOf(c, password) {
   if (c.auth === 'token') return require('./powerbi.cjs').token('sql'); // Microsoft Entra: LinBI's own account
-  if (c.auth === 'adc' || c.kind === 'access' || c.kind === 'bigquery') return undefined;
+  if (c.auth === 'adc' || ['access', 'bigquery', 'kusto', 'dataverse'].includes(c.kind)) return undefined;
   const pw = password ?? passwordOf(c);
   if (pw === undefined && ((c.user && c.kind !== 'odbc') || c.kind === 'databricks')) {
     const err = new Error(`Credenziali mancanti per ${keyOf(c)}. Ricollegarsi da Ottieni dati › Database.`);

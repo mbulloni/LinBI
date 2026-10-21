@@ -308,13 +308,14 @@ async function token(kind) {
   if (!rt) throw new Error('Accedere a Power BI prima di pubblicare.');
   const cfg = loadCfg();
   const { ok, j } = await form(`${LOGIN}/${cfg.tenant || 'organizations'}/oauth2/v2.0/token`, {
-    grant_type: 'refresh_token', client_id: cfg.clientId, refresh_token: rt, scope: `${SCOPES[kind]} offline_access`,
+    // kind = a SCOPES key, or an https resource scope (Azure Data Explorer cluster, Dataverse environment…)
+    grant_type: 'refresh_token', client_id: cfg.clientId, refresh_token: rt, scope: `${SCOPES[kind] ?? kind} offline_access`,
   });
   // Fabric and Power BI are the same Entra resource: a Power BI token also works for Fabric APIs.
   if (!ok && kind === 'fabric' && j.error !== 'invalid_grant') return token('pbi');
   if (!ok) {
     if (j.error === 'invalid_grant') signOut();
-    throw new Error(`Token ${kind === 'fabric' ? 'Fabric' : kind === 'graph' ? 'Microsoft Graph' : kind === 'sql' ? 'Azure SQL' : 'Power BI'} non ottenuto: ${j.error_description?.split('\r\n')[0] || j.error}`);
+    throw new Error(`Token ${kind === 'fabric' ? 'Fabric' : kind === 'graph' ? 'Microsoft Graph' : kind === 'sql' ? 'Azure SQL' : /^https:/.test(kind) ? kind.replace(/\/\.default$/, '') : 'Power BI'} non ottenuto: ${j.error_description?.split('\r\n')[0] || j.error}`);
   }
   if (j.refresh_token) keepRefresh(j.refresh_token);
   tokens.set(kind, { token: j.access_token, until: Date.now() + (j.expires_in - 120) * 1000 });

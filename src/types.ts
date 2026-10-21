@@ -36,7 +36,7 @@ export interface TableMeta {
 export interface ParamField { label: string; table: string; column: string; measure?: boolean; }
 
 /** Database table source (Ottieni dati › Database). The password is stored outside the report. */
-export type DbKind = 'mysql' | 'postgres' | 'sqlite' | 'sqlserver' | 'oracle' | 'snowflake' | 'bigquery' | 'databricks' | 'clickhouse' | 'mongodb' | 'access' | 'odbc';
+export type DbKind = 'mysql' | 'postgres' | 'sqlite' | 'sqlserver' | 'oracle' | 'snowflake' | 'bigquery' | 'databricks' | 'clickhouse' | 'mongodb' | 'access' | 'odbc' | 'kusto' | 'dataverse';
 /** Database source. `variant` = the connector chosen in Ottieni dati (azuresql, synapse, fabric, redshift…) when it shares
  *  a driver; `query` = native SQL statement (Opzioni avanzate › Istruzione SQL) instead of schema/table.
  *  `auth`: sql | windows (NTLM, `domain`) | entra (user + password) | token (LinBI's Microsoft account) | keypair | browser | adc. */
