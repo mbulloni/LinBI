@@ -207,8 +207,8 @@ confidenza restano nel `.lbix`), perché i nomi di quelle proprietà non sono do
 | **Salvare `.pbit`** | Sì (File › Esporta modello Power BI): modello TOM, query M per ogni tabella, misure, relazioni, layout e immagini. Power BI Desktop ricarica i dati dalle origini, poi si salva come `.pbix`. |
 | **Salvare `.pbix`** | No: richiederebbe la scrittura del backup di Analysis Services con colonne VertiPaq e compressione XPress9 proprietaria; non esiste un writer open source. |
 
-Limiti dell'import: visual personalizzati, mappe, Q&A e simili diventano segnaposto; pulsanti e forme non vengono importati;
-i report in connessione dinamica (Power BI Service/SSAS) non contengono dati.
+Limiti dell'import: i tipi di visual sconosciuti (né standard né `.pbiviz` incorporato nel file) diventano segnaposto;
+i report in connessione dinamica (Power BI Service/SSAS) non contengono dati: si aprono da *Ottieni dati › Power BI*.
 Le misure DAX importate passano dal motore della fase 5; una funzione non supportata mostra un messaggio esplicito nel visual.
 
 ### File, temi e PDF (fase 6)
@@ -326,12 +326,26 @@ Fabric, PDF, `.lbix` con i dati.
   Python ed eseguibile Rscript per gli oggetti visivi script, chiave e modello Claude per Q&A, impostazioni origine dati,
   *Data/ora automatica* del file corrente (tabelle date e gerarchie nelle esportazioni)
 
-## Roadmap
+## Stato
 
-4. ~~**Power Query**~~ ✔ — modifica dei passaggi (ingranaggio), colonna condizionale, *Usa la prima riga come intestazione*, qualità/distribuzione/profilo colonne, Editor avanzato e barra della formula modificabili (parser M → passaggi), colonna da esempi, parametri (`#[Nome]` in origini e filtri, esportati come parametri Power BI), origini Web, Feed OData e Cartella (file combinati con `Source.Name`)
-5. ~~**DAX completo**~~ ✔ — misure rapide, IntelliSense, gerarchie di date automatiche fatti
-10. ~~**Modello**~~ ✔ — gerarchie utente, cartelle di visualizzazione, tabelle delle date, gruppi di calcolo, RLS con *Visualizza come*
-6. ~~**File**~~ ✔ — prossimi passi: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint
+Fasi **1–10 completate** (v1.2.0): interfaccia e report, Power Query, relazioni, DAX, file Power BI, oggetti visivi e
+IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio Power BI.
+
+**Da verificare** (implementato, provato solo con file di prova o server finti):
+- servizio Power BI su un tenant reale: accesso, aree di lavoro, pubblicazione, download dei report, lettura dei
+  modelli semantici, SharePoint in Power Query (serve un ID applicazione Entra, vedi *Pubblica*);
+- in Power BI Desktop reale: icone della formattazione condizionale, tabelle date automatiche, etichette di
+  riservatezza, linee di analisi/previsione/barre di errore e livelli delle gerarchie utente esportati;
+- Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`).
+
+**Limiti noti**:
+- `.pbix` non salvabile (formato VertiPaq/XPress9 proprietario): si esporta `.pbit` o `.pbip`;
+- dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);
+- previsione e barre di errore: nei file Power BI solo aspetto e attivazione (lunghezza, confidenza e limiti da campi
+  restano nel `.lbix`, nomi non presenti nello schema ufficiale);
+- modelli semantici dal servizio: max 100.000 righe per tabella, senza pagine.
+
+**Possibili prossimi passi**: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint.
 
 ## Test di fumo
 
