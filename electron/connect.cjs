@@ -1,5 +1,6 @@
 // Database sources (Get Data › Database): MySQL/MariaDB, PostgreSQL, SQLite through DuckDB's
-// scanner extensions (ATTACH … READ_ONLY). Passwords never go into reports: they are kept in
+// scanner extensions (ATTACH … READ_ONLY); SQL Server, Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB
+// and Access through Node drivers (drivers.cjs) cached as Parquet. Passwords never go into reports: they are kept in
 // <userData>/credentials.json, encrypted with Electron safeStorage (system keyring) when available,
 // otherwise only for the current session — like Power BI's data source credentials.
 const fs = require('fs');
@@ -7,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { app, safeStorage } = require('electron');
 const db = require('./db.cjs');
+const { ADAPTERS, fetchToParquet, cacheKey } = require('./drivers.cjs');
 
 const qi = (s) => '"' + String(s).replace(/"/g, '""') + '"';
 const ql = (s) => "'" + String(s).replace(/'/g, "''") + "'";
@@ -17,8 +19,78 @@ const credFile = () => path.join(app.getPath('userData'), 'credentials.json');
 
 /** Identity of a connection (no password): also the key of its stored credentials. */
 function keyOf(c) {
-  if (c.kind === 'sqlite') return `sqlite://${c.file}`;
-  return `${c.kind}://${c.user ?? ''}@${c.host ?? 'localhost'}:${c.port ?? ''}/${c.database ?? ''}`;
+  if (c.kind === 'sqlite' || c.kind === 'access') return `${c.kind}://${c.file}`;
+  if (c.kind === 'bigquery') return `bigquery://${c.database ?? ''}@${c.file ?? 'adc'}`;
+  const extra = c.auth && c.auth !== 'sql' ? `;auth=${c.auth}${c.domain ? `;domain=${c.domain}` : ''}` : '';
+  return `${c.kind}://${c.user ?? ''}@${c.host ?? 'localhost'}:${c.port ?? ''}/${c.database ?? ''}${c.httpPath ? c.httpPath : ''}${extra}`;
+}
+
+// ---- Node-driver sources ----
+const handles = new Map();   // key -> driver handle (one per session)
+const fetched = new Map();   // cache file -> true once loaded in this session
+const cacheDir = () => { const d = path.join(app.getPath('userData'), 'db-cache'); fs.mkdirSync(d, { recursive: true }); return d; };
+
+async function secretOf(c, password) {
+  if (c.auth === 'token') return require('./powerbi.cjs').token('sql'); // Microsoft Entra: LinBI's own account
+  if (c.auth === 'adc' || c.kind === 'access' || c.kind === 'bigquery') return undefined;
+  const pw = password ?? passwordOf(c);
+  if (pw === undefined && ((c.user && c.kind !== 'odbc') || c.kind === 'databricks')) {
+    const err = new Error(`Credenziali mancanti per ${keyOf(c)}. Ricollegarsi da Ottieni dati › Database.`);
+    err.code = 'NO_CREDENTIALS';
+    throw err;
+  }
+  return pw;
+}
+
+async function driverHandle(c, password) {
+  const key = keyOf(c);
+  if (handles.has(key) && password === undefined) return handles.get(key);
+  if (handles.has(key)) { await Promise.resolve(ADAPTERS[c.kind].close(handles.get(key))).catch(() => {}); handles.delete(key); }
+  const h = await ADAPTERS[c.kind].open(c, await secretOf(c, password));
+  handles.set(key, h);
+  return h;
+}
+
+/** SQL of a source: its native statement (Istruzione SQL) or the whole table. */
+const sourceSql = (c) => c.query || ADAPTERS[c.kind].select(c.schema, c.table);
+
+/** First rows of a table or statement for the navigator / statement preview. */
+async function preview(c, limit = 50) {
+  if (!ADAPTERS[c.kind]) {
+    const alias = await attach(c);
+    const from = c.query ? nativeFrom(c, alias) : `${qi(alias)}.${qi(c.schema)}.${qi(c.table)}`;
+    return db.query(`SELECT * FROM ${from} LIMIT ${limit}`);
+  }
+  const h = await driverHandle(c);
+  const rows = [];
+  let cols = [];
+  const show = (v, type) => {
+    if (v === null || v === undefined) return null;
+    if (v instanceof Date) {
+      const t = v.toISOString().replace('T', ' ').replace(/\.000Z$|Z$/, '');
+      return type === 'DATE' ? t.slice(0, 10) : type === 'TIME' ? t.slice(11) : t;
+    }
+    if (Buffer.isBuffer(v)) return `<${v.length} byte>`;
+    if (typeof v === 'number' && type === 'FLOAT') return Number(v.toPrecision(7));
+    if (typeof v === 'object') return v.constructor?.name === 'Big' || typeof v.toFixed === 'function' ? v.toString() : JSON.stringify(v);
+    return v;
+  };
+  await ADAPTERS[c.kind].query(h, sourceSql(c), limit, (cs) => { cols = cs; }, (r) => {
+    rows.push(Object.fromEntries(cols.map((col, i) => [col.name, show(r[i], col.type)])));
+  });
+  return { columns: cols.map((x) => x.name), rows };
+}
+
+/** DuckDB pass-through of a native statement on an ATTACHed MySQL/PostgreSQL database. */
+function nativeFrom(c, alias) {
+  if (c.kind === 'postgres') return `postgres_query(${ql(alias)}, ${ql(c.query)})`;
+  if (c.kind === 'mysql') return `mysql_query(${ql(alias)}, ${ql(c.query)})`;
+  return `(${c.query})`;
+}
+
+function clearCache() {
+  fetched.clear();
+  fs.rmSync(path.join(app.getPath('userData'), 'db-cache'), { recursive: true, force: true });
 }
 
 function loadStore() {
@@ -81,6 +153,12 @@ async function attach(c, password) {
 /** Connects (validating credentials) and lists the user tables/views. */
 async function connect(c, password, remember) {
   const key = keyOf(c);
+  if (ADAPTERS[c.kind]) {
+    const h = await driverHandle(c, password ?? undefined);
+    if (password) { if (remember) savePassword(c, password); else session.set(key, password); }
+    const tables = await ADAPTERS[c.kind].list(h);
+    return { alias: null, tables: tables.map((t) => ({ schema: t.schema, table: t.table, rows: null, view: t.view })), stored: safeStorage.isEncryptionAvailable() };
+  }
   if (attached.has(key)) { await db.query(`DETACH ${qi(attached.get(key))}`).catch(() => {}); attached.delete(key); }
   const alias = await attach(c, password ?? undefined);
   if (password) { if (remember) savePassword(c, password); else session.set(key, password); }
@@ -100,8 +178,29 @@ async function connect(c, password, remember) {
 /** SQL of a database table source (used by the Power Query compiler). */
 async function sourceExpr(source) {
   const c = source.db;
+  if (ADAPTERS[c.kind]) {
+    const sql = sourceSql(c);
+    const file = path.join(cacheDir(), cacheKey(keyOf(c), sql) + '.parquet');
+    if (!fetched.has(file) || !fs.existsSync(file)) {
+      await fetchToParquet(ADAPTERS[c.kind], await driverHandle(c), sql, file, db);
+      fetched.set(file, true);
+    }
+    return `read_parquet(${ql(file)})`;
+  }
   const alias = await attach(c);
+  if (c.query) return nativeFrom(c, alias);
   return `${qi(alias)}.${qi(c.schema)}.${qi(c.table)}`;
 }
 
-module.exports = { connect, sourceExpr, forget, keyOf };
+/** Saved database credentials (keys only, never the secrets) for Impostazioni origine dati. */
+function savedKeys() { return Object.keys(loadStore()).sort(); }
+
+/** Forget one saved key (and close its driver connection). */
+function forgetKey(key) {
+  session.delete(key);
+  if (handles.has(key)) { handles.delete(key); }
+  const store = loadStore();
+  if (key in store) { delete store[key]; fs.writeFileSync(credFile(), JSON.stringify(store, null, 2), { mode: 0o600 }); }
+}
+
+module.exports = { connect, sourceExpr, forget, keyOf, preview, clearCache, savedKeys, forgetKey };

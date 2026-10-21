@@ -59,7 +59,12 @@ interface Api {
   sourceExpr(source: TableMeta['source']): Promise<string>;
   clearRemoteCache(): Promise<void>;
   openDir(): Promise<string | null>;
-  dbConnect(c: DbConnection, password: string | null, remember: boolean): Promise<{ alias: string; tables: { schema: string; table: string; rows: number | null }[]; stored: boolean }>;
+  dbConnect(c: DbConnection, password: string | null, remember: boolean): Promise<{ alias: string | null; tables: { schema: string; table: string; rows: number | null; view?: boolean }[]; stored: boolean }>;
+  /** First rows of a database table or native statement (navigator preview). */
+  dbPreview(source: import('./types').DbSource, limit?: number): Promise<{ columns: string[]; rows: any[] }>;
+  /** Saved database credential keys (kind://user@host:port/db…), never the secrets. */
+  dbCredentials(): Promise<string[]>;
+  dbForget(key: string): Promise<void>;
   dbForget(c: DbConnection): Promise<void>;
   addCalcColumn(table: string, column: string, expr: string, replace: boolean): Promise<TableInfo>;
   dropColumn(table: string, column: string): Promise<TableInfo>;

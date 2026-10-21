@@ -27,7 +27,7 @@ export function CommandSearch() {
       ['Gestisci relazioni', () => st().set({ relManage: true })], ['Nuova pagina', () => st().addPage()],
       ['Pubblica', () => st().set({ publishDialog: true })], ['Accedi a Power BI', () => st().set({ publishDialog: true })],
       ['Salva come file Power BI (.pbix)', () => st().exportPbix()], ['Esporta modello Power BI (.pbit)', () => st().exportPbit()], ['Esporta progetto Power BI (.pbip)', () => st().exportPbip()], ['Esporta PDF', () => st().exportPdf()],
-      ['Dati di esempio', () => st().loadSample()], ['Database SQL', () => st().set({ dbDialog: true })],
+      ['Dati di esempio', () => st().loadSample()], ['Database SQL Server', () => st().set({ dbDialog: 'sqlserver' })], ['Database Oracle', () => st().set({ dbDialog: 'oracle' })], ['Altri database', () => st().set({ dbDialog: true })],
       ['Riquadro Segnalibri', panes('bookmarks')], ['Riquadro Selezione', panes('selection')], ['Riquadro Filtri', panes('filters')],
       ['Riquadro Visualizzazioni', panes('viz')], ['Riquadro Dati', panes('data')],
       ['Aggiungi segnalibro', () => { st().addBookmark(); st().set({ panes: { ...st().panes, bookmarks: true } }); }],

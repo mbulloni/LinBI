@@ -36,7 +36,15 @@ export interface TableMeta {
 export interface ParamField { label: string; table: string; column: string; measure?: boolean; }
 
 /** Database table source (Ottieni dati › Database). The password is stored outside the report. */
-export interface DbSource { kind: 'mysql' | 'postgres' | 'sqlite'; host?: string; port?: string; database?: string; user?: string; file?: string; schema: string; table: string; }
+export type DbKind = 'mysql' | 'postgres' | 'sqlite' | 'sqlserver' | 'oracle' | 'snowflake' | 'bigquery' | 'databricks' | 'clickhouse' | 'mongodb' | 'access' | 'odbc';
+/** Database source. `variant` = the connector chosen in Ottieni dati (azuresql, synapse, fabric, redshift…) when it shares
+ *  a driver; `query` = native SQL statement (Opzioni avanzate › Istruzione SQL) instead of schema/table.
+ *  `auth`: sql | windows (NTLM, `domain`) | entra (user + password) | token (LinBI's Microsoft account) | keypair | browser | adc. */
+export interface DbSource {
+  kind: DbKind; variant?: string; host?: string; port?: string; database?: string; user?: string; file?: string;
+  auth?: string; domain?: string; encrypt?: boolean; trustCert?: boolean; warehouse?: string; role?: string; httpPath?: string; authDb?: string;
+  schema: string; table: string; query?: string;
+}
 export type DbConnection = Omit<DbSource, 'schema' | 'table'>;
 
 /** Level of the automatic date hierarchy (a date column placed on an axis becomes Year › Quarter › Month › Day). */

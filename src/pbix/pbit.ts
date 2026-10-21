@@ -35,19 +35,44 @@ function tomType(duck: string): { dataType: string; m: string } {
   return { dataType: 'string', m: 'type text' };
 }
 
+/** M of a database source as Power BI Desktop writes it (connector function, navigation or native query). */
+export function dbSourceM(d: NonNullable<TableMeta['source']['db']>): string {
+  const host = d.host || 'localhost';
+  const server = mStr(d.port ? `${host}${d.kind === 'sqlserver' ? ',' : ':'}${d.port}` : host);
+  const q = d.query ? mStr(d.query) : null;
+  const nav3 = (db: string, schema: string, table: string) => `{[Name=${mStr(db)},Kind="Database"]}[Data]{[Name=${mStr(schema)},Kind="Schema"]}[Data]{[Name=${mStr(table)},Kind="Table"]}[Data]`;
+  const item = `{[Schema=${mStr(d.schema)},Item=${mStr(d.table)}]}[Data]`;
+  switch (d.kind) {
+    case 'sqlserver': return `Sql.Database(${server}, ${mStr(d.database ?? '')}${q ? `, [Query=${q}]` : ''})${q ? '' : item}`;
+    case 'oracle': return q ? `Oracle.Database(${mStr(host)}, [Query=${q}])` : `Oracle.Database(${mStr(host)}, [HierarchicalNavigation=true]){[Schema=${mStr(d.schema)}]}[Data]{[Name=${mStr(d.table)}]}[Data]`;
+    case 'mysql': return `MySQL.Database(${server}, ${mStr(d.database ?? '')}, [ReturnSingleDatabase=true${q ? `, Query=${q}` : ''}])${q ? '' : item}`;
+    case 'postgres':
+      if (d.variant === 'redshift') return q ? `Value.NativeQuery(AmazonRedshift.Database(${server}, ${mStr(d.database ?? '')}), ${q}, null, [EnableFolding=true])` : `AmazonRedshift.Database(${server}, ${mStr(d.database ?? '')}){[Name=${mStr(d.schema)}]}[Data]{[Name=${mStr(d.table)}]}[Data]`;
+      return `PostgreSQL.Database(${server}, ${mStr(d.database ?? '')}${q ? `, [Query=${q}]` : ''})${q ? '' : item}`;
+    case 'snowflake': {
+      const src = `Snowflake.Databases(${mStr(/\./.test(host) ? host : `${host}.snowflakecomputing.com`)}, ${mStr(d.warehouse ?? '')}${d.role ? `, [Role=${mStr(d.role)}]` : ''})`;
+      return q ? `Value.NativeQuery(${src}{[Name=${mStr(d.database ?? '')}]}[Data], ${q}, null, [EnableFolding=true])` : `${src}${nav3(d.database ?? '', d.schema, d.table)}`;
+    }
+    case 'bigquery': return q ? `Value.NativeQuery(GoogleBigQuery.Database(){[Name=${mStr(d.database ?? '')}]}[Data], ${q}, null, [EnableFolding=true])`
+      : `GoogleBigQuery.Database(){[Name=${mStr(d.database ?? '')}]}[Data]{[Name=${mStr(d.schema)},Kind="Schema"]}[Data]{[Name=${mStr(d.table)},Kind="Table"]}[Data]`;
+    case 'databricks': {
+      const src = `Databricks.Catalogs(${mStr(host)}, ${mStr(d.httpPath ?? '')}, [Catalog=null, Database=null, EnableAutomaticProxyDiscovery=null])`;
+      return q ? `Value.NativeQuery(${src}{[Name=${mStr(d.database || 'hive_metastore')},Kind="Database"]}[Data], ${q}, null, [EnableFolding=true])` : `${src}${nav3(d.database || 'hive_metastore', d.schema, d.table)}`;
+    }
+    case 'access': return `Access.Database(File.Contents(${mStr(d.file ?? '')}), [CreateNavigationProperties=true]){[Schema="",Item=${mStr(d.table)}]}[Data]`;
+    case 'clickhouse': return `Odbc.Query(${mStr(`driver={ClickHouse ODBC Driver (Unicode)};url=${d.encrypt ? 'https' : 'http'}://${host}:${d.port || 8123};database=${d.database || 'default'}`)}, ${q ?? mStr(`SELECT * FROM \`${d.schema}\`.\`${d.table}\``)})`;
+    case 'odbc': return q ? `Odbc.Query(${mStr(/=/.test(host) ? host : `dsn=${host}`)}, ${q})` : `Odbc.DataSource(${mStr(/=/.test(host) ? host : `dsn=${host}`)}, [HierarchicalNavigation=true])${d.schema ? `{[Name=${mStr(d.schema)},Kind="Schema"]}[Data]` : ''}{[Name=${mStr(d.table)},Kind="Table"]}[Data]`;
+    case 'mongodb': return `Odbc.Query(${mStr(`dsn=MongoDB;database=${d.database ?? ''}`)}, ${mStr(`SELECT * FROM ${d.table}`)})`;
+    default: return `Odbc.DataSource(${mStr(`driver={SQLite3 ODBC Driver};database=${d.file}`)}, [HierarchicalNavigation=true]){[Name=${mStr(d.table)},Kind="Table"]}[Data]`;
+  }
+}
+
 /** Power Query expression of the source ("Origine" + header/type steps); keeps the original M of Power BI tables. */
 function sourceM(t: Pick<TableMeta, 'source'>, columns: ColumnMeta[]): string {
   if (t.source.m) return t.source.m;
   if (t.source.ref) return `let\n    Origine = ${mName(t.source.ref)}\nin\n    Origine`;
   const d = t.source.db;
-  if (d) {
-    const server = mStr(d.port ? `${d.host || 'localhost'}:${d.port}` : d.host || 'localhost');
-    const origin = d.kind === 'mysql' ? `MySQL.Database(${server}, ${mStr(d.database ?? '')}, [ReturnSingleDatabase=true])`
-      : d.kind === 'postgres' ? `PostgreSQL.Database(${server}, ${mStr(d.database ?? '')})`
-        : `Odbc.DataSource(${mStr(`driver={SQLite3 ODBC Driver};database=${d.file}`)}, [HierarchicalNavigation=true])`;
-    const nav = d.kind === 'sqlite' ? `Origine{[Name=${mStr(d.table)},Kind="Table"]}[Data]` : `Origine{[Schema=${mStr(d.schema)},Item=${mStr(d.table)}]}[Data]`;
-    return `let\n    Origine = ${origin},\n    ${mName(d.table)} = ${nav}\nin\n    ${mName(d.table)}`;
-  }
+  if (d) return `let\n    Origine = ${dbSourceM(d)}\nin\n    Origine`;
   const p = t.source.path;
   const types = `{${columns.map((c) => `{${mStr(c.name)}, ${tomType(c.type).m}}`).join(', ')}}`;
   const typed = (prev: string) => columns.length

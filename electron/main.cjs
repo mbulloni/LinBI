@@ -61,7 +61,7 @@ handle('db:preview', (file, sheet) => db.preview(file, sheet));
 handle('db:import', (file, table, sheet) => db.importFile(file, table, sheet));
 handle('db:materialize', (table, sql) => db.materialize(table, sql));
 handle('db:sourceExpr', (source) => (source.inline ? db.inlineExpr(source.inline) : source.db ? connect.sourceExpr(source) : source.web || source.odata || source.folder || source.sharepoint ? remote.sourceExpr(source) : db.sourceExpr(source.path, source.sheet)));
-handle('remote:clearCache', () => remote.clearCache());
+handle('remote:clearCache', () => { remote.clearCache(); connect.clearCache(); });
 const webcred = require('./webcred.cjs');
 handle('webcred:list', () => webcred.list());
 handle('webcred:set', (prefix, cred) => webcred.set(prefix, cred));
@@ -78,6 +78,9 @@ handle('file:openDir', async () => {
   return r.canceled ? null : r.filePaths[0];
 });
 handle('db:connect', (c, password, remember) => connect.connect(c, password, remember));
+handle('db:sourcePreview', (c, limit) => connect.preview(c, limit));
+handle('db:savedCredentials', () => connect.savedKeys());
+handle('db:forgetCredential', (key) => connect.forgetKey(key));
 handle('db:forget', (c) => connect.forget(c));
 
 // Power BI service (electron/powerbi.cjs): progress lines go to the renderer as 'pbi:progress'.
@@ -144,6 +147,8 @@ const FILTERS = {
   json: [{ name: 'JSON', extensions: ['json', 'ndjson', 'jsonl'] }],
   parquet: [{ name: 'Parquet', extensions: ['parquet'] }],
   sqlite: [{ name: 'Database SQLite', extensions: ['sqlite', 'sqlite3', 'db'] }],
+  access: [{ name: 'Database di Access', extensions: ['accdb', 'mdb'] }],
+  key: [{ name: 'Chiave (JSON, PEM, P8)', extensions: ['json', 'pem', 'p8', 'key'] }],
   any: [{ name: 'Tutti i file di dati', extensions: ['csv', 'txt', 'tsv', 'xlsx', 'json', 'ndjson', 'jsonl', 'parquet'] }],
   lbix: [{ name: 'File LinBI', extensions: ['lbix'] }],
   report: [{ name: 'Report (LinBI, Power BI)', extensions: ['lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File LinBI', extensions: ['lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],

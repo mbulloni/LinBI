@@ -70,7 +70,7 @@ export function Ribbon() {
     <Group label="Dati">
       <Big icon="getData" label={<>Ottieni<br />dati</>} dropdown onClick={openMenu('getdata')} />
       <Big icon="excel" label={<>Cartella di<br />lavoro di Excel</>} onClick={() => s.openNavigator('excel')} />
-      <Big icon="sql" label={<>Database<br />SQL</>} onClick={() => s.set({ dbDialog: true })} title="MySQL/MariaDB, PostgreSQL, SQLite" />
+      <Big icon="sql" label={<>SQL<br />Server</>} onClick={() => s.set({ dbDialog: 'sqlserver' })} title="Database SQL Server / SQL di Azure" />
       <Big icon="enterData" label={<>Immetti<br />dati</>} onClick={() => s.set({ enterData: true })} />
       <Big icon="recent" label={<>Origini<br />recenti</>} dropdown onClick={openMenu('recent')} />
     </Group>
@@ -205,7 +205,10 @@ export function Ribbon() {
           <button onClick={() => { close(); s.openNavigator('csv'); }}><Icon name="docs" size={18} />Testo/CSV</button>
           <button onClick={() => { close(); s.openNavigator('json'); }}><Icon name="docs" size={18} />JSON</button>
           <button onClick={() => { close(); s.openNavigator('parquet'); }}><Icon name="sql" size={18} />Parquet</button>
-          <button onClick={() => { close(); s.set({ dbDialog: true }); }}><Icon name="sql" size={18} />Database (MySQL, PostgreSQL, SQLite)</button>
+          <button onClick={() => { close(); s.set({ dbDialog: 'sqlserver' }); }}><Icon name="sql" size={18} />Database SQL Server</button>
+          <button onClick={() => { close(); s.set({ dbDialog: 'azuresql' }); }}><Icon name="sql" size={18} />Database SQL di Azure</button>
+          <button onClick={() => { close(); s.set({ dbDialog: 'oracle' }); }}><Icon name="sql" size={18} />Database Oracle</button>
+          <button onClick={() => { close(); s.set({ dbDialog: true }); }}><Icon name="sql" size={18} />Altri database (MySQL, PostgreSQL, Snowflake, BigQuery, Databricks…)</button>
           <button onClick={() => { close(); s.set({ sourceDialog: 'web' }); }}><Icon name="getData" size={18} />Web</button>
           <button onClick={() => { close(); s.set({ sourceDialog: 'odata' }); }}><Icon name="getData" size={18} />Feed OData</button>
           <button onClick={() => { close(); s.set({ sourceDialog: 'folder' }); }}><Icon name="getData" size={18} />Cartella</button>

@@ -22,8 +22,8 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Analisi** — previsione con intervallo di confidenza, area ombreggiata, barre di errore da campi, formato dinamico di un elemento di calcolo | **Pubblica** — accesso con l'account aziendale, ricerca tra tutte le aree di lavoro, scelta della destinazione |
 | ![Ottieni dati › Power BI](docs/screenshots/service.png) | ![File › Salva come file Power BI (.pbix)](docs/screenshots/salva-pbix.png) |
 | **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | **File › Salva come file Power BI (.pbix)** — report, modello e dati in un vero `.pbix` |
-| ![Report salvato da LinBI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | |
-| **Il `.pbix` di LinBI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | |
+| ![Report salvato da LinBI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | ![Strumento di navigazione su SQL Server](docs/screenshots/connettori.png) |
+| **Il `.pbix` di LinBI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | **Database SQL Server** — tabelle e viste con anteprima; anche Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB, Access, ODBC |
 
 ## Scaricare e installare
 
@@ -253,12 +253,34 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 
 ### Connessioni a database
 
-**Home › Database SQL** (o *Ottieni dati › Database*): MySQL/MariaDB, PostgreSQL e SQLite tramite le estensioni di
-DuckDB (`ATTACH … READ_ONLY`, scaricate al primo uso). Modalità *Importa*: lo Strumento di navigazione elenca tabelle
-e viste con anteprima; *Carica* o *Trasforma dati* (Power Query). *Aggiorna* rilegge dal database. Le password non
-finiscono mai nel report: sono cifrate con il portachiavi di sistema (Electron `safeStorage`) in
-`~/.config/linbi/credentials.json`, oppure tenute solo per la sessione. Nel `.pbit` diventano `MySQL.Database` /
-`PostgreSQL.Database`. SQL Server non è disponibile (DuckDB non ha un connettore).
+**Home › SQL Server** o *Ottieni dati › Database* (fase 12), sempre in modalità **Importa**:
+
+| Connettore | Come si collega | Autenticazione |
+|---|---|---|
+| SQL Server, SQL di Azure, Azure Synapse, Microsoft Fabric (endpoint SQL / Warehouse) | driver `mssql` (tedious, JavaScript) | database, Windows (NTLM con dominio), account Microsoft di LinBI (token Entra), Entra ID utente+password; crittografia e certificato |
+| Oracle | `oracledb` in modalità thin (senza Instant Client) | utente e password; `host:porta/servizio` o descrittore TNS |
+| MySQL / MariaDB, PostgreSQL, Amazon Redshift, SQLite | estensioni DuckDB (`ATTACH … READ_ONLY`) | utente e password |
+| Snowflake | `snowflake-sdk` | password, coppia di chiavi, SSO nel browser |
+| Google BigQuery | `@google-cloud/bigquery` | file di chiave JSON dell'account di servizio o credenziali `gcloud` |
+| Databricks / Azure Databricks | `@databricks/sql` | token di accesso personale |
+| ClickHouse | client HTTP | utente e password, HTTPS |
+| MongoDB | driver `mongodb` (collezioni → tabelle, campi annidati `a.b`, array come JSON) | utente e password o stringa di connessione |
+| Access (`.accdb`, `.mdb`) | `mdb-reader` (JavaScript, nessun driver) | — |
+| ODBC (SAP HANA, Db2, Teradata, Informix, Vertica, Exasol…) | modulo `odbc` su unixODBC: DSN o stringa di connessione | quella del driver |
+
+Lo **Strumento di navigazione** elenca tabelle e viste con anteprima; *Opzioni avanzate › Istruzione SQL* importa il
+risultato di una query nativa (`Query1`), come in Power BI. I driver Node leggono i dati in streaming in un CSV
+tipizzato che DuckDB converte in Parquet (`userData/db-cache`, riletto da *Aggiorna*): tipi conservati (decimali,
+valuta, date/ore, booleani, binari, Unicode). Le password non finiscono mai nel report: sono cifrate con il portachiavi
+di sistema (Electron `safeStorage`) in `~/.config/linbi/credentials.json`, oppure tenute solo per la sessione.
+Nei file Power BI l'origine diventa la funzione M che usa Power BI Desktop (`Sql.Database`, `Oracle.Database`,
+`Snowflake.Databases`, `GoogleBigQuery.Database`, `Databricks.Catalogs`, `AmazonRedshift.Database`, `Access.Database`,
+`Odbc.DataSource`, `[Query=…]` / `Value.NativeQuery` per le istruzioni SQL).
+
+Verificati con database reali in container Docker (`scripts/connectors/`): SQL Server 2022 (anche dentro LinBI:
+navigatore, istruzione SQL, Aggiorna, export `.pbit`/`.pbix`), ClickHouse 24, MongoDB 7, emulatore BigQuery, Access
+e ODBC (driver SQLite). Oracle: verifica in corso. Snowflake e Databricks non hanno un equivalente locale:
+implementati sulle API ufficiali, da verificare su un account reale.
 
 ### Pubblica
 

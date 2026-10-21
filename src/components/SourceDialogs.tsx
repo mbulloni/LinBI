@@ -215,7 +215,8 @@ export function CredentialForm({ prefix: initPrefix, onSaved, onCancel }: { pref
 export function DataSourceSettings({ onClose }: { onClose: () => void }) {
   const [list, setList] = useState<WebCredInfo[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
-  const reload = () => api.webcred.list().then(setList).catch(() => setList([]));
+  const [dbKeys, setDbKeys] = useState<string[]>([]);
+  const reload = () => { api.webcred.list().then(setList).catch(() => setList([])); api.dbCredentials().then(setDbKeys).catch(() => setDbKeys([])); };
   useEffect(() => { reload(); }, []);
   return (
     <div className="modal-bg pq-modal">
@@ -223,7 +224,7 @@ export function DataSourceSettings({ onClose }: { onClose: () => void }) {
         <div className="dh"><h2>Impostazioni origine dati</h2><button onClick={onClose}><Icon name="close" /></button></div>
         <div className="db pq-db">
           {editing === null ? <>
-            <div className="pq-note">Credenziali delle origini Web, OData e SharePoint. Le origini database si configurano in Ottieni dati › Database.</div>
+            <div className="pq-note">Credenziali delle origini Web, OData e SharePoint (le origini database si collegano da Ottieni dati › Database).</div>
             <div className="cred-list">
               {!list.length && <div className="side-empty">Nessuna credenziale salvata: le origini vengono lette in modo anonimo.</div>}
               {list.map((c) => (
@@ -235,6 +236,17 @@ export function DataSourceSettings({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             <button className="btn" onClick={() => setEditing('')}>Nuove credenziali…</button>
+            {dbKeys.length > 0 && <>
+              <div className="pq-note" style={{ marginTop: 12 }}>Database (password cifrate nel portachiavi di sistema):</div>
+              <div className="cred-list">
+                {dbKeys.map((k) => (
+                  <div key={k} className="cred-row">
+                    <div><b>{k.replace(/^(\w+):\/\//, '')}</b><span>{k.split(':')[0]}</span></div>
+                    <button className="btn" onClick={async () => { await api.dbForget(k); reload(); }}>Cancella autorizzazioni</button>
+                  </div>
+                ))}
+              </div>
+            </>}
           </> : <CredentialForm prefix={editing || undefined} onSaved={() => { setEditing(null); reload(); }} onCancel={() => setEditing(null)} />}
         </div>
         {editing === null && <div className="df"><button className="btn primary" onClick={onClose}>Chiudi</button></div>}

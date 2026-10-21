@@ -1,0 +1,18 @@
+projects:
+- id: linbi-test
+  datasets:
+  - id: vendite
+    tables:
+    - id: ordini
+      columns:
+      - {name: id, type: INTEGER}
+      - {name: prodotto, type: STRING}
+      - {name: data, type: DATE}
+      - {name: creato, type: TIMESTAMP}
+      - {name: importo, type: NUMERIC}
+      - {name: sconto, type: FLOAT}
+      - {name: attivo, type: BOOLEAN}
+      data:
+      - {id: 1, prodotto: "Bici città", data: "2024-01-02", creato: "2024-01-02T10:00:00Z", importo: "199.99", sconto: 0.1, attivo: true}
+      - {id: 2, prodotto: "Casco", data: "2024-02-03", creato: "2024-02-03T11:30:00Z", importo: "49.50", sconto: null, attivo: false}
+      - {id: 3, prodotto: "Bici città", data: "2024-03-04", creato: "2024-03-04T09:15:00Z", importo: "210.00", sconto: 0.2, attivo: true}

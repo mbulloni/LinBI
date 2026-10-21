@@ -264,7 +264,8 @@ interface State {
   exportTheme: () => Promise<void>;
 
   openPowerQuery: (focus?: string, extra?: PQQuery | PQQuery[]) => void;
-  dbDialog: boolean;
+  /** Ottieni dati › Database: true, or the id of the connector to open (CONNECTORS in DatabaseDialog). */
+  dbDialog: boolean | string;
   publishDialog: boolean;
   /** Esplora Q&A (button action Q&A): question typed in a modal, answer not part of the report. */
   qnaExplorer: boolean;
@@ -1135,7 +1136,8 @@ export const useStore = create<State>((set, get) => {
         let name = p.table, i = 2;
         while (taken.has(name)) name = `${p.table} (${i++})`;
         taken.add(name);
-        return { name, source: { path: '', db: { ...c, schema: p.schema, table: p.table } } };
+        // a native SQL statement is one query (the navigator shows it as Query1); otherwise schema/table
+        return { name, source: { path: '', db: c.query ? { ...c, schema: '', table: p.table } : { ...c, query: undefined, schema: p.schema, table: p.table } } };
       });
       set({ dbDialog: false });
       if (transform) { get().openPowerQuery(undefined, defs.map((d) => ({ ...d, orig: null, steps: [] }))); return; }
