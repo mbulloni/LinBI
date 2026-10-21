@@ -238,6 +238,10 @@ reindirizzamento su `http://localhost`; il tenant viene ricavato dal dominio del
 dispositivo); **2.** LinBI cerca **tutte** le aree di lavoro dell'account (con casella di ricerca; quelle in sola
 lettura non sono selezionabili); **3.** si sceglie l'area di lavoro e il nome, poi *Pubblica*.
 
+*Accedi* (barra del titolo, Pubblica, Ottieni dati › Power BI) chiede sempre per prima l'e-mail aziendale. Se LinBI non
+è ancora autorizzata nell'organizzazione (nessuna app configurata), chiede solo l'**ID applicazione** fornito dall'IT e
+prosegue con l'accesso; *Istruzioni da inviare all'IT* mostra la procedura di registrazione completa.
+
 Serve un'app registrata in Microsoft Entra ID (client pubblico, piattaforma *App per dispositivi mobili e desktop*
 con `http://localhost`, autorizzazioni delegate *Power BI Service*: Workspace.Read.All, Dataset.ReadWrite.All,
 Report.ReadWrite.All, Content.Create, Item.ReadWrite.All). Può essere quella dell'IT aziendale (*Impostazioni app*)

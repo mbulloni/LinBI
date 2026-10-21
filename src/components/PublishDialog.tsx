@@ -20,6 +20,8 @@ export function PublishDialog() {
   const [confirmDel, setConfirmDel] = useState(false);
   const [login, setLogin] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [browser, setBrowser] = useState(false);
+  // Accedi pressed with no app registered yet: ask only for the application ID given by the IT department.
+  const [needApp, setNeedApp] = useState(false);
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('linbi.pbiEmail') ?? ''; } catch { return ''; } });
   const [wsQuery, setWsQuery] = useState('');
   const [spaces, setSpaces] = useState<PbiWorkspace[] | null>(null);
@@ -42,7 +44,8 @@ export function PublishDialog() {
     if (!open) return;
     setLog([]); setResult(null); setError(null); setFrac(null); setName(base);
     setConfirmDel(false);
-    api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(x.clientId || x.builtin ? false : 'edit'); }).catch((e) => setError(e.message));
+    try { setEmail(localStorage.getItem('linbi.pbiEmail') ?? ''); } catch { /* not kept */ }
+    api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(false); setNeedApp(false); }).catch((e) => setError(e.message));
     return api.pbi.onProgress((msg, f) => { setLog((l) => [...l.slice(-200), msg]); if (f !== null) setFrac(f); });
   }, [open]);
 
@@ -84,8 +87,15 @@ export function PublishDialog() {
   const pickProfile = (id: string) => wrap(async () => { if (login) { await api.pbi.loginCancel(); setLogin(null); } fresh(await api.pbi.selectProfile(id)); });
   const removeProfile = () => wrap(async () => { const x = await api.pbi.removeProfile(); fresh(x); fillSetup(x); if (!x.clientId) setSetup('edit'); });
   const remember = () => { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } };
+  const hasApp = !!(st?.clientId || st?.builtin);
   const signInBrowser = () => wrap(async () => {
     remember();
+    if (!hasApp && !needApp) { setNeedApp(true); return; }
+    if (!hasApp) {
+      if (!clientId.trim()) throw new Error("Inserire l'ID applicazione fornito dall'IT.");
+      setSt(await api.pbi.configure(clientId, 'organizations', profName || 'Predefinito'));
+      setNeedApp(false);
+    }
     setBrowser(true);
     try { setSt(await api.pbi.loginBrowser(email.trim() || undefined)); } finally { setBrowser(false); }
   });
@@ -174,7 +184,16 @@ export function PublishDialog() {
                   <label className="pq-field" style={{ marginTop: 8 }}>Indirizzo e-mail aziendale
                     <input type="email" value={email} placeholder="nome.cognome@azienda.it" onChange={(e) => setEmail(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') signInBrowser(); }} /></label>
-                  <span style={{ marginTop: 6 }}><a href="#" onClick={(e) => { e.preventDefault(); if (!busy) signIn(); }}>Usare invece un codice dispositivo</a> (accesso da un altro dispositivo)</span>
+                  {needApp ? <div className="pq-note" style={{ marginTop: 8 }}>
+                    <b>LinBI non è ancora autorizzata nella vostra organizzazione.</b> Power BI Desktop è un'app Microsoft già
+                    approvata in ogni azienda; LinBI no: l'IT deve registrarla una volta in Microsoft Entra (oppure
+                    approvare l'app distribuita con LinBI) e comunicare l'<b>ID applicazione</b>.
+                    <label className="pq-field" style={{ marginTop: 6 }}>ID applicazione (client) fornito dall'IT
+                      <input type="text" autoFocus value={clientId} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => setClientId(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') signInBrowser(); }} /></label>
+                    <span><a href="#" onClick={(e) => { e.preventDefault(); setNeedApp(false); editProfile(); }}>Istruzioni da inviare all'IT</a></span>
+                  </div>
+                  : hasApp && <span style={{ marginTop: 6 }}><a href="#" onClick={(e) => { e.preventDefault(); if (!busy) signIn(); }}>Usare invece un codice dispositivo</a> (accesso da un altro dispositivo)</span>}
                 </>}
               </span>
               {login ? <button className="btn" onClick={() => { api.pbi.loginCancel(); setLogin(null); }}>Annulla</button>
@@ -257,7 +276,7 @@ export function PublishDialog() {
         <div className="df">
           {setup ? <>
             <button className="btn primary" disabled={busy || !clientId.trim() || !profName.trim()} onClick={saveSetup}>{setup === 'new' ? 'Crea profilo' : 'Salva'}</button>
-            {st?.clientId && <button className="btn" onClick={() => setSetup(false)}>Annulla</button>}
+            <button className="btn" onClick={() => setSetup(false)}>Indietro</button>
           </> : <>
             {st?.account && <button className="btn primary" disabled={busy || empty || !space || !name.trim() || (mode === 'fabric' && !space.dedicated)} onClick={publish}>{busy ? 'Pubblicazione…' : 'Pubblica'}</button>}
             <button className="btn" disabled={busy} onClick={editProfile}>Impostazioni app</button>

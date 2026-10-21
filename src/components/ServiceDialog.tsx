@@ -76,11 +76,13 @@ export function ServiceDialog() {
                   <span>LinBI mostra le aree di lavoro, i report e i modelli semantici a cui l'account ha accesso nel servizio Power BI.</span>
                   <label className="pq-field" style={{ marginTop: 8 }}>Indirizzo e-mail aziendale
                     <input type="email" value={email} placeholder="nome.cognome@azienda.it" onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') signIn(); }} /></label>
-                  {!st.clientId && !st.builtin && <span style={{ marginTop: 6 }}>Prima volta: configurare l'app in <a href="#" onClick={(e) => { e.preventDefault(); s.set({ serviceDialog: false, publishDialog: true }); }}>Pubblica › Impostazioni app</a>.</span>}
                 </>}
               </span>
               {browser ? <button className="btn" onClick={() => api.pbi.loginBrowserCancel()}>Annulla</button>
-                : <button className="btn primary" disabled={busy || (!st.clientId && !st.builtin)} onClick={signIn}>Accedi</button>}
+                : <button className="btn primary" disabled={busy} onClick={() => {
+                  // No app registered yet: the Pubblica sign-in asks for the application ID given by the IT department.
+                  if (!st.clientId && !st.builtin) { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } s.set({ serviceDialog: false, publishDialog: true }); } else signIn();
+                }}>Accedi</button>}
             </div>
           ) : (
             <>
