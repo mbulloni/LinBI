@@ -109,6 +109,8 @@ interface Api {
     onProgress(cb: (msg: string, frac: number | null) => void): () => void;
   };
   openExternal(url: string): Promise<void>;
+  /** Apre il servizio Power BI (app.powerbi.com) in una finestra con sessione isolata. */
+  openPbiPortal(url?: string): Promise<void>;
   /** Importa un oggetto visivo da un file (.pbiviz). */
   importPbiviz(): Promise<CustomVisualPkg | null>;
   /** Web/OData/SharePoint credentials per URL prefix (secrets stay in the main process). */

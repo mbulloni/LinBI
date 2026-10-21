@@ -79,10 +79,13 @@ export function ServiceDialog() {
                 </>}
               </span>
               {browser ? <button className="btn" onClick={() => api.pbi.loginBrowserCancel()}>Annulla</button>
-                : <button className="btn primary" disabled={busy} onClick={() => {
-                  // No app registered yet: the Pubblica sign-in asks for the application ID given by the IT department.
-                  if (!st.clientId && !st.builtin) { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } s.set({ serviceDialog: false, publishDialog: true }); } else signIn();
-                }}>Accedi</button>}
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <button className="btn primary" disabled={busy} onClick={() => {
+                      // No app registered yet: the Pubblica sign-in asks for the application ID given by the IT department.
+                      if (!st.clientId && !st.builtin) { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } s.set({ serviceDialog: false, publishDialog: true }); } else signIn();
+                    }}>Accedi</button>
+                    <button className="btn" disabled={busy} title="Apre app.powerbi.com in una finestra, con le credenziali Microsoft" onClick={() => void api.openPbiPortal()}>Vai a Power BI</button>
+                  </div>}
             </div>
           ) : (
             <>

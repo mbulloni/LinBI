@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('api', {
     },
   },
   openExternal: (url) => call('shell:open', url),
+  openPbiPortal: (url) => call('pbi:openPortal', url),
   importPbiviz: () => call('cv:import'),
   webcred: {
     list: () => call('webcred:list'),

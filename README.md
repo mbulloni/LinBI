@@ -242,6 +242,12 @@ lettura non sono selezionabili); **3.** si sceglie l'area di lavoro e il nome, p
 è ancora autorizzata nell'organizzazione (nessuna app configurata), chiede solo l'**ID applicazione** fornito dall'IT e
 prosegue con l'accesso; *Istruzioni da inviare all'IT* mostra la procedura di registrazione completa.
 
+**Vai a Power BI** (menu account, Pubblica, Ottieni dati › Power BI) apre il servizio Power BI (`app.powerbi.com`) in una
+finestra con sessione propria: si accede con le credenziali Microsoft dell'organizzazione e si naviga il servizio come nel
+browser, senza bisogno dell'ID applicazione. È una vista web isolata: LinBI non ne legge i cookie né ne riusa il token.
+Per *pubblicare* da LinBI serve comunque l'app registrata (sopra): sono due autorizzazioni distinte — la licenza del proprio
+account (in genere Pro) e l'app che Microsoft consente di far accedere a Power BI a proprio nome.
+
 Serve un'app registrata in Microsoft Entra ID (client pubblico, piattaforma *App per dispositivi mobili e desktop*
 con `http://localhost`, autorizzazioni delegate *Power BI Service*: Workspace.Read.All, Dataset.ReadWrite.All,
 Report.ReadWrite.All, Content.Create, Item.ReadWrite.All). Può essere quella dell'IT aziendale (*Impostazioni app*)

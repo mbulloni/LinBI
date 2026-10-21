@@ -109,6 +109,26 @@ handle('shell:open', (url) => {
   if (!/^https:\/\//.test(url)) throw new Error('URL non valido');
   return shell.openExternal(url);
 });
+
+// "Vai a Power BI": the Power BI service (app.powerbi.com) in a plain child window with its own
+// persistent session, so the user signs in with the Microsoft portal and browses the service as in a
+// browser. It is an isolated web view (no preload, no node, no LinBI bridge): LinBI neither reads its
+// cookies nor reuses its token — publishing goes through LinBI's own registered Entra app, not this session.
+let portalWin;
+handle('pbi:openPortal', (url) => {
+  const target = typeof url === 'string' && /^https:\/\/(app|msit)\.powerbi\.com\//.test(url) ? url : 'https://app.powerbi.com/home?experience=power-bi';
+  if (portalWin && !portalWin.isDestroyed()) { portalWin.loadURL(target); portalWin.focus(); return true; }
+  portalWin = new BrowserWindow({
+    width: 1280, height: 820, parent: win, title: 'Power BI',
+    backgroundColor: '#ffffff', autoHideMenuBar: true,
+    webPreferences: { partition: 'persist:powerbi-portal', contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  portalWin.on('closed', () => { portalWin = undefined; });
+  // Microsoft login / consent pages that open in a popup stay inside this isolated window.
+  portalWin.webContents.setWindowOpenHandler(({ url: u }) => (/^https:\/\//.test(u) ? { action: 'allow' } : { action: 'deny' }));
+  portalWin.loadURL(target);
+  return true;
+});
 handle('db:calcColumn', (table, column, expr, replace) => db.addCalcColumn(table, column, expr, replace));
 handle('db:dropColumn', (table, column) => db.dropColumn(table, column));
 handle('db:drop', (table) => db.dropTable(table));

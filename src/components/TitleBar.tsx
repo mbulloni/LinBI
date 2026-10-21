@@ -54,6 +54,7 @@ export function TitleBar() {
           <div className="hdr">{account}</div>
           {pbi?.profileName && <div className="hdr" style={{ fontWeight: 400 }}>Profilo: {pbi.profileName}</div>}
           <button onClick={() => { setMenu(null); set({ publishDialog: true }); }}>Pubblica / cambia profilo…</button>
+          <button onClick={() => { setMenu(null); void api.openPbiPortal(); }}>Apri il servizio Power BI…</button>
           <button onClick={async () => { setMenu(null); await api.pbi.signOut(); setPbi(await api.pbi.status()); notify('Disconnesso da Power BI.'); }}>Esci</button>
         </Menu>
       )}

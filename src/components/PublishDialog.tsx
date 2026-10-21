@@ -198,7 +198,10 @@ export function PublishDialog() {
               </span>
               {login ? <button className="btn" onClick={() => { api.pbi.loginCancel(); setLogin(null); }}>Annulla</button>
                 : browser ? <button className="btn" onClick={() => api.pbi.loginBrowserCancel()}>Annulla</button>
-                  : <button className="btn primary" disabled={busy} onClick={signInBrowser}>Accedi</button>}
+                  : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <button className="btn primary" disabled={busy} onClick={signInBrowser}>Accedi</button>
+                      <button className="btn" disabled={busy} title="Apre app.powerbi.com in una finestra, con le credenziali Microsoft" onClick={() => void api.openPbiPortal()}>Vai a Power BI</button>
+                    </div>}
             </div>
           ) : (
             <>
