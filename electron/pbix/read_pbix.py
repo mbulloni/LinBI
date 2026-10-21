@@ -42,11 +42,34 @@ def card(c):
     return {"M:1": "manyToOne", "1:M": "oneToMany", "1:1": "oneToOne", "M:M": "manyToMany"}.get(str(c), "manyToOne")
 
 
+def support_idfx():
+    """Recent Analysis Services engines (Power BI Desktop 2026, LinBI's own .pbix writer) store each column segment
+    as one `.idfx` file = idf + idfmeta + u64 length of the idfmeta. pbixray asks for `X.idfx` / `X.idfxmeta`:
+    serve both halves from the single file."""
+    import struct
+    import pbixray.utils as U
+    import pbixray.vertipaq_decoder as VD
+    import pbixray.meta.sqlite_source as SS
+    original = U.get_data_slice
+
+    def get_data_slice(data_model, file_name):
+        if file_name.endswith('.idfxmeta') or file_name.endswith('.idfx'):
+            base = file_name[:-4] if file_name.endswith('meta') else file_name
+            d = bytes(original(data_model, base))
+            n = struct.unpack_from('<Q', d, len(d) - 8)[0]
+            return d[len(d) - 8 - n:len(d) - 8] if file_name.endswith('meta') else d[:len(d) - 8 - n]
+        return original(data_model, file_name)
+    for mod in (U, VD, SS):
+        if hasattr(mod, 'get_data_slice'):
+            mod.get_data_slice = get_data_slice
+
+
 def from_pbixray(path, outdir, out):
     try:
         from pbixray import PBIXRay
     except ImportError:
         raise SystemExit("PBIXRAY_MISSING")
+    support_idfx()
     import pandas as pd
     import decimal
 

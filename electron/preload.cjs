@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('api', {
   saveText: (content, defaultPath, kind) => call('file:saveText', content, defaultPath, kind),
   readPowerBI: (file) => call('pbix:read', file),
   savePbit: (parts, suggested) => call('pbit:save', parts, suggested),
+  savePbix: (parts, schema, extra, suggested, target) => call('pbix:save', parts, schema, extra, suggested, target),
   printPdf: (suggested) => call('pdf:print', suggested),
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
   claude: {

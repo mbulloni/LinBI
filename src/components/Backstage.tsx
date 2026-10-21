@@ -35,6 +35,7 @@ export function Backstage() {
         <button onClick={() => s.save(true)}>Salva con nome</button>
         <button className={tab === 'getdata' ? 'active' : ''} onClick={() => setTab('getdata')}>Ottieni dati</button>
         <button onClick={async () => { const f = await window.api.openFile('powerbi'); if (f) s.importPowerBI(f.path); }}>Importa da Power BI (.pbix, .pbit, .pbip)</button>
+        <button onClick={() => s.exportPbix()} disabled={!s.tables.length}>Salva come file Power BI (.pbix)</button>
         <button onClick={() => s.exportPbit()} disabled={!s.tables.length}>Esporta modello Power BI (.pbit)</button>
         <button onClick={() => s.exportPbip()} disabled={!s.tables.length}>Salva come progetto Power BI (.pbip)</button>
         <button onClick={() => s.exportPdf()} disabled={!s.report.pages.some((p) => p.visuals.length)}>Esporta in PDF</button>

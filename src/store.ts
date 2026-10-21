@@ -14,7 +14,7 @@ import { runVisualQuery } from './visuals/useVisualData';
 import { cfInput, fieldKey, rangeOf } from './visuals/condfmt';
 import { sp } from './visuals/pbistyle';
 import { pbirToLayout } from './pbix/pbir';
-import { buildPbipParts, buildPbitParts } from './pbix/pbit';
+import { buildPbipParts, buildPbitParts, buildPbixParts } from './pbix/pbit';
 import { pendingQueries } from './visuals/useVisualData';
 import { applyTheme, parseTheme, themeJson, THEMES } from './themes';
 import { compileQuery } from './pq/compile';
@@ -354,6 +354,8 @@ interface State {
   /** Ottieni dati › Power BI (servizio) dialog. */
   serviceDialog: boolean;
   exportPbit: () => Promise<void>;
+  /** `target` = write there without asking (Ctrl+S on a .pbix saved by LinBI). */
+  exportPbix: (target?: string) => Promise<void>;
   exportPbip: () => Promise<void>;
   sourceName: string | null;
 }
@@ -681,6 +683,25 @@ export const useStore = create<State>((set, get) => {
         if (out) get().notify(`Esportato ${out.split('/').pop()}. Aprirlo in Power BI Desktop: i dati vengono ricaricati dalle origini (percorsi Linux da aggiornare in Trasforma dati › Impostazioni origine dati).`, 12000);
       } catch (e: any) {
         get().notify('Esportazione non riuscita: ' + e.message);
+      }
+    },
+    exportPbix: async (target) => {
+      set({ fileMenu: false });
+      const { report, tables, filePath, sourceName } = get();
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      set({ busy: 'Salvataggio del file Power BI…' });
+      try {
+        await prepareCfExport();
+        const { parts, schema, extra } = buildPbixParts(report, tables);
+        const out = await api.savePbix(parts, schema, extra, base + '.pbix', target);
+        if (out) {
+          set({ filePath: out, dirty: false });
+          get().notify(`Salvato ${out.split('/').pop()}: report, modello e dati, apribile in Power BI Desktop.`, 9000);
+        }
+      } catch (e: any) {
+        get().notify('Salvataggio del file .pbix non riuscito: ' + e.message);
+      } finally {
+        set({ busy: null });
       }
     },
     exportPbip: async () => {
@@ -1616,7 +1637,11 @@ export const useStore = create<State>((set, get) => {
       set({ sourceName: null, tables: [], report: r, activePageId: r.pages[0].id, selectedVisualId: null, crossFilter: null, filePath: null, dirty: false, past: [], future: [], fileMenu: false, view: 'report', dataViewTable: null, dataVersion: get().dataVersion + 1 });
     },
     save: async (as = false) => {
-      const { tables, report, filePath } = get();
+      const { tables, report, filePath, sourceName } = get();
+      // Power BI files stay Power BI files: a .pbix saved by LinBI is rewritten in place, an imported .pbix is
+      // saved through the dialog (same name suggested) so the original is never replaced without asking.
+      if (/\.pbix$/i.test(filePath ?? '')) return get().exportPbix(as ? undefined : filePath!);
+      if (!filePath && /\.pbix$/i.test(sourceName ?? '')) return get().exportPbix();
       // Version 2: data embedded as Parquet (like a .pbix), sources and steps kept for refresh.
       const content = JSON.stringify({
         format: 'lbix', version: 2,

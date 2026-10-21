@@ -26,7 +26,7 @@ export function CommandSearch() {
       ['Nuovo parametro: intervallo numerico', () => st().set({ paramDialog: 'numeric' })], ['Nuovo parametro: campi', () => st().set({ paramDialog: 'fields' })],
       ['Gestisci relazioni', () => st().set({ relManage: true })], ['Nuova pagina', () => st().addPage()],
       ['Pubblica', () => st().set({ publishDialog: true })], ['Accedi a Power BI', () => st().set({ publishDialog: true })],
-      ['Esporta modello Power BI (.pbit)', () => st().exportPbit()], ['Esporta progetto Power BI (.pbip)', () => st().exportPbip()], ['Esporta PDF', () => st().exportPdf()],
+      ['Salva come file Power BI (.pbix)', () => st().exportPbix()], ['Esporta modello Power BI (.pbit)', () => st().exportPbit()], ['Esporta progetto Power BI (.pbip)', () => st().exportPbip()], ['Esporta PDF', () => st().exportPdf()],
       ['Dati di esempio', () => st().loadSample()], ['Database SQL', () => st().set({ dbDialog: true })],
       ['Riquadro Segnalibri', panes('bookmarks')], ['Riquadro Selezione', panes('selection')], ['Riquadro Filtri', panes('filters')],
       ['Riquadro Visualizzazioni', panes('viz')], ['Riquadro Dati', panes('data')],

@@ -4,7 +4,7 @@
  * Power Query (M) per table, relationships, DAX measures and the report layout; Power BI
  * reloads the data from the sources when the template is opened.
  */
-import { locale, quarterPrefix } from '../format';
+import { locale, monthNames, quarterPrefix } from '../format';
 import { levelName, type ColumnMeta, type Report, type TableMeta } from '../types';
 import { appendSteps, mName, mStr, mText } from '../pq/m';
 import { buildLayout, DATE_HIERARCHY } from './layout';
@@ -326,6 +326,16 @@ export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] 
     ...Object.entries(resources).map(([n, d]) => ({ path: `Report/StaticResources/RegisteredResources/${n}`, dataUrl: d })),
     ...customVisualFiles(report).map((f) => ({ path: `Report/${f.path}`, utf8: f.text })),
   ];
+}
+
+/** .pbix with data: the .pbit parts without DataModelSchema (main replaces it with the DataModel written by
+ *  electron/pbix/write_pbix.py from `schema` and the DuckDB tables). `extra` = what the auto date tables need. */
+export function buildPbixParts(report: Report, tables: TableMeta[]) {
+  const schema = buildModelSchema(report, tables);
+  const parts = buildPbitParts(report, tables)
+    .filter((p) => p.path !== 'DataModelSchema')
+    .map((p) => (p.path === '[Content_Types].xml' ? { ...p, utf8bom: p.utf8bom!.replace('/DataModelSchema', '/DataModel') } : p));
+  return { parts, schema, extra: { monthNames: monthNames(), quarterPrefix: quarterPrefix() } };
 }
 
 // ---------- Power BI service publishing (electron/powerbi.cjs) ----------

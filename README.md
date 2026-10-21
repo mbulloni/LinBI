@@ -20,8 +20,10 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Gestisci ruoli** — sicurezza a livello di riga con filtri DAX per tabella | **Visualizza come** — il report visto dal ruolo *Europa* (barra gialla, filtro propagato ai fatti) |
 | ![Previsione e barre di errore](docs/screenshots/analytics-forecast.png) | ![Pubblica: scelta dell'area di lavoro](docs/screenshots/publish.png) |
 | **Analisi** — previsione con intervallo di confidenza, area ombreggiata, barre di errore da campi, formato dinamico di un elemento di calcolo | **Pubblica** — accesso con l'account aziendale, ricerca tra tutte le aree di lavoro, scelta della destinazione |
-| ![Ottieni dati › Power BI](docs/screenshots/service.png) | |
-| **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | |
+| ![Ottieni dati › Power BI](docs/screenshots/service.png) | ![File › Salva come file Power BI (.pbix)](docs/screenshots/salva-pbix.png) |
+| **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | **File › Salva come file Power BI (.pbix)** — report, modello e dati in un vero `.pbix` |
+| ![Report salvato da LinBI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | |
+| **Il `.pbix` di LinBI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | |
 
 ## Scaricare e installare
 
@@ -205,11 +207,35 @@ confidenza restano nel `.lbix`), perché i nomi di quelle proprietà non sono do
 | **Aprire `.pbix` PBIR** | Sì: i report salvati nel nuovo formato PBIR dentro il `.pbix` vengono convertiti come sopra. |
 | **Salvare `.pbip`** | Sì (File › Salva come progetto Power BI): `X.pbip`, `X.Report/report.json`, `X.SemanticModel/model.bim`, risorse e tema; file di testo adatti a git. |
 | **Salvare `.pbit`** | Sì (File › Esporta modello Power BI): modello TOM, query M per ogni tabella, misure, relazioni, layout e immagini. Power BI Desktop ricarica i dati dalle origini, poi si salva come `.pbix`. |
-| **Salvare `.pbix`** | No: richiederebbe la scrittura del backup di Analysis Services con colonne VertiPaq e compressione XPress9 proprietaria; non esiste un writer open source. |
+| **Salvare `.pbix`** | Sì (File › *Salva come file Power BI (.pbix)*; *Salva* su un report aperto da `.pbix`): report, modello e **dati**, apribile in Power BI Desktop senza aggiornare. Vedi *Writer `.pbix`* sotto. |
+| **Aprire `.pbix` recenti** | Sì: i file salvati dalle versioni recenti di Power BI Desktop (colonne in formato `.idfx`) e quelli scritti da LinBI. |
 
 Limiti dell'import: i tipi di visual sconosciuti (né standard né `.pbiviz` incorporato nel file) diventano segnaposto;
 i report in connessione dinamica (Power BI Service/SSAS) non contengono dati: si aprono da *Ottieni dati › Power BI*.
 Le misure DAX importate passano dal motore della fase 5; una funzione non supportata mostra un messaggio esplicito nel visual.
+
+### Writer `.pbix` (fase 11)
+
+Il `DataModel` di un `.pbix` è il backup di un database Analysis Services (ABF) con `metadata.sqlitedb` (il modello
+TOM) e i file colonna VertiPaq. LinBI lo scrive da zero in `electron/pbix/pbixwrite/` (Python, ambiente `pbix-venv`):
+
+- **`abf.py`** — contenitore ABF (non compresso, senza checksum: entrambi accettati dal motore);
+- **`vertipaq.py`** — colonne tutte a **codifica hash** (dizionario + id compressi a bit; i null sono run RLE), così
+  non serve l'indice hash `.hidx` delle colonne a codifica valore; gerarchie di attributo `H$` (POS_TO_ID/ID_TO_POS),
+  gerarchie utente `U$`, indici delle relazioni `R$`, tabelle vuote;
+- **`model.py`** — dal database TMSL di `pbit.ts#buildModelSchema` + i dati: tabelle, colonne (anche calcolate),
+  tabelle calcolate, misure, relazioni (attive/inattive, bidirezionali, molti-a-molti, solo data), gerarchie,
+  ordinamento per colonna, ruoli RLS, parametri, gruppi di calcolo, tabelle date automatiche con *variations*.
+
+*File › Salva come file Power BI (.pbix)*: il main esporta ogni tabella DuckDB in Parquet, `write_pbix.py` scrive il
+DataModel (calcolando le tabelle date automatiche) e lo zip contiene le stesse parti del `.pbit` con `DataModel` al
+posto di `DataModelSchema`. *Salva* riscrive un `.pbix` già salvato da LinBI; un `.pbix` importato passa sempre dalla
+finestra di dialogo (l'originale non viene sostituito senza chiederlo).
+
+Verifica: `scripts/pbix-oracle/` usa una seconda istanza del motore di Power BI Desktop (`msmdsrv.exe` in modalità con
+disco) in una VM Windows: crea modelli di riferimento via TMSL, ne fa il **Backup** e confronta byte per byte gli
+encoder (`test_vs_o3.py`, `test_vs_o4.py`), poi fa il **Restore** dei database generati e confronta le query DAX
+(`test_g4.py`, `test_g7.py`). I `.pbix` di LinBI sono stati aperti in Power BI Desktop 2.159 (ottobre 2026).
 
 ### File, temi e PDF (fase 6)
 
@@ -338,7 +364,7 @@ Fabric, PDF, `.lbix` con i dati.
 
 ## Stato
 
-Fasi **1–10 completate** (v1.2.2): interfaccia e report, Power Query, relazioni, DAX, file Power BI, oggetti visivi e
+Fasi **1–11 completate**: interfaccia e report, Power Query, relazioni, DAX, file Power BI, oggetti visivi e
 IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio Power BI.
 
 **Da verificare** (implementato, provato solo con file di prova o server finti):
@@ -349,7 +375,8 @@ IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio 
 - Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`).
 
 **Limiti noti**:
-- `.pbix` non salvabile (formato VertiPaq/XPress9 proprietario): si esporta `.pbit` o `.pbip`;
+- `.pbix` salvato: tabelle in un solo segmento (oltre ~1 milione di righe da verificare), dati non compressi
+  (file più grandi di quelli di Power BI Desktop, che li ricomprime al primo salvataggio);
 - dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);
 - previsione e barre di errore: nei file Power BI solo aspetto e attivazione (lunghezza, confidenza e limiti da campi
   restano nel `.lbix`, nomi non presenti nello schema ufficiale);

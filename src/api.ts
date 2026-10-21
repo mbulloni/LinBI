@@ -73,6 +73,7 @@ interface Api {
   readText(kind: string): Promise<{ path: string; content: string } | null>;
   saveText(content: string, defaultPath: string, kind: string): Promise<string | null>;
   savePbit(parts: PbitPart[], suggested?: string): Promise<string | null>;
+  savePbix(parts: PbitPart[], schema: unknown, extra: { monthNames: string[]; quarterPrefix: string }, suggested?: string, target?: string): Promise<string | null>;
   printPdf(suggested?: string): Promise<string | null>;
   savePbip(parts: { path: string; text?: string; dataUrl?: string }[], suggested?: string): Promise<string | null>;
   claude: {

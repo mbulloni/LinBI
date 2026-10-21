@@ -150,6 +150,7 @@ const FILTERS = {
   powerbi: [{ name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
   pbip: [{ name: 'Progetto di Power BI', extensions: ['pbip'] }],
   pbit: [{ name: 'Modello di Power BI', extensions: ['pbit'] }],
+  pbix: [{ name: 'File di Power BI', extensions: ['pbix'] }],
   theme: [{ name: 'File di tema JSON', extensions: ['json'] }],
   pdf: [{ name: 'PDF', extensions: ['pdf'] }],
   pbiviz: [{ name: 'Oggetto visivo di Power BI', extensions: ['pbiviz'] }],
@@ -283,23 +284,68 @@ handle('pbix:read', (file) => new Promise((resolve, reject) => {
   });
 }));
 
+/** Zip of .pbit/.pbix parts (utf16 / utf8bom / utf8 / dataUrl / buffer; `stored` = no compression). */
+async function zipParts(parts) {
+  const zip = new JSZip();
+  for (const p of parts) {
+    // No folder entries: Power BI packages list files only.
+    const opts = { createFolders: false, ...(p.stored ? { compression: 'STORE' } : {}) };
+    if (p.utf16 !== undefined) zip.file(p.path, Buffer.from(p.utf16, 'utf16le'), opts);
+    else if (p.utf8bom !== undefined) zip.file(p.path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(p.utf8bom, 'utf8')]), opts);
+    else if (p.utf8 !== undefined) zip.file(p.path, Buffer.from(p.utf8, 'utf8'), opts);
+    else if (p.dataUrl) zip.file(p.path, Buffer.from(p.dataUrl.split(',')[1], 'base64'), opts);
+    else if (p.buffer) zip.file(p.path, p.buffer, opts);
+  }
+  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 handle('pbit:save', async (parts, suggested) => {
   // LINBI_PBIT_OUT (scripted tests) skips the save dialog.
   const r = process.env.LINBI_PBIT_OUT ? { canceled: false, filePath: process.env.LINBI_PBIT_OUT }
     : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbit', filters: FILTERS.pbit });
   if (r.canceled) return null;
   const target = r.filePath.toLowerCase().endsWith('.pbit') ? r.filePath : r.filePath + '.pbit';
-  const zip = new JSZip();
-  for (const p of parts) {
-    // No folder entries: Power BI packages list files only.
-    const opts = { createFolders: false };
-    if (p.utf16 !== undefined) zip.file(p.path, Buffer.from(p.utf16, 'utf16le'), opts);
-    else if (p.utf8bom !== undefined) zip.file(p.path, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(p.utf8bom, 'utf8')]), opts);
-    else if (p.utf8 !== undefined) zip.file(p.path, Buffer.from(p.utf8, 'utf8'), opts);
-    else if (p.dataUrl) zip.file(p.path, Buffer.from(p.dataUrl.split(',')[1], 'base64'), opts);
-  }
-  fs.writeFileSync(target, await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
+  fs.writeFileSync(target, await zipParts(parts));
   return target;
+});
+
+// .pbix with data: every model table is exported from DuckDB to Parquet, electron/pbix/write_pbix.py writes the
+// DataModel (Analysis Services backup with VertiPaq storage) and it is zipped with the report parts.
+handle('pbix:save', async (parts, schema, extra, suggested, target0) => {
+  const r = target0 ? { canceled: false, filePath: target0 } : process.env.LINBI_PBIX_OUT ? { canceled: false, filePath: process.env.LINBI_PBIX_OUT }
+    : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbix', filters: FILTERS.pbix });
+  if (r.canceled) return null;
+  const target = r.filePath.toLowerCase().endsWith('.pbix') ? r.filePath : r.filePath + '.pbix';
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'linbi-pbix-'));
+  try {
+    const existing = new Set((await db.query("SELECT table_name AS n FROM information_schema.tables WHERE table_schema = 'main'")).rows.map((x) => x.n));
+    const tables = {};
+    const qi = (n) => '"' + String(n).replace(/"/g, '""') + '"';
+    for (const [i, t] of schema.model.tables.entries()) {
+      if (!existing.has(t.name) || !t.columns?.length) continue;
+      const file = path.join(dir, `${i}.parquet`);
+      await db.query(`COPY (SELECT ${t.columns.map((c) => qi(c.name)).join(', ')} FROM ${qi(t.name)}) TO '${file.replace(/'/g, "''")}' (FORMAT parquet)`);
+      tables[t.name] = file;
+    }
+    const out = path.join(dir, 'DataModel');
+    const job = path.join(dir, 'job.json');
+    fs.writeFileSync(job, JSON.stringify({ schema, tables, out, ...extra }));
+    const script = path.join(__dirname, 'pbix', 'write_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+    await new Promise((resolve, reject) => execFile(pythonBin(), [script, job], { maxBuffer: 1 << 26, timeout: 30 * 60 * 1000 }, (err, stdout, stderr) => {
+      if (!err) return resolve();
+      if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare LINBI_PYTHON.'));
+      const msg = String(stderr || err.message);
+      if (/No module named '?(pyarrow|pbixray)/.test(msg)) return reject(new Error(`Per salvare in .pbix serve l'ambiente Python di LinBI. Eseguire in un terminale: ${SETUP_PBIX}`));
+      reject(new Error((msg.match(/ERRORE: (.*)/) || [null, msg.trim().split('\n').slice(-1)[0]])[1]));
+    }));
+    // Write next to the target and rename: an error never leaves a half-written .pbix in place of the old one.
+    const partial = target + '.linbi-tmp';
+    fs.writeFileSync(partial, await zipParts([...parts, { path: 'DataModel', buffer: fs.readFileSync(out), stored: true }]));
+    fs.renameSync(partial, target);
+    return target;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // Power BI project: parts use __BASE__ for the project name chosen in the dialog.
