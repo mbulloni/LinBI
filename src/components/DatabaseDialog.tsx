@@ -60,6 +60,14 @@ export function DatabaseDialog() {
     if (!open) return;
     setConn(null); setError(null); setPicked(new Set()); setFocus(null);
     if (typeof open === 'string' && CONNECTORS.some((c) => c.id === open)) { setCid(open); setForm((f) => ({ ...f, auth: open === 'bigquery' ? 'key' : open === 'fabric' ? 'token' : 'sql', encrypt: true })); }
+    if (typeof open === 'string' && open.startsWith('{')) {
+      // Origini recenti: a saved connection (never its password)
+      const c = JSON.parse(open) as DbConnection;
+      const target = CONNECTORS.find((x) => x.kind === c.kind && (x.variant ?? undefined) === (c.variant ?? undefined)) ?? CONNECTORS.find((x) => x.kind === c.kind);
+      if (target) setCid(target.id);
+      setForm((f) => ({ ...f, host: c.host ?? '', port: c.port ?? '', database: c.database ?? '', user: c.user ?? '', file: c.file ?? '', auth: c.auth ?? 'sql',
+        domain: c.domain ?? '', encrypt: c.encrypt !== false, trustCert: !!c.trustCert, warehouse: c.warehouse ?? '', role: c.role ?? '', httpPath: c.httpPath ?? '', authDb: c.authDb ?? '', password: '' }));
+    }
   }, [open]);
   useEffect(() => {
     if (!conn || !focus) { setPreview(null); return; }

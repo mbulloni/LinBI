@@ -1146,6 +1146,7 @@ export const useStore = create<State>((set, get) => {
       try {
         for (const d of defs) { try { await loadTable(d); } catch (e: any) { failed.push(`${d.name}: ${e.message.split('\n')[0]}`); } }
         const loaded = defs.map((d) => d.name).filter((n) => get().tables.some((t) => t.name === n));
+        if (loaded.length) { const { query: _q, ...conn } = c; api.addRecentSource('db:' + JSON.stringify(conn)).catch(() => {}); }
         const n = loaded.length > 0 && globalOptions().autoRelationships ? await get().detectRelationships(loaded) : 0;
         get().notify([loaded.length === 1 ? 'Caricata 1 tabella.' : `Caricate ${loaded.length} tabelle.`, n ? `Rilevate ${n} relazioni.` : '', failed.length ? `Errori: ${failed.join(' · ')}` : ''].filter(Boolean).join(' '), failed.length ? 12000 : 6000);
       } finally {

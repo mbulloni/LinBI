@@ -324,7 +324,14 @@ function RecentMenu({ x, y, onClose }: { x: number; y: number; onClose: () => vo
     <Menu x={x} y={y} onClose={onClose}>
       <div className="hdr">Origini recenti</div>
       {list && !list.length && <div className="side-empty" style={{ padding: '4px 12px' }}>Nessuna origine recente.</div>}
-      {(list ?? []).map((p) => <button key={p} title={p} onClick={() => { onClose(); s.openNavigator('any', p); }}><Icon name="getData" size={16} />{p.split('/').pop()}<span className="menu-sub">{p.replace(/\/[^/]+$/, '')}</span></button>)}
+      {(list ?? []).map((p) => {
+        if (p.startsWith('db:')) {
+          const c = JSON.parse(p.slice(3));
+          const where = c.file ? c.file.split('/').pop() : `${c.host ?? ''}${c.database ? ' / ' + c.database : ''}`;
+          return <button key={p} title={where} onClick={() => { onClose(); s.set({ dbDialog: p.slice(3) }); }}><Icon name="sql" size={16} />{where}<span className="menu-sub">{c.variant ?? c.kind}</span></button>;
+        }
+        return <button key={p} title={p} onClick={() => { onClose(); s.openNavigator('any', p); }}><Icon name="getData" size={16} />{p.split('/').pop()}<span className="menu-sub">{p.replace(/\/[^/]+$/, '')}</span></button>;
+      })}
     </Menu>
   );
 }

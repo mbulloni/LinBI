@@ -71,7 +71,8 @@ handle('pbi:labels', () => powerbi.labels());
 // Origini recenti: data files used to load tables (most recent first, existing files only).
 const recentFile = () => path.join(app.getPath('userData'), 'recent-sources.json');
 const readRecent = () => { try { return JSON.parse(fs.readFileSync(recentFile(), 'utf8')); } catch { return []; } };
-handle('recent:list', () => readRecent().filter((p) => fs.existsSync(p)).slice(0, 10));
+// entries: file paths, or 'db:' + connection JSON (no secrets) for database sources
+handle('recent:list', () => readRecent().filter((p) => p.startsWith('db:') || fs.existsSync(p)).slice(0, 10));
 handle('recent:add', (p) => { fs.writeFileSync(recentFile(), JSON.stringify([p, ...readRecent().filter((x) => x !== p)].slice(0, 20))); });
 handle('file:openDir', async () => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
