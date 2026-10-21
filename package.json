@@ -1,6 +1,6 @@
 {
   "name": "linbi",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "LinBI - clone educativo di Power BI Desktop per Linux",
   "main": "electron/main.cjs",
   "scripts": {
