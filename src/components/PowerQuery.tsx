@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent as RMouseEvent } from 'react';
 import { api } from '../api';
 import { useStore, type PQState } from '../store';
-import type { ColumnMeta, FilterOp, NewStep, PQType, Step, TransformFn } from '../types';
+import type { ColumnMeta, DbSource, FilterOp, NewStep, PQType, Step, TransformFn } from '../types';
 import { compileQuery, qi } from '../pq/compile';
 import { dependencies, pqTypeOf, renameQueryRef, stepNames, TYPE_LABEL } from '../pq/steps';
 import { exprToStep, mToQuery } from '../pq/mparse';
@@ -56,6 +56,7 @@ function Editor() {
   const s = useStore();
   const pq = s.pq!;
   const q = pq.queries.find((x) => x.name === pq.selected) ?? pq.queries[0];
+  const [dbEdit, setDbEdit] = useState(false);
   const upto = q ? pq.step ?? q.steps.length : 0;
   const names = useMemo(() => stepNames(q?.steps ?? []), [q?.steps]);
 
@@ -659,7 +660,10 @@ function Editor() {
           <div className="pq-sec">PASSAGGI APPLICATI</div>
           {q && (
             <div className="pq-steps">
-              <div className={'pq-step' + (upto === 0 ? ' sel' : '')} onClick={() => selectStep(0)}><span className="nm">Origine</span></div>
+              <div className={'pq-step' + (upto === 0 ? ' sel' : '')} onClick={() => selectStep(0)}>
+                {q.source.db && <button className="pq-gear" title="Modifica origine" onClick={(e) => { e.stopPropagation(); setDbEdit(true); }}>⚙</button>}
+                <span className="nm">Origine</span>
+              </div>
               {q.steps.map((st, i) => (
                 <div key={st.id} className={'pq-step' + (upto === i + 1 ? ' sel' : '') + (upto < i + 1 ? ' after' : '')} onClick={() => selectStep(i + 1)}>
                   <button className="pq-del" title="Elimina passaggio" onClick={(e) => { e.stopPropagation(); deleteStep(i); }}><Icon name="close" size={11} /></button>
@@ -796,6 +800,10 @@ function Editor() {
       )}
 
       {paramsOpen && <ParamsDialog onClose={() => { setParamsOpen(false); setReload((x) => x + 1); }} />}
+      {dbEdit && q?.source.db && <DbSourceDialog source={q.source.db} onClose={() => setDbEdit(false)} onSave={(db) => {
+        s.pqSet((x) => { x.queries.find((y) => y.name === x.selected)!.source = { ...x.queries.find((y) => y.name === x.selected)!.source, db }; });
+        setDbEdit(false); api.clearRemoteCache().catch(() => {}); setReload((x) => x + 1);
+      }} />}
       {dsOpen && <DataSourceSettings onClose={() => { setDsOpen(false); api.clearRemoteCache().catch(() => {}); setReload((x) => x + 1); }} />}
       {dialog && <PQDialog dialog={dialog} close={closeDialog} add={add} preview={error ? null : preview} pq={pq} notify={s.notify} init={editing ? q?.steps[editing.index] : undefined} saveM={saveM} />}
 
@@ -868,5 +876,34 @@ function FilterMenu({ x, y, col, meta, sql, onClose, onSort, onRemoveEmpty, onOp
         </div>
       </div>
     </Menu>
+  );
+}
+
+/** Gear of the Origine step of a database query: server, port, database and native SQL statement (like Power BI). */
+function DbSourceDialog({ source, onClose, onSave }: { source: DbSource; onClose: () => void; onSave: (db: DbSource) => void }) {
+  const [f, setF] = useState({ host: source.host ?? '', port: source.port ?? '', database: source.database ?? '', query: source.query ?? '', file: source.file ?? '' });
+  const fileKind = source.kind === 'sqlite' || source.kind === 'access';
+  const sql = !['mongodb', 'access', 'sqlite', 'dataverse'].includes(source.kind);
+  return (
+    <div className="modal-bg pq-modal">
+      <div className="dialog" style={{ width: 'min(560px, 94vw)' }}>
+        <div className="dh"><h2>Origine</h2><button onClick={onClose}><Icon name="close" /></button></div>
+        <div className="db pq-db">
+          {fileKind ? <label className="pq-field">File<input type="text" value={f.file} onChange={(e) => setF({ ...f, file: e.target.value })} /></label> : <>
+            <div className="pq-row" style={{ alignItems: 'flex-start' }}>
+              <label className="pq-field" style={{ flex: 3 }}>Server<input type="text" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} /></label>
+              <label className="pq-field" style={{ flex: 1 }}>Porta<input type="text" value={f.port} onChange={(e) => setF({ ...f, port: e.target.value })} /></label>
+            </div>
+            <label className="pq-field">Database<input type="text" value={f.database} onChange={(e) => setF({ ...f, database: e.target.value })} /></label>
+            {sql && <label className="pq-field">Istruzione SQL (vuota = tabella {source.schema ? `${source.schema}.` : ''}{source.table})<textarea rows={6} value={f.query} onChange={(e) => setF({ ...f, query: e.target.value })} style={{ fontFamily: 'monospace' }} /></label>}
+          </>}
+          <div className="pq-note">Le credenziali restano quelle salvate per il server (Impostazioni origine dati).</div>
+        </div>
+        <div className="df">
+          <button className="btn primary" onClick={() => onSave({ ...source, ...(fileKind ? { file: f.file } : { host: f.host.trim(), port: f.port.trim() || undefined, database: f.database.trim() || undefined, query: f.query.trim() || undefined }) })}>OK</button>
+          <button className="btn" onClick={onClose}>Annulla</button>
+        </div>
+      </div>
+    </div>
   );
 }
