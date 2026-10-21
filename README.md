@@ -271,7 +271,8 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 | Dataverse (Power Platform, Dynamics 365) | Web API OData v4 con paginazione | account Microsoft di LinBI |
 
 Lo **Strumento di navigazione** elenca tabelle e viste con anteprima; *Opzioni avanzate › Istruzione SQL* importa il
-risultato di una query nativa (`Query1`), come in Power BI. I driver Node leggono i dati in streaming in un CSV
+risultato di una query nativa (`Query1`), come in Power BI; in Power Query l'ingranaggio del passaggio *Origine* modifica
+server, database e istruzione SQL. Le connessioni usate compaiono in *Origini recenti* (senza password). I driver Node leggono i dati in streaming in un CSV
 tipizzato che DuckDB converte in Parquet (`userData/db-cache`, riletto da *Aggiorna*): tipi conservati (decimali,
 valuta, date/ore, booleani, binari, Unicode). Le password non finiscono mai nel report: sono cifrate con il portachiavi
 di sistema (Electron `safeStorage`) in `~/.config/linbi/credentials.json`, oppure tenute solo per la sessione.
@@ -280,8 +281,8 @@ Nei file Power BI l'origine diventa la funzione M che usa Power BI Desktop (`Sql
 `Odbc.DataSource`, `[Query=…]` / `Value.NativeQuery` per le istruzioni SQL).
 
 Verificati con database reali in container Docker (`scripts/connectors/`): SQL Server 2022 (anche dentro LinBI:
-navigatore, istruzione SQL, Aggiorna, export `.pbit`/`.pbix`), ClickHouse 24, MongoDB 7, emulatore BigQuery, Access
-e ODBC (driver SQLite). Oracle: verifica in corso. Azure Data Explorer e Dataverse: provati contro un server che riproduce le loro API
+navigatore, istruzione SQL, Aggiorna, export `.pbit`/`.pbix`), Oracle Database Free 23, ClickHouse 24, MongoDB 7,
+emulatore BigQuery, Access e ODBC (driver SQLite); anche dentro l'AppImage. Azure Data Explorer e Dataverse: provati contro un server che riproduce le loro API
 (`scripts/connectors/mock-rest.cjs`). Snowflake e Databricks non hanno un equivalente locale: implementati sulle API
 ufficiali; questi quattro restano da verificare su un account reale.
 

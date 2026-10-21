@@ -110,10 +110,14 @@ const oracle = {
   async query(conn, text, limit, onColumns, onRow) {
     const sql = limit ? `SELECT * FROM (${text}) WHERE ROWNUM <= ${limit}` : text;
     const rs = (await conn.execute(sql, [], { resultSet: true, fetchArraySize: 5000 })).resultSet;
-    onColumns(rs.metaData.map((m) => ({ name: m.name, type: oracleType(m) })));
+    const cols = rs.metaData.map((m) => ({ name: m.name, type: oracleType(m) }));
+    onColumns(cols);
+    // DATE/TIMESTAMP carry no time zone: node-oracledb returns them as local time, the CSV bridge writes UTC
+    const naive = cols.map((c) => c.type === 'TIMESTAMP');
+    const fix = (v, i) => (naive[i] && v instanceof Date ? new Date(v.getTime() - v.getTimezoneOffset() * 60000) : v);
     for (;;) {
       const rows = await rs.getRows(5000);
-      for (const r of rows) onRow(r);
+      for (const r of rows) onRow(r.map(fix));
       if (rows.length < 5000) break;
     }
     await rs.close();
