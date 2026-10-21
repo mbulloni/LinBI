@@ -29,10 +29,10 @@ Dalla pagina [Releases](https://github.com/mbulloni/LinBI/releases) (Linux x64):
 
 ```bash
 # AppImage (qualsiasi distribuzione)
-chmod +x LinBI-1.2.0.AppImage && ./LinBI-1.2.0.AppImage
+chmod +x LinBI-1.2.1.AppImage && ./LinBI-1.2.1.AppImage
 
 # oppure pacchetto Debian/Ubuntu (voce di menu e associazioni file incluse)
-sudo apt install ./linbi_1.2.0_amd64.deb
+sudo apt install ./linbi_1.2.1_amd64.deb
 ```
 
 Per aprire i file `.pbix` di Power BI serve Python 3 con la libreria `pbixray` (una volta sola):
@@ -60,7 +60,7 @@ npm run dist     # AppImage in release/ (npm run dist:deb per il .deb)
 ### Installazione (utente, senza root)
 
 ```bash
-install -m 755 release/LinBI-1.2.0.AppImage ~/Applications/LinBI.AppImage
+install -m 755 release/LinBI-1.2.1.AppImage ~/Applications/LinBI.AppImage
 ln -sf ~/Applications/LinBI.AppImage ~/.local/bin/linbi
 # icone in ~/.local/share/icons/hicolor/*/apps/linbi.png (da build/icons), voce di menu
 # ~/.local/share/applications/linbi.desktop (Exec=…/LinBI.AppImage %f) e tipi MIME .lbix/.pbix/.pbit/.pbip
@@ -332,7 +332,7 @@ Fabric, PDF, `.lbix` con i dati.
 
 ## Stato
 
-Fasi **1–10 completate** (v1.2.0): interfaccia e report, Power Query, relazioni, DAX, file Power BI, oggetti visivi e
+Fasi **1–10 completate** (v1.2.1): interfaccia e report, Power Query, relazioni, DAX, file Power BI, oggetti visivi e
 IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio Power BI.
 
 **Da verificare** (implementato, provato solo con file di prova o server finti):
