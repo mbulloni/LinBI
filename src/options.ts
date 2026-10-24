@@ -6,6 +6,8 @@ export interface GlobalOptions {
   daxLocalSeparators?: boolean;
   /** Impostazioni internazionali › formato di numeri e date negli oggetti visivi (BCP 47, es. it-IT). */
   locale?: string;
+  /** Tema dell'interfaccia: chiaro, scuro o come il sistema (il report mantiene il proprio tema). */
+  appTheme?: 'light' | 'dark' | 'system';
 }
 
 const KEY = 'mib-bi.options';

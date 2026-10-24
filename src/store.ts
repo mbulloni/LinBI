@@ -226,6 +226,8 @@ interface State {
   focusId: string | null;
   /** Focus view as "Mostra come tabella": the visual with its data below. */
   focusTable: boolean;
+  /** Guida › Informazioni. */
+  aboutDialog: boolean;
   /** Esporta dati dialog for this visual. */
   exportData: string | null;
   /** Formato › Modifica interazioni: the selected visual's interactions are shown (and set) on the other visuals. */
@@ -572,6 +574,7 @@ export const useStore = create<State>((set, get) => {
     focusId: null,
     focusTable: false,
     exportData: null,
+    aboutDialog: false,
     editInteractions: false,
     setInteraction: (source, target, mode) => get().mut((r) => {
       const p = r.pages.find((x) => x.visuals.some((v) => v.id === source));

@@ -26,7 +26,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 650,
     frame: false,
-    backgroundColor: '#ffffff',
+    backgroundColor: (() => { try { return CHROME_BG[JSON.parse(fs.readFileSync(uiThemeFile(), 'utf8')).theme] ?? '#ffffff'; } catch { return '#ffffff'; } })(),
     title: 'MiB-BI',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
@@ -56,6 +56,7 @@ function handle(channel, fn) {
   });
 }
 
+handle('app:version', () => app.getVersion());
 handle('db:query', (sql) => db.query(sql));
 handle('db:queryAs', (sql) => db.queryAs(sql));
 handle('db:setRole', (tables) => db.setRole(tables));
@@ -393,6 +394,14 @@ ipcMain.on('win:minimize', () => win.minimize());
 ipcMain.on('win:maximize', () => (win.isMaximized() ? win.unmaximize() : win.maximize()));
 ipcMain.on('win:close', () => win.close());
 ipcMain.on('win:title', (_e, title) => win.setTitle(title));
+// UI theme: window background (no white flash in dark mode), remembered for the next start.
+const uiThemeFile = () => path.join(app.getPath('userData'), 'ui-theme.json');
+const CHROME_BG = { light: '#F3F2F1', dark: '#1F1E1D' };
+ipcMain.on('win:theme', (_e, theme) => {
+  if (!CHROME_BG[theme]) return;
+  win.setBackgroundColor(CHROME_BG[theme]);
+  try { fs.writeFileSync(uiThemeFile(), JSON.stringify({ theme })); } catch { /* not essential */ }
+});
 
 // Dev aid: MIBBI_SHOT=out.png [MIBBI_SCRIPT=steps.js] runs a script in the page, captures it, exits.
 function screenshotMode(out, scriptFile) {

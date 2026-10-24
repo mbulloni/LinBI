@@ -55,7 +55,7 @@ function RelLine({ r, a, b, selected, onSelect, onEdit, onMenu }: {
   const nearFrom = g.bez(0.08), nearTo = g.bez(0.92);
   const fromSym = r.cardinality === 'oneToOne' ? '1' : '*';
   const toSym = r.cardinality === 'manyToMany' ? '*' : '1';
-  const color = selected ? '#118DFF' : '#605E5C';
+  const color = selected ? '#118DFF' : 'currentColor'; // .rel color follows the UI theme
   const both = r.crossFilter === 'both' || r.cardinality === 'oneToOne';
   return (
     <g className="rel" onMouseDown={(e) => { e.stopPropagation(); onSelect(); }} onDoubleClick={onEdit} onContextMenu={onMenu}>

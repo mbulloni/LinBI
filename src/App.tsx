@@ -34,6 +34,7 @@ import { DataPane } from './panes/DataPane';
 import { PerformancePane } from './panes/PerformancePane';
 import { SyncPane } from './panes/SyncPane';
 import { ExportDataDialog } from './components/ExportDataDialog';
+import { AboutDialog } from './components/AboutDialog';
 import type { View } from './types';
 
 const VIEWS: [View, string, string][] = [
@@ -125,6 +126,7 @@ export function App() {
       <StatusBar fitScale={fit} />
       <Backstage />
       <ExportDataDialog />
+      <AboutDialog />
       <Navigator />
       <DatabaseDialog />
       <PublishDialog />

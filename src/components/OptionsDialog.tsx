@@ -9,12 +9,14 @@ import { fmtWith, setLocale } from '../format';
 
 const LOCALES: [string, string][] = [['it-IT', 'Italiano (Italia)'], ['it-CH', 'Italiano (Svizzera)'], ['en-US', 'Inglese (Stati Uniti)'], ['en-GB', 'Inglese (Regno Unito)'], ['de-DE', 'Tedesco (Germania)'], ['fr-FR', 'Francese (Francia)'], ['es-ES', 'Spagnolo (Spagna)'], ['pt-BR', 'Portoghese (Brasile)']];
 import { DataSourceSettings } from './SourceDialogs';
+import { setAppTheme, useAppTheme } from '../appTheme';
 
-type Section = 'load' | 'intl' | 'python' | 'r' | 'qna' | 'fileLoad' | 'reportSettings';
+type Section = 'theme' | 'load' | 'intl' | 'python' | 'r' | 'qna' | 'fileLoad' | 'reportSettings';
 
 export function OptionsDialog() {
   const s = useStore();
   const [sec, setSec] = useState<Section>('load');
+  const theme = useAppTheme();
   const [opts, setOpts] = useState(globalOptions);
   const [paths, setPaths] = useState<{ python?: string; r?: string }>({});
   const [claude, setClaude] = useState<ClaudeStatus | null>(null);
@@ -40,6 +42,7 @@ export function OptionsDialog() {
           <nav>
             <div className="hdr">GLOBALE</div>
             {nav('load', 'Caricamento dati')}
+            {nav('theme', 'Tema')}
             {nav('intl', 'Impostazioni internazionali')}
             {nav('python', 'Scripting Python')}
             {nav('r', 'Scripting R')}
@@ -98,6 +101,14 @@ export function OptionsDialog() {
               <div className="fmt-row inline"><span>Data/ora automatica</span>
                 <Toggle on={autoDate} onChange={(b) => s.mut((r) => { r.options = { ...r.options, autoDateTime: b ? undefined : false }; if (!Object.values(r.options).some((x) => x !== undefined)) delete r.options; })} /></div>
               <p>Crea automaticamente le tabelle date (LocalDateTable) e le gerarchie Anno › Trimestre › Mese › Giorno per le colonne data quando il report viene esportato in .pbit/.pbip o pubblicato.</p>
+            </>}
+            {sec === 'theme' && <>
+              <h3>Tema dell'applicazione</h3>
+              <p>Il tema scuro riduce l'affaticamento della vista. Cambia barra multifunzione, riquadri, finestre e viste
+                Tabella, Modello e Power Query; la pagina del report mantiene il proprio tema (Visualizza › Temi).</p>
+              {([['light', 'Chiaro'], ['dark', 'Scuro'], ['system', 'Usa impostazione di sistema']] as const).map(([k, l]) => (
+                <label key={k} className="opt-radio"><input type="radio" name="apptheme" checked={theme === k} onChange={() => setAppTheme(k)} />{l}</label>
+              ))}
             </>}
             {sec === 'reportSettings' && <>
               <h3>Interazioni oggetto visivo</h3>

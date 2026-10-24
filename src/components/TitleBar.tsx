@@ -5,6 +5,31 @@ import { Icon } from './icons';
 import logo from '../assets/logo.png';
 import { Menu } from './Menu';
 import { CommandSearch } from './CommandSearch';
+import { setAppTheme, useAppTheme, type AppThemePref } from '../appTheme';
+
+const THEME_UI: [AppThemePref, string, string][] = [['light', 'sun', 'Chiaro'], ['dark', 'moon', 'Scuro'], ['system', 'themeAuto', 'Usa impostazione di sistema']];
+
+/** Tema dell'interfaccia (like the sun button of Power BI Desktop's title bar). */
+function ThemeButton() {
+  const pref = useAppTheme();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const cur = THEME_UI.find((t) => t[0] === pref) ?? THEME_UI[0];
+  return <>
+    <button className="theme-btn" title={`Tema: ${cur[2]}`} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 2 }); }}>
+      <Icon name={cur[1]} size={16} /><Icon name="chevronDown" size={10} />
+    </button>
+    {menu && (
+      <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <div className="hdr">Tema</div>
+        {THEME_UI.map(([k, icon, label]) => (
+          <button key={k} onClick={() => { setMenu(null); setAppTheme(k); }}>
+            <span style={{ width: 12 }}>{pref === k ? '✓' : ''}</span><Icon name={icon} size={16} />{label}
+          </button>
+        ))}
+      </Menu>
+    )}
+  </>;
+}
 import type { PbiStatus } from '../api';
 
 export function TitleBar() {
@@ -42,6 +67,7 @@ export function TitleBar() {
       </div>
       <div className="title">{title}{sensitivity && <span className="sens-pill" title={sensitivity.description ?? 'Etichetta di riservatezza'}><span className="sens-dot" style={{ background: sensitivity.color ?? '#605E5C' }} />{sensitivity.name}</span>}</div>
       <CommandSearch />
+      <ThemeButton />
       <button className="user" title={account ? `Power BI: ${account}${pbi?.profileName ? ` (${pbi.profileName})` : ''}` : 'Accedi a Power BI'} onClick={userClick}>
         <Icon name="user" size={16} />{account ? account.split('@')[0] : 'Accedi'}
       </button>

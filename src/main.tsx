@@ -3,8 +3,10 @@ import { App } from './App';
 import './styles.css';
 import { setLocale } from './format';
 import { globalOptions } from './options';
+import { initAppTheme } from './appTheme';
 
 setLocale(globalOptions().locale ?? 'it-IT');
+initAppTheme();
 
 createRoot(document.getElementById('root')!).render(<App />);
 

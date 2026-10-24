@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   savePbit: (parts, suggested) => call('pbit:save', parts, suggested),
   savePbix: (parts, schema, extra, suggested, target) => call('pbix:save', parts, schema, extra, suggested, target),
   printPdf: (suggested) => call('pdf:print', suggested),
+  appVersion: () => call('app:version'),
   exportData: (name, columns, rows, format) => call('file:exportData', name, columns, rows, format),
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
   claude: {
@@ -86,6 +87,7 @@ contextBridge.exposeInMainWorld('api', {
     maximize: () => ipcRenderer.send('win:maximize'),
     close: () => ipcRenderer.send('win:close'),
     setTitle: (t) => ipcRenderer.send('win:title', t),
+    setTheme: (t) => ipcRenderer.send('win:theme', t),
     onState: (cb) => {
       const listener = (_e, max) => cb(max);
       ipcRenderer.on('win:state', listener);

@@ -206,7 +206,7 @@ export function Ribbon() {
 
         {tab === 'help' && <>
           <Group label="Guida">
-            <Big icon="info" label="Informazioni" onClick={() => s.notify('MiB-BI 0.1 — clone educativo di Power BI Desktop per Linux. Motore: DuckDB · Grafici: Apache ECharts.')} />
+            <Big icon="info" label="Informazioni" onClick={() => s.set({ aboutDialog: true })} />
             <Big icon="docs" label="Documentazione" onClick={() => s.notify('Leggere README.md nella cartella del progetto.')} />
           </Group>
         </>}

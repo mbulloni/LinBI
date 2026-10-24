@@ -7,8 +7,8 @@ import { autoTitle } from '../components/VisualContainer';
 import { visualDef } from '../visuals/catalog';
 
 const Eye = ({ open }: { open: boolean }) => (
-  <svg width="14" height="14" viewBox="0 0 16 16"><path d="M1 8 C3 4 13 4 15 8 C13 12 3 12 1 8 Z" fill="none" stroke="#605E5C" strokeWidth="1.1" />
-    {open ? <circle cx="8" cy="8" r="2" fill="#605E5C" /> : <path d="M2 14 L14 2" stroke="#605E5C" strokeWidth="1.2" />}</svg>
+  <svg width="14" height="14" viewBox="0 0 16 16"><path d="M1 8 C3 4 13 4 15 8 C13 12 3 12 1 8 Z" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    {open ? <circle cx="8" cy="8" r="2" fill="currentColor" /> : <path d="M2 14 L14 2" stroke="currentColor" strokeWidth="1.2" />}</svg>
 );
 
 export function PaneShell({ title, onClose, children, tools }: { title: string; onClose: () => void; children: ReactNode; tools?: ReactNode }) {

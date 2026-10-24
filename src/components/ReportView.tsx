@@ -132,7 +132,7 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
       )}
       <div className="canvas-wrap" ref={wrap} style={page.wallpaper ? { background: page.wallpaper } : undefined}>
         {focus ? (
-          <div style={{ position: 'absolute', inset: 16, background: '#fff', display: 'flex', flexDirection: 'column', boxShadow: '0 1.6px 3.6px rgba(0,0,0,.13)' }}>
+          <div className="focus-view" style={{ position: 'absolute', inset: 16, background: 'var(--bg)', display: 'flex', flexDirection: 'column', boxShadow: '0 1.6px 3.6px rgba(0,0,0,.13)' }}>
             <div style={{ height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
               <button className="btn" style={{ minWidth: 0 }} onClick={() => s.set({ focusId: null })}>← Torna al report</button>
               <span style={{ fontSize: 14 }}>{focus.format.titleText || autoTitle(focus)}</span>

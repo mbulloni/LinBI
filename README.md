@@ -27,8 +27,8 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Il `.pbix` di MiB-BI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | **Database SQL Server** — tabelle e viste con anteprima; anche Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB, Access, ODBC |
 | ![Modifica interazioni: evidenziazione incrociata](docs/screenshots/interazioni.png) | ![Nuovi filtri dei dati e Sincronizza filtri dei dati](docs/screenshots/filtri-dati.png) |
 | **Modifica interazioni** — evidenziazione (barre piene/sbiadite), filtro o nessuna, per ogni coppia di oggetti visivi | **Filtri dei dati** — Tra (date e numeri), data relativa, testo, pulsanti; **Sincronizza filtri dei dati** tra le pagine |
-| ![Mostra come tabella ed Esporta dati](docs/screenshots/mostra-tabella.png) | |
-| **Mostra come tabella** ed **Esporta dati** — dati riepilogati (.xlsx/.csv) o sottostanti (.xlsx) | |
+| ![Mostra come tabella ed Esporta dati](docs/screenshots/mostra-tabella.png) | ![Tema scuro](docs/screenshots/tema-scuro.png) |
+| **Mostra come tabella** ed **Esporta dati** — dati riepilogati (.xlsx/.csv) o sottostanti (.xlsx) | **Tema scuro** — interfaccia chiara, scura o come il sistema; la pagina del report mantiene il proprio tema |
 
 ## Scaricare e installare
 
@@ -412,6 +412,9 @@ Fabric, PDF, `.mibx` con i dati.
 - **Esporta dati** e **Mostra come tabella** (menu *Altre opzioni* dell'oggetto visivo e modalità messa a fuoco): dati
   riepilogati in .xlsx (max 150.000 righe) o .csv (max 30.000), dati sottostanti in .xlsx (righe delle tabelle con tutti i
   filtri attivi, filtro incrociato compreso)
+- **Tema dell'interfaccia** chiaro, scuro o *Usa impostazione di sistema* (pulsante con il sole/la luna nella barra del titolo
+  o Opzioni › Tema): barra multifunzione, riquadri, finestre, viste Tabella/Modello/Query DAX e Power Query; come in Power BI
+  la pagina del report mantiene il proprio tema (Visualizza › Temi). La scelta è ricordata, anche per lo sfondo della finestra
 - File › **Ottieni dati** (tutte le origini) e **Opzioni e impostazioni**: rilevamento automatico delle relazioni, interprete
   Python ed eseguibile Rscript per gli oggetti visivi script, chiave e modello Claude per Q&A, impostazioni origine dati,
   *Data/ora automatica* del file corrente (tabelle date e gerarchie nelle esportazioni)

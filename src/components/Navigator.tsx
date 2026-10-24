@@ -21,7 +21,7 @@ export function Navigator() {
             <div className="ttl">Nome tabella <input type="text" value={nav.tableName} onChange={(e) => s.set({ navigator: { ...nav, tableName: e.target.value } })} /></div>
             <div className="grid-wrap">
               {nav.loading && !nav.preview && <div style={{ padding: 24, display: 'flex', gap: 12, alignItems: 'center' }}><div className="spinner" />Caricamento anteprima…</div>}
-              {nav.error && <div style={{ padding: 24, color: '#A4262C' }}>{nav.error}</div>}
+              {nav.error && <div style={{ padding: 24, color: 'var(--err-text)' }}>{nav.error}</div>}
               {nav.preview && (
                 <table>
                   <thead><tr>{nav.preview.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>

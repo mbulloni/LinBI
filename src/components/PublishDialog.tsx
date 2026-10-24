@@ -246,7 +246,7 @@ export function PublishDialog() {
             </div>
           )}
           {result && (
-            <div className="pq-error" style={{ margin: 0, background: '#DFF6DD', borderColor: '#9FD89F' }}>
+            <div className="pq-error" style={{ margin: 0, background: '#DFF6DD', borderColor: '#9FD89F', color: '#252423' }}>
               <Icon name="info" size={18} box={32} />
               <div><b>Pubblicato</b>
                 {result.webUrl ? <div><a href="#" onClick={(e) => { e.preventDefault(); api.openExternal(result.webUrl!); }}>Apri il report in Power BI</a></div> : null}

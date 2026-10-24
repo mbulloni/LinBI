@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { VisualType } from '../types';
 
-const B = '#118DFF', D = '#12239E', O = '#E66C37', G = '#605E5C', K = '#252423';
+const B = '#118DFF', D = '#12239E', O = '#E66C37', G = '#605E5C', K = 'currentColor';
 
 /** Visualization icons, 20x20, in the spirit of the Power BI gallery. */
 const VIS: Record<VisualType, ReactNode> = {
@@ -128,6 +128,9 @@ const UI: Record<string, ReactNode> = {
   tableSmall: <><rect x="1.5" y="2.5" width="13" height="11" fill="none" stroke={K} />{P('M1.5 6 H14.5 M1.5 9.5 H14.5 M6 6 V13.5 M10 6 V13.5', K, .8)}</>,
   eye: <><path d="M1 8 C3 4 13 4 15 8 C13 12 3 12 1 8 Z" fill="none" stroke={K} /><circle cx="8" cy="8" r="2" fill={K} /></>,
   filter: P('M2 3 H14 L9.5 8.5 V13 L6.5 14.5 V8.5 Z', K, 1),
+  sun: <><circle cx="8" cy="8" r="3" fill="none" stroke={K} strokeWidth="1.2" />{P('M8 1.2 V2.8 M8 13.2 V14.8 M1.2 8 H2.8 M13.2 8 H14.8 M3.2 3.2 L4.3 4.3 M11.7 11.7 L12.8 12.8 M3.2 12.8 L4.3 11.7 M11.7 4.3 L12.8 3.2', K, 1.2)}</>,
+  moon: <>{P('M13 10.2 A5.6 5.6 0 1 1 5.8 3 A4.6 4.6 0 0 0 13 10.2 Z', K, 1.2)}</>,
+  themeAuto: <><circle cx="8" cy="8" r="5.6" fill="none" stroke={K} strokeWidth="1.2" /><path d="M8 2.4 A5.6 5.6 0 0 1 8 13.6 Z" fill={K} /></>,
   interFilter: <><path d="M1.5 2.5 H9.5 L6.5 6.5 V10 L4.5 11 V6.5 Z" fill="none" stroke={K} /><rect x="10" y="9" width="1.8" height="5" fill={B} /><rect x="12.6" y="6" width="1.8" height="8" fill={B} /></>,
   interHighlight: <><rect x="2.5" y="4" width="3" height="10" fill={B} opacity=".35" /><rect x="2.5" y="9" width="3" height="5" fill={B} /><rect x="7" y="2" width="3" height="12" fill={B} opacity=".35" /><rect x="7" y="7" width="3" height="7" fill={B} /><rect x="11.5" y="6" width="3" height="8" fill={B} opacity=".35" /><rect x="11.5" y="11" width="3" height="3" fill={B} /></>,
   interNone: <><circle cx="8" cy="8" r="5.5" fill="none" stroke={K} strokeWidth="1.2" />{P('M4.1 4.1 L11.9 11.9', K, 1.2)}</>,
