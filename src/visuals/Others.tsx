@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api } from '../api';
-import type { CrossFilter, Visual } from '../types';
+import type { CrossFilter, RelativeSlicer, Visual } from '../types';
 import type { VisualData } from './useVisualData';
 import { fieldLabel, fmtAuto, fmtFull, fmtPct, fmtWith, locale } from '../format';
-import { NULL_KEY, type QueryItem } from '../query';
+import { fieldKind, NULL_KEY, relativePeriod, type QueryItem } from '../query';
 import { useStore } from '../store';
 import { cellFormat, cfInput, fieldKey, rangeOf, type Range } from './condfmt';
 import { font, pt, sp, units } from './pbistyle';
@@ -267,20 +267,119 @@ export function MatrixVisual({ v, data, cross, onSelect }: { v: Visual; data: Vi
   );
 }
 
+const REL_UNITS: [RelativeSlicer['unit'], string][] = [['minutes', 'Minuti'], ['hours', 'Ore'], ['days', 'Giorni'], ['weeks', 'Settimane'], ['months', 'Mesi'], ['years', 'Anni']];
+
+/** Bound of a range slicer as typed in an <input>: dates keep yyyy-mm-dd, numbers stay as text. */
+const dayOf = (x: string | null | undefined) => (x ? x.slice(0, 10) : '');
+
+/** Tra / Prima di / Dopo on numbers or dates: inputs + a two-thumb slider over the data range. */
+function RangeSlicer({ v, values, kind }: { v: Visual; values: (string | null)[]; kind: 'number' | 'date' | 'datetime' }) {
+  const updateVisual = useStore((s) => s.updateVisual);
+  const style = v.format.slicerStyle;
+  const num = kind === 'number';
+  const pts = values.filter((x): x is string => x !== null).map((x) => (num ? Number(x) : Date.parse(dayOf(x) + 'T00:00:00'))).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!pts.length) return null;
+  const lo = pts[0], hi = pts[pts.length - 1];
+  const toStr = (n: number) => (num ? String(n) : dayOf(new Date(n - new Date(n).getTimezoneOffset() * 6e4).toISOString()));
+  const toNum = (x?: string) => (x ? (num ? Number(x) : Date.parse(dayOf(x) + 'T00:00:00')) : NaN);
+  const r = v.slicerRange ?? {};
+  const a = Number.isFinite(toNum(r.min)) ? toNum(r.min) : lo, b = Number.isFinite(toNum(r.max)) ? toNum(r.max) : hi;
+  const set = (patch: { min?: string; max?: string }) => {
+    const next = { ...r, ...patch };
+    for (const k of ['min', 'max'] as const) if (!next[k]) delete next[k];
+    updateVisual(v.id, { slicerRange: Object.keys(next).length ? next : undefined });
+  };
+  const step = num ? (Number.isInteger(lo) && Number.isInteger(hi) ? 1 : (hi - lo) / 100 || 1) : 864e5;
+  const showMin = style !== 'before', showMax = style !== 'after';
+  const input = (k: 'min' | 'max', val: number) => (
+    <input type={num ? 'number' : 'date'} value={r[k] ? (num ? r[k] : dayOf(r[k])) : num ? String(val) : toStr(val)} step={num ? 'any' : undefined}
+      onMouseDown={(e) => e.stopPropagation()} onChange={(e) => set({ [k]: e.target.value })} />
+  );
+  return (
+    <div className="slicer-v range-v">
+      <div className="range-inputs">{showMin && input('min', a)}{showMin && showMax && <span>–</span>}{showMax && input('max', b)}</div>
+      <div className="range-track" onMouseDown={(e) => e.stopPropagation()}>
+        {showMin && <input type="range" min={lo} max={hi} step={step} value={a} onChange={(e) => set({ min: toStr(Math.min(+e.target.value, showMax ? b : hi)) })} />}
+        {showMax && <input type="range" min={lo} max={hi} step={step} value={b} onChange={(e) => set({ max: toStr(Math.max(+e.target.value, showMin ? a : lo)) })} />}
+      </div>
+    </div>
+  );
+}
+
+/** Data / Ora relativa: Ultimi | Questo | Prossimi, N, unità (calendario). */
+function RelativeSlicerView({ v }: { v: Visual }) {
+  const updateVisual = useStore((s) => s.updateVisual);
+  const time = v.format.slicerStyle === 'relativeTime';
+  const r: RelativeSlicer | undefined = v.slicerRelative;
+  const cur = r ?? { anchor: 'last', n: 1, unit: time ? 'hours' : 'days' };
+  const set = (patch: Partial<RelativeSlicer>) => updateVisual(v.id, { slicerRelative: { ...cur, ...patch } as RelativeSlicer });
+  const units = REL_UNITS.filter(([u]) => (time ? u === 'minutes' || u === 'hours' : u !== 'minutes' && u !== 'hours'));
+  const p = r ? relativePeriod(r) : null;
+  const fmt = (d: Date) => d.toLocaleString(locale(), time ? { dateStyle: 'short', timeStyle: 'short' } : { dateStyle: 'short' });
+  return (
+    <div className="slicer-v rel-v" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="rel-row">
+        <select value={r ? cur.anchor : ''} onChange={(e) => (e.target.value ? set({ anchor: e.target.value as RelativeSlicer['anchor'] }) : updateVisual(v.id, { slicerRelative: undefined }))}>
+          {!r && <option value="">(Nessun filtro)</option>}
+          <option value="last">Ultimi</option><option value="this">Questo</option><option value="next">Prossimi</option>
+        </select>
+        {cur.anchor !== 'this' && <input type="number" min={1} value={cur.n} onChange={(e) => set({ n: Math.max(1, +e.target.value || 1) })} />}
+        <select value={cur.unit + (cur.calendar ? ':c' : '')} onChange={(e) => { const [u, c] = e.target.value.split(':'); set({ unit: u as RelativeSlicer['unit'], calendar: c === 'c' || undefined }); }}>
+          {units.flatMap(([u, l]) => [<option key={u} value={u}>{l}</option>, ...(u !== 'days' && u !== 'minutes' && u !== 'hours' && cur.anchor !== 'this' ? [<option key={u + 'c'} value={u + ':c'}>{l} (calendario)</option>] : [])])}
+        </select>
+        {r && <button title="Cancella selezioni" onClick={() => updateVisual(v.id, { slicerRelative: undefined })}>✕</button>}
+      </div>
+      {p && <div className="rel-period">{fmt(p.start)} – {fmt(time ? p.end : new Date(p.end.getTime() - 1))}</div>}
+    </div>
+  );
+}
+
+/** Filtro dei dati di testo: rows whose value contains the typed text (applied on Invio or after a pause). */
+function TextSlicer({ v }: { v: Visual }) {
+  const updateVisual = useStore((s) => s.updateVisual);
+  const [draft, setDraft] = useState(v.slicerText ?? '');
+  useEffect(() => setDraft(v.slicerText ?? ''), [v.slicerText]);
+  useEffect(() => {
+    if (draft === (v.slicerText ?? '')) return;
+    const t = setTimeout(() => updateVisual(v.id, { slicerText: draft || undefined }), 600);
+    return () => clearTimeout(t);
+  }, [draft]);
+  return (
+    <div className="slicer-v text-v" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="text-box">
+        <input type="text" value={draft} placeholder="Digitare il testo da cercare" onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') updateVisual(v.id, { slicerText: draft || undefined }); }} />
+        {draft && <button title="Cancella" onClick={() => { setDraft(''); updateVisual(v.id, { slicerText: undefined }); }}>✕</button>}
+      </div>
+    </div>
+  );
+}
+
 export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
   const setSlicer = useStore((s) => s.setSlicer);
+  const tables = useStore((s) => s.tables);
+  const [search, setSearch] = useState('');
   const it: QueryItem | undefined = data.items[0];
   const sel = new Set(v.pendingSlicer ?? v.slicerValues ?? []);
-  const values = it ? data.rows.map((r) => r[it.alias] as string | null) : [];
+  const all = it ? data.rows.map((r) => r[it.alias] as string | null) : [];
+  const q = search.trim().toLocaleLowerCase();
+  const values = q ? all.filter((x) => (x ?? '(Vuoto)').toLocaleLowerCase().includes(q)) : all;
   const set = (vals: string[]) => setSlicer(v.id, vals);
+  const single = !!v.format.slicerSingle;
   const toggle = (k: string, multi: boolean) => {
-    if (multi) set(sel.has(k) ? [...sel].filter((x) => x !== k) : [...sel, k]);
+    if (single) set(sel.size === 1 && sel.has(k) ? [] : [k]);
+    else if (multi || v.format.slicerStyle === 'tile' && v.format.slicerMulti) set(sel.has(k) ? [...sel].filter((x) => x !== k) : [...sel, k]);
     else set(sel.size === 1 && sel.has(k) ? [] : [k]);
   };
   if (!it) return null;
-  if (v.format.slicerStyle === 'slider') {
+  const style = v.format.slicerStyle;
+  const kind = fieldKind(it.field, tables);
+  if (style === 'text') return <TextSlicer v={v} />;
+  if (style === 'relativeDate' || style === 'relativeTime') return <RelativeSlicerView v={v} />;
+  if ((style === 'between' || style === 'before' || style === 'after') && kind !== 'text') return <RangeSlicer v={v} values={all} kind={kind} />;
+  if (style === 'slider') {
     // Single value on a numeric range (what-if parameters).
-    const nums = values.filter((x): x is string => x !== null).map((x) => ({ x, n: Number(x) })).filter((x) => Number.isFinite(x.n)).sort((a, b) => a.n - b.n);
+    const nums = all.filter((x): x is string => x !== null).map((x) => ({ x, n: Number(x) })).filter((x) => Number.isFinite(x.n)).sort((a, b) => a.n - b.n);
     const cur = sel.size === 1 ? nums.findIndex((x) => x.x === [...sel][0]) : -1;
     if (!nums.length) return null;
     return (
@@ -292,9 +391,11 @@ export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
       </div>
     );
   }
-  if (v.format.slicerStyle === 'dropdown') {
+  const searchBox = v.format.slicerSearch ? <input className="slicer-search" type="search" placeholder="Cerca" value={search} onChange={(e) => setSearch(e.target.value)} onMouseDown={(e) => e.stopPropagation()} /> : null;
+  if (style === 'dropdown') {
     return (
       <div className="slicer-v">
+        {searchBox}
         <select value={sel.size === 1 ? [...sel][0] : ''} onChange={(e) => set(e.target.value ? [e.target.value] : [])}>
           <option value="">Tutti</option>
           {values.map((x) => <option key={toKey(x)} value={toKey(x)}>{x ?? '(Vuoto)'}</option>)}
@@ -302,14 +403,30 @@ export function SlicerVisual({ v, data }: { v: Visual; data: VisualData }) {
       </div>
     );
   }
+  if (style === 'tile') {
+    // Riquadro / Filtro dei dati pulsante: one button per value, wrapping.
+    return (
+      <div className="slicer-v tile-v">
+        {searchBox}
+        <div className="tiles">
+          {!single && v.format.slicerSelectAll !== false && <button className={sel.size === 0 ? 'on' : ''} onClick={() => set([])}>Seleziona tutto</button>}
+          {values.map((x) => {
+            const k = toKey(x);
+            return <button key={k} className={sel.has(k) ? 'on' : ''} onClick={(e) => toggle(k, e.ctrlKey || e.metaKey)}>{x ?? '(Vuoto)'}</button>;
+          })}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="slicer-v">
-      <label><input type="checkbox" checked={sel.size === 0} onChange={() => set([])} />Seleziona tutto</label>
+      {searchBox}
+      {!single && v.format.slicerSelectAll !== false && <label><input type="checkbox" checked={sel.size === 0} onChange={() => set([])} />Seleziona tutto</label>}
       {values.map((x) => {
         const k = toKey(x);
         return (
           <label key={k} onClick={(e) => { e.preventDefault(); toggle(k, e.ctrlKey || e.metaKey); }}>
-            <input type="checkbox" readOnly checked={sel.has(k)} />{x ?? '(Vuoto)'}
+            <input type={single ? 'radio' : 'checkbox'} readOnly checked={sel.has(k)} />{x ?? '(Vuoto)'}
           </label>
         );
       })}

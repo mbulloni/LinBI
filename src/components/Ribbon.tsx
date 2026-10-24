@@ -20,7 +20,7 @@ function ThemeSwatch({ t, active, onClick, label }: { t: Theme; active: boolean;
   );
 }
 
-type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help';
+type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help' | 'format';
 const TABS: [Tab, string][] = [['home', 'Home'], ['insert', 'Inserisci'], ['modeling', 'Modellazione'], ['view', 'Visualizza'], ['optimize', 'Ottimizza'], ['help', 'Guida']];
 
 export function Group({ label, children }: { label: string; children: ReactNode }) {
@@ -54,6 +54,8 @@ export function Ribbon() {
   };
   const close = () => setMenu(null);
   const selVisual = sel ? s.page().visuals.find((v) => v.id === sel) : undefined;
+  // The contextual Formato tab goes away with the selection.
+  useEffect(() => { if (tab === 'format' && !selVisual && !s.editInteractions) setTab('home'); }, [tab, selVisual, s.editInteractions]);
 
   const copy = () => selVisual && s.set({ clipboard: JSON.parse(JSON.stringify(selVisual)) });
   const cut = () => { if (selVisual) { copy(); s.removeVisual(selVisual.id); } };
@@ -81,6 +83,8 @@ export function Ribbon() {
       <div className="ribbon-tabs">
         <button className="file" onClick={() => s.set({ fileMenu: true })}>File</button>
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}
+        {/* Contextual tab of the selected visual, like Power BI's Formato. */}
+        {report && (selVisual || s.editInteractions) && <button className={'ctx' + (tab === 'format' ? ' active' : '')} onClick={() => setTab('format')}>Formato</button>}
       </div>
       <div className="ribbon-body">
         {tab === 'home' && <>
@@ -177,10 +181,20 @@ export function Ribbon() {
           </Group>
           <Group label="Mostra riquadri">
             <div className="rcol">
-              {([['filters', 'Filtri'], ['viz', 'Visualizzazioni'], ['data', 'Dati'], ['bookmarks', 'Segnalibri'], ['selection', 'Selezione']] as const).map(([k, l]) => (
-                <label key={k} className="rcheck"><input type="checkbox" checked={s.panes[k]} onChange={(e) => s.set({ panes: { ...s.panes, [k]: e.target.checked } })} />{l}</label>
+              {([['filters', 'Filtri'], ['viz', 'Visualizzazioni'], ['data', 'Dati'], ['bookmarks', 'Segnalibri'], ['selection', 'Selezione'], ['sync', 'Sincronizza filtri dei dati']] as const).map(([k, l]) => (
+                <label key={k} className="rcheck"><input type="checkbox" checked={!!s.panes[k]} onChange={(e) => s.set({ panes: { ...s.panes, [k]: e.target.checked } })} />{l}</label>
               ))}
             </div>
+          </Group>
+        </>}
+
+        {tab === 'format' && <>
+          <Group label="Interazioni">
+            <Big icon="interactions" label={<>Modifica<br />interazioni</>} onClick={() => s.set({ editInteractions: !s.editInteractions, crossFilter: null })}
+              title={s.editInteractions ? 'Termina la modifica delle interazioni' : "Scegliere come un oggetto visivo selezionato filtra o evidenzia gli altri oggetti visivi della pagina"} />
+          </Group>
+          <Group label="Filtri dei dati">
+            <Big icon="syncSlicers" label={<>Sincronizza<br />filtri dei dati</>} onClick={() => s.set({ panes: { ...s.panes, sync: !s.panes.sync } })} />
           </Group>
         </>}
 

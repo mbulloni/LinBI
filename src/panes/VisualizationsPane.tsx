@@ -12,6 +12,7 @@ import { Menu, Toggle } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
 import { DEFAULT_CF, fieldKey, ICON_SET } from '../visuals/condfmt';
 import { sp } from '../visuals/pbistyle';
+import { fieldKind } from '../query';
 import { bname, sname } from '../pbix/layout';
 import type { CfRule, ColorScale, CondFormat, FieldRef, Page } from '../types';
 
@@ -474,11 +475,7 @@ function FormatPane({ v }: { v: Visual }) {
         {v.type === 'button' && <ActionCard v={v} />}
         {v.type === 'slicer' && (
           <Card title="Impostazioni filtro dei dati" defaultOpen>
-            <label className="fmt-row"><span>Stile</span>
-              <select value={f.slicerStyle} onChange={(e) => up({ slicerStyle: e.target.value as VisualFormat['slicerStyle'] })}>
-                <option value="list">Elenco verticale</option><option value="dropdown">Elenco a discesa</option>
-              </select>
-            </label>
+            <SlicerSettings v={v} up={up} />
           </Card>
         )}
         {!chart && !mapv && !['slicer', 'table', 'matrix', 'custom', 'button'].includes(v.type) && <div style={{ color: 'var(--text2)', padding: '10px 0' }}>Nessuna opzione aggiuntiva per questo oggetto visivo.</div>}
@@ -642,4 +639,33 @@ export function VisualizationsPane() {
       </div>
     </div>
   );
+}
+
+/** Impostazioni filtro dei dati: styles offered by the field type (Power BI: text = Elenco/Menu a discesa/Riquadro;
+ *  numbers add Tra/Minore o uguale a/Maggiore o uguale a; dates add Tra/Prima di/Dopo/Data e Ora relativa). */
+function SlicerSettings({ v, up }: { v: Visual; up: (p: Partial<VisualFormat>) => void }) {
+  const tables = useStore((s) => s.tables);
+  const f = v.format;
+  const field = v.fields.category?.[0];
+  const kind = field ? fieldKind(field, tables) : 'text';
+  const styles: [VisualFormat['slicerStyle'], string][] = [['list', 'Elenco verticale'], ['dropdown', 'Elenco a discesa'], ['tile', 'Riquadro (pulsanti)']];
+  if (kind === 'number') styles.push(['between', 'Tra'], ['before', 'Minore o uguale a'], ['after', 'Maggiore o uguale a']);
+  if (kind === 'date' || kind === 'datetime') styles.push(['between', 'Tra'], ['before', 'Prima di'], ['after', 'Dopo'], ['relativeDate', 'Data relativa'], ['relativeTime', 'Ora relativa']);
+  if (kind === 'text') styles.push(['text', 'Testo (contiene)']);
+  if (f.slicerStyle === 'slider') styles.push(['slider', 'Valore singolo (cursore)']);
+  if (!styles.some(([k]) => k === f.slicerStyle)) styles.push([f.slicerStyle, f.slicerStyle]);
+  const values = ['list', 'dropdown', 'tile'].includes(f.slicerStyle);
+  return <>
+    <label className="fmt-row"><span>Stile</span>
+      <select value={f.slicerStyle} onChange={(e) => up({ slicerStyle: e.target.value as VisualFormat['slicerStyle'] })}>
+        {styles.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+    </label>
+    {values && <>
+      <div className="fmt-row inline"><span>Selezione singola</span><Toggle on={!!f.slicerSingle} onChange={(b) => up({ slicerSingle: b || undefined })} /></div>
+      {f.slicerStyle !== 'dropdown' && <div className="fmt-row inline"><span>Opzione "Seleziona tutto"</span><Toggle on={f.slicerSelectAll !== false} onChange={(b) => up({ slicerSelectAll: b ? undefined : false })} /></div>}
+      {f.slicerStyle === 'tile' && <div className="fmt-row inline"><span>Selezione multipla senza CTRL</span><Toggle on={!!f.slicerMulti} onChange={(b) => up({ slicerMulti: b || undefined })} /></div>}
+      <div className="fmt-row inline"><span>Casella di ricerca</span><Toggle on={!!f.slicerSearch} onChange={(b) => up({ slicerSearch: b || undefined })} /></div>
+    </>}
+  </>;
 }

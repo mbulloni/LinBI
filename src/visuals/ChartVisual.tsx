@@ -121,9 +121,21 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     const i = cat ? catIndex.get(ck(r)) : 0;
     if (i !== undefined) lineItems.forEach((m, k) => (lines[k].data[i] = r[m.alias]));
   }
+  // Cross-highlight (bars only): the same series computed with the other visual's selection.
+  const hl: (number | null)[][] | null = d.highlight && kind === 'bar' ? series.map(() => categories.map(() => null as number | null)) : null;
+  if (hl && d.highlight) {
+    if (leg && vals[0]) {
+      const li = new Map(series.map((x, i) => [x.name, i]));
+      for (const r of d.highlight) { const k = li.get(catLabel(r[leg.alias])); const i = cat ? catIndex.get(ck(r)) : 0; if (k !== undefined && i !== undefined) hl[k][i] = r[vals[0].alias]; }
+    } else {
+      for (const r of d.highlight) { const i = cat ? catIndex.get(ck(r)) : 0; if (i !== undefined) vals.forEach((m, k) => (hl[k][i] = r[m.alias])); }
+    }
+  }
   if (pct) {
     const tot = categories.map((_, i) => series.reduce((a, s) => a + Math.abs(s.data[i] ?? 0), 0));
-    series.forEach((s) => (s.data = s.data.map((x, i) => (x === null || !tot[i] ? x : (x / tot[i]) * 100))));
+    const norm = (xs: (number | null)[]) => xs.map((x, i) => (x === null || !tot[i] ? x : (x / tot[i]) * 100));
+    if (hl) hl.forEach((h, k) => (hl[k] = norm(h)));
+    series.forEach((s) => (s.data = norm(s.data)));
   }
 
   const axisLine = { show: false };
@@ -206,10 +218,17 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     const x = drv[i];
     return ruleValue(cr.rules, x) ?? (cr.scale && drvRange && x !== null ? scaleColor(cr.scale, drvRange, x) : undefined);
   };
+  const colors = singleColor ? [main(f.color)] : series.map((s, k) => pc.byValue.get(leg ? s.name : '') ?? pc.byRef.get(vals[k] ? queryRef(vals[k].field) : '') ?? PALETTE[k % PALETTE.length]);
+  const pointStyle = (i: number, x: number | null) => ({
+    ...(singleColor && pc.byValue.has(categories[i] ?? '') ? { color: pc.byValue.get(categories[i] ?? '') } : {}),
+    ...(grad && gradRange && x !== null ? { color: scaleColor(grad, gradRange, x) } : {}),
+    ...(ruleColor(i) ? { color: ruleColor(i) } : {}),
+  });
+  const valText = (x: number) => (pct ? fmtFull(x) + '%' : asPct ? fmtPct(x) : fmtFull(x));
   const option: echarts.EChartsCoreOption = {
     textStyle: { fontFamily: FONT },
     animationDuration: 300,
-    legend: legendCfg,
+    legend: hl && legendCfg.show ? { ...legendCfg, data: [...series, ...lines].map((s) => s.name) } : legendCfg,
     grid: {
       left: horizontal ? 8 : 28, right: 16, bottom: horizontal ? 8 : 30,
       top: showLegend && lg.side === 'top' ? 28 : 12, containLabel: true,
@@ -217,15 +236,23 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
     },
     tooltip: {
       trigger: 'axis', axisPointer: { type: kind === 'bar' ? 'shadow' : 'line' }, confine: true,
-      valueFormatter: (x: number) => (pct ? fmtFull(x) + '%' : asPct ? fmtPct(x) : fmtFull(x)),
+      valueFormatter: valText,
+      // Highlighted: "selected / total" per series, the faded remainders are not listed.
+      ...(hl ? { formatter: (ps: any[]) => [ps[0]?.axisValueLabel ?? '', ...ps.filter((p) => !String(p.seriesId).endsWith('|r')).map((p) => {
+        const k = Number(String(p.seriesId).slice(1).split('|')[0]);
+        const h = hl[k]?.[p.dataIndex], t = series[k]?.data[p.dataIndex];
+        return Number.isFinite(k) && k < series.length ? `${p.marker}${p.seriesName}: <b>${h === null || h === undefined ? '—' : valText(h)}</b> / ${t === null || t === undefined ? '—' : valText(t)}` : `${p.marker}${p.seriesName}: <b>${valText(yOf(p))}</b>`;
+      })].join('<br/>') } : {}),
     },
-    color: singleColor ? [main(f.color)] : series.map((s, k) => pc.byValue.get(leg ? s.name : '') ?? pc.byRef.get(vals[k] ? queryRef(vals[k].field) : '') ?? PALETTE[k % PALETTE.length]).concat(PALETTE),
+    color: colors.concat(PALETTE),
     xAxis: horizontal ? valAxis : catAxis,
     yAxis: horizontal ? catAxis : lines.length ? [valAxis, lineAxis] : valAxis,
     series: [...series.map((s, k) => ({
+      id: `s${k}|h`,
       name: s.name,
+      ...(hl ? { itemStyle: { color: colors[k % colors.length] } } : {}),
       type: kind,
-      stack: stacked ? 'total' : undefined,
+      stack: stacked ? 'total' : hl ? `hl${k}` : undefined,
       barMaxWidth: 60,
       barGap: '8%',
       symbol: kind === 'line' ? 'none' : undefined,
@@ -236,16 +263,19 @@ function cartesian(v: Visual, d: VisualData, selected: string | null | undefined
       label: { show: f.dataLabels, position: stacked ? 'inside' : horizontal ? 'right' : 'top', fontSize: lb.size ?? 10, color: lb.color ?? (stacked ? '#fff' : '#252423'), formatter: (p: any) => (yOf(p) === null ? '' : pct ? fmtAuto(yOf(p), 1) + '%' : asPct ? fmtPct(yOf(p)) : fmtLbl(yOf(p))) },
       ...(cont && kind === 'bar' ? { barMaxWidth: Math.max(2, Math.min(60, ((width - 80) / Math.max(1, categories.length)) * 0.8 / (stacked ? 1 : series.length))) } : {}),
       data: s.data.map((x, i) => ({
-        value: at(i, x),
+        value: at(i, hl ? hl[k][i] : x),
         itemStyle: {
-          ...(singleColor && pc.byValue.has(categories[i] ?? '') ? { color: pc.byValue.get(categories[i] ?? '') } : {}),
-          ...(grad && gradRange && x !== null ? { color: scaleColor(grad, gradRange, x) } : {}),
-          ...(ruleColor(i) ? { color: ruleColor(i) } : {}),
+          ...pointStyle(i, x),
           ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}),
         },
       })),
       z: k,
-    })), ...lines.map((s, k) => ({
+    })), ...(hl ? series.map((s, k) => ({
+      // Remainder of each bar (total − highlighted), faded, stacked on the highlighted part.
+      id: `s${k}|r`, name: s.name, type: 'bar', stack: stacked ? 'total' : `hl${k}`, barMaxWidth: 60, barGap: '8%', emphasis: { focus: 'none' },
+      itemStyle: { color: colors[k % colors.length], opacity: 0.35 }, label: { show: false }, z: k,
+      data: s.data.map((x, i) => ({ value: at(i, x === null ? null : x - (hl[k][i] ?? 0)), itemStyle: { ...pointStyle(i, x), opacity: 0.35 } })),
+    })) : []), ...lines.map((s, k) => ({
       name: s.name, type: 'line', yAxisIndex: 1, symbol: 'circle', symbolSize: 6, lineStyle: { width: 2.5 },
       color: PALETTE[(series.length + k) % PALETTE.length], z: 50 + k,
       label: { show: f.dataLabels, position: 'top', fontSize: 10, color: '#252423', formatter: (p: any) => (yOf(p) === null ? '' : fmtAuto(yOf(p))) },
@@ -262,18 +292,24 @@ function pieLike(v: Visual, d: VisualData, selected: string | null | undefined):
   const categories = cat ? d.rows.map((r) => r[cat.alias]) : [null];
   const pc = pointColors(v);
   const lb = labelLook(v);
+  // Cross-highlight: slices without highlighted value are faded; the tooltip shows "selected / total".
+  const hv = d.highlight && cat && val ? new Map(d.highlight.map((r) => [r[cat.alias], r[val.alias] as number | null])) : null;
   const data = d.rows.map((r, i) => {
     const own = pc.byValue.get(categories[i] ?? '');
+    const h = hv?.get(categories[i]);
+    const faded = (selected !== undefined && categories[i] !== selected) || (hv && !h);
     return {
       name: catLabel(cat ? r[cat.alias] : null),
       value: val ? r[val.alias] : 0,
       idx: i,
-      itemStyle: { ...(own ? { color: own } : {}), ...(selected !== undefined && categories[i] !== selected ? { opacity: 0.35 } : {}) },
+      ...(hv ? { hl: h ?? null } : {}),
+      itemStyle: { ...(own ? { color: own } : {}), ...(faded ? { opacity: 0.35 } : {}) },
     };
   });
   const lg = legendLook(v, f.legendPos);
   const legend = f.legendShow ? { show: true, type: 'scroll' as const, icon: 'circle', itemWidth: 8, itemHeight: 8, ...lg.cfg } : { show: false };
-  const base = { color: PALETTE, textStyle: { fontFamily: FONT }, legend, animationDuration: 300, tooltip: { trigger: 'item', confine: true, valueFormatter: fmtFull } };
+  const base = { color: PALETTE, textStyle: { fontFamily: FONT }, legend, animationDuration: 300, tooltip: { trigger: 'item', confine: true, valueFormatter: fmtFull,
+    ...(hv ? { formatter: (p: any) => `${p.marker}${p.name}: <b>${p.data?.hl === null || p.data?.hl === undefined ? '—' : fmtFull(p.data.hl)}</b> / ${fmtFull(p.value)}` } : {}) } };
 
   if (v.type === 'treemap') {
     return {
@@ -322,6 +358,8 @@ function scatter(v: Visual, d: VisualData, selected: string | null | undefined):
   const y = d.items.find((i) => i.well === 'y');
   const leg = d.items.find((i) => i.well === 'legend');
   const categories = det ? d.rows.map((r) => r[det.alias]) : [null];
+  // Cross-highlight: points not in the highlighted rows are faded.
+  const hset = d.highlight && det ? new Set(d.highlight.filter((r) => (x ? r[x.alias] !== null : true) || (y ? r[y.alias] !== null : true)).map((r) => r[det.alias])) : null;
   const groups = leg ? uniq(d.rows.map((r) => r[leg.alias])) : [null];
   const axis = (it: QueryItem | undefined, show: boolean) => ({
     type: 'value', show, scale: true, name: it ? fieldLabel(it.field) : '', nameLocation: 'middle', nameGap: 30,
@@ -343,7 +381,7 @@ function scatter(v: Visual, d: VisualData, selected: string | null | undefined):
         itemStyle: groups.length === 1 ? { color: main(f.color) } : undefined,
         data: d.rows.map((r, i) => ({ r, i })).filter(({ r }) => !leg || r[leg.alias] === g).map(({ r, i }) => ({
           name: catLabel(det ? r[det.alias] : null), value: [x ? r[x.alias] : 0, y ? r[y.alias] : 0], idx: i,
-          itemStyle: selected !== undefined && categories[i] !== selected ? { opacity: 0.25 } : undefined,
+          itemStyle: (selected !== undefined && categories[i] !== selected) || (hset && !hset.has(categories[i])) ? { opacity: 0.25 } : undefined,
         })),
       })),
     },

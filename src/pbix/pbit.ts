@@ -289,7 +289,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
 
 /** Power BI project (.pbip): legacy report.json + TMSL model.bim, text files suited to git. */
 export function buildPbipParts(report: Report, tables: TableMeta[]): { path: string; text?: string; dataUrl?: string }[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies, filterByDefault: report.options?.filterByDefault });
   const j = (o: unknown) => JSON.stringify(o, null, 2);
   const platform = (type: string) => ({
     $schema: 'https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json',
@@ -323,7 +323,7 @@ function labelParts(report: Report): PbitPart[] {
 }
 
 export function buildPbitParts(report: Report, tables: TableMeta[]): PbitPart[] {
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: autoDateOn(report), dateTables: Object.keys(report.dateTables ?? {}), hierarchies: report.hierarchies, filterByDefault: report.options?.filterByDefault });
   const diagram = {
     version: '1.1.0',
     diagrams: [{
@@ -427,7 +427,7 @@ export function buildReportParts(report: Report, full = true): { path: string; t
  *  __DATASET_ID__ / __REPORT_ID__ / __WORKSPACE_ID__ are filled in once the dataset exists. */
 export function buildThinPbixParts(report: Report): (PbitPart & { utf8?: string })[] {
   // Push datasets have no automatic date tables: date levels go out as the plain date column.
-  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: false });
+  const { layout, resources } = buildLayout(report.pages, report.reportFilters, report.theme, report.bookmarks, { dateHierarchies: false, filterByDefault: report.options?.filterByDefault });
   const contentTypes = '<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
     '<Default Extension="json" ContentType="" /><Default Extension="png" ContentType="" /><Default Extension="jpg" ContentType="" /><Default Extension="gif" ContentType="" />' +
     '<Override PartName="/Version" ContentType="" /><Override PartName="/Connections" ContentType="" />' +

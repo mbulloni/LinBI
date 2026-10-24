@@ -90,6 +90,7 @@ export function pbirToLayout(files: Files): string {
               ...q,
               objects: v.visual.objects ?? {},
               vcObjects: v.visual.visualContainerObjects ?? {},
+              ...(v.visual.syncGroup ? { syncGroup: v.visual.syncGroup } : {}),
               ...(v.isHidden ? { display: { mode: 'hidden' } } : {}),
             },
           }),
@@ -101,6 +102,8 @@ export function pbirToLayout(files: Files): string {
       config: JSON.stringify({
         objects: page.objects ?? {}, ...(page.visibility === 'HiddenInViewMode' ? { visibility: 1 } : {}),
         ...(page.type === 'Tooltip' ? { type: 1 } : {}),
+        // visualInteractions [{source, target, type: DataFilter|HighlightFilter|NoFilter}] = legacy relationships.
+        ...(Array.isArray(page.visualInteractions) ? { relationships: page.visualInteractions } : {}),
         // Drill-through page: PBIR pageBinding has the legacy shape (parameters with fieldExpr).
         ...(page.pageBinding ? { pageBinding: { ...page.pageBinding, type: page.pageBinding.type === 'Drillthrough' || page.pageBinding.type === 0 ? 'Drillthrough' : page.pageBinding.type } } : {}),
       }),

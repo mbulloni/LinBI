@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('api', {
   savePbit: (parts, suggested) => call('pbit:save', parts, suggested),
   savePbix: (parts, schema, extra, suggested, target) => call('pbix:save', parts, schema, extra, suggested, target),
   printPdf: (suggested) => call('pdf:print', suggested),
+  exportData: (name, columns, rows, format) => call('file:exportData', name, columns, rows, format),
   savePbip: (parts, suggested) => call('pbip:save', parts, suggested),
   claude: {
     status: () => call('claude:status'),

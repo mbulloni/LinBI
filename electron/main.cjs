@@ -225,6 +225,17 @@ handle('file:saveText', async (content, defaultPath, kind) => {
   return r.filePath;
 });
 
+// Esporta dati (visual menu): summarized / underlying rows as .xlsx or .csv.
+handle('file:exportData', async (name, columns, rows, format) => {
+  const { buildXlsx, buildCsv } = require('./xlsx.cjs');
+  const ext = format === 'csv' ? 'csv' : 'xlsx';
+  const r = process.env.LINBI_SAVE_PATH ? { canceled: false, filePath: process.env.LINBI_SAVE_PATH }
+    : await dialog.showSaveDialog(win, { defaultPath: `${String(name || 'data').replace(/[\\/:*?"<>|]/g, '_')}.${ext}`, filters: ext === 'csv' ? [{ name: 'File CSV', extensions: ['csv'] }] : FILTERS.excel });
+  if (r.canceled) return null;
+  fs.writeFileSync(r.filePath, ext === 'csv' ? buildCsv(columns, rows) : await buildXlsx(name, columns, rows));
+  return r.filePath;
+});
+
 handle('file:open', async (kind) => {
   // LINBI_OPEN_PATH (scripted tests) skips the dialog.
   const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }

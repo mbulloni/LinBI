@@ -110,7 +110,15 @@ export interface VisualFormat {
   color: string;
   background: string;
   border: boolean;
-  slicerStyle: 'list' | 'dropdown' | 'slider';
+  /** Filtro dei dati: Elenco, Menu a discesa, cursore (parametri), Riquadro (pulsanti), Tra, Prima di, Dopo, Data/Ora relativa, Testo. */
+  slicerStyle: 'list' | 'dropdown' | 'slider' | 'tile' | 'between' | 'before' | 'after' | 'relativeDate' | 'relativeTime' | 'text';
+  /** Slicer settings: Selezione singola, "Seleziona tutto" shown (default on), search box, tiles toggle without Ctrl (button slicer multi-select). */
+  slicerSingle?: boolean;
+  slicerSelectAll?: boolean;
+  slicerSearch?: boolean;
+  slicerMulti?: boolean;
+  /** Text slicer condition (Power BI filterMode): contains (default), does not contain, starts with, is… */
+  slicerTextMode?: 'contains' | 'notContains' | 'startsWith' | 'notStartsWith' | 'is' | 'isNot';
   /** Title and container look (imported from Power BI or set in the Format pane). */
   titleColor?: string;
   titleAlign?: 'left' | 'center' | 'right';
@@ -163,6 +171,14 @@ export interface Visual {
   slicerValues?: string[];
   /** Selection not applied yet: the page has an "Applica tutti i filtri dei dati" button. */
   pendingSlicer?: string[];
+  /** Range slicers (Tra / Prima di / Dopo): bounds as numbers or ISO dates. */
+  slicerRange?: { min?: string; max?: string };
+  /** Text slicer: rows whose value contains the text. */
+  slicerText?: string;
+  /** Relative date/time slicer. */
+  slicerRelative?: RelativeSlicer;
+  /** Sincronizza filtri dei dati: slicers sharing `name` (on any page) share selection / fields. */
+  syncGroup?: { name: string; fieldChanges?: boolean; filterChanges?: boolean };
   filters?: Filter[];
   /** Hidden (Selection pane / bookmarks): not drawn. */
   hidden?: boolean;
@@ -229,7 +245,14 @@ export interface Page {
   mobile?: Record<string, { x: number; y: number; w: number; h: number }>;
   /** Visual groups (Selection pane); a hidden group hides its visuals and subgroups. */
   groups?: VisualGroup[];
+  /** Modifica interazioni: how a selection in one visual reaches another, keyed "sourceId>targetId" (missing = default). */
+  interactions?: Record<string, Interaction>;
 }
+
+/** Relative date/time slicer: Ultimi/Questo/Prossimi N unità (calendario = complete periods). */
+export interface RelativeSlicer { anchor: 'last' | 'this' | 'next'; n: number; unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months' | 'years'; calendar?: boolean; includeToday?: boolean; }
+
+export type Interaction = 'filter' | 'highlight' | 'none';
 
 export interface VisualGroup { id: string; name: string; hidden?: boolean; parent?: string; pbiName?: string; }
 
@@ -252,6 +275,8 @@ export interface Bookmark {
     reportFilters?: Filter[];
     pageFilters?: Filter[];
     slicers?: Record<string, string[]>;
+    /** Range / text / relative slicer state (styles without a value list). */
+    slicerState?: Record<string, { range?: { min?: string; max?: string }; text?: string; relative?: RelativeSlicer }>;
   };
 }
 
@@ -320,6 +345,8 @@ export interface RoleDef { name: string; filters: { table: string; expression: s
 export interface ReportOptions {
   /** Data/ora automatica: LocalDateTable_* + date hierarchies in exports (default on). */
   autoDateTime?: boolean;
+  /** Impostazioni report: selections filter the other visuals instead of highlighting them (Power BI defaultFilterActionIsDataFilter). */
+  filterByDefault?: boolean;
 }
 
 export interface SensitivityLabel { name: string; id?: string; tenant?: string; color?: string; description?: string; }

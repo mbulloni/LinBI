@@ -22,6 +22,8 @@ import { NULL_KEY } from '../query';
 import { Icon, VisualIcon } from './icons';
 import { Menu } from './Menu';
 import { CustomVisual } from '../visuals/custom/CustomVisual';
+import { interactionChoices, interactionOf, isSource, isTarget } from '../visuals/interactions';
+import type { Interaction } from '../types';
 
 export const FIELD_MIME = 'application/x-linbi-field';
 
@@ -191,6 +193,27 @@ export function VisualStatic({ v, read }: { v: Visual; read?: boolean }) {
   );
 }
 
+/** Visuals with a data query (Esporta dati, Mostra come tabella). */
+export const hasData = (v: Visual) => !['textbox', 'image', 'shape', 'button', 'pageNavigator', 'bookmarkNavigator', 'unsupported', 'qna', 'smartNarrative', 'decompositionTree', 'keyInfluencers'].includes(v.type) && Object.values(v.fields).some((f) => f.length);
+
+const INTERACTION_UI: Record<Interaction, [string, string]> = { filter: ['interFilter', 'Filtro'], highlight: ['interHighlight', 'Evidenzia'], none: ['interNone', 'Nessuna'] };
+
+/** Modifica interazioni: how the selected visual's selections reach this one (Filtro / Evidenzia / Nessuna). */
+function InteractionIcons({ v }: { v: Visual }) {
+  const s = useStore();
+  const page = s.page();
+  const src = page.visuals.find((x) => x.id === s.selectedVisualId);
+  if (!s.editInteractions || !src || src.id === v.id || !isSource(src) || !isTarget(v)) return null;
+  const cur = interactionOf(s.report, page, src.id, v);
+  return (
+    <div className="vc-inter" onMouseDown={(e) => e.stopPropagation()}>
+      {interactionChoices(src, v).map((m) => (
+        <button key={m} className={cur === m ? 'on' : ''} title={INTERACTION_UI[m][1]} onClick={() => s.setInteraction(src.id, v.id, m)}><Icon name={INTERACTION_UI[m][0]} size={16} /></button>
+      ))}
+    </div>
+  );
+}
+
 /** `geom`/`onGeom`: another layout of the visual (mobile layout) instead of its page position. */
 export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: number; geom?: { x: number; y: number; w: number; h: number }; onGeom?: (g: { x: number; y: number; w: number; h: number }) => void }) {
   const s = useStore();
@@ -212,7 +235,7 @@ export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: 
       minHeight={40}
       dragGrid={s.snapToGrid ? [16, 16] : [1, 1]}
       resizeGrid={s.snapToGrid ? [16, 16] : [1, 1]}
-      cancel=".tbl, .qna-bar, .qna-settings, .slicer-v, .textbox-v[contenteditable=true], .vc-header"
+      cancel=".tbl, .qna-bar, .qna-settings, .slicer-v, .textbox-v[contenteditable=true], .vc-header, .vc-inter"
       style={{ zIndex: selected ? 1000 : v.z }}
       enableResizing={selected}
       resizeHandleClasses={selected ? { topLeft: 'rnd-handle', topRight: 'rnd-handle', bottomLeft: 'rnd-handle', bottomRight: 'rnd-handle', top: 'rnd-handle', bottom: 'rnd-handle', left: 'rnd-handle', right: 'rnd-handle' } : undefined}
@@ -263,10 +286,11 @@ export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: 
         <div className="vc-body"><VisualBody v={v} selected={selected} /></div>
       </div>
       <div className="vc-frame" />
+      <InteractionIcons v={v} />
       <div className="vc-header" onMouseDown={(e) => e.stopPropagation()}>
         <DrillButtons v={v} />
         {isChart(v.type) || v.type === 'table' || v.type === 'matrix' ? (
-          <button title="Modalità messa a fuoco" onClick={() => s.set({ focusId: v.id })}><Icon name="focus" size={13} /></button>
+          <button title="Modalità messa a fuoco" onClick={() => s.set({ focusId: v.id, focusTable: false })}><Icon name="focus" size={13} /></button>
         ) : null}
         <button title="Altre opzioni" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.right - 200, y: r.bottom + 2 }); }}><Icon name="more" size={14} /></button>
       </div>
@@ -282,6 +306,11 @@ export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: 
             ))}
             <button onClick={() => { setMenu(null); s.updateFormat(v.id, { sortDir: 'desc' }); }}><span style={{ width: 12 }}>{v.format.sortDir !== 'asc' ? '✓' : ''}</span>Ordinamento decrescente</button>
             <button onClick={() => { setMenu(null); s.updateFormat(v.id, { sortDir: 'asc', sortBy: v.format.sortBy ?? 0 }); }}><span style={{ width: 12 }}>{v.format.sortDir === 'asc' ? '✓' : ''}</span>Ordinamento crescente</button>
+            <hr />
+          </>}
+          {hasData(v) && <>
+            <button onClick={() => { setMenu(null); s.set({ exportData: v.id }); }}>Esporta dati</button>
+            <button onClick={() => { setMenu(null); s.set({ focusId: v.id, focusTable: true }); }}>Mostra come tabella</button>
             <hr />
           </>}
           <button onClick={() => { setMenu(null); s.duplicateVisual(v.id); }}>Duplica</button>

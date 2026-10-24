@@ -4,6 +4,7 @@ import { recordPerf, useStore } from '../store';
 import { useExtraFilters } from './filterContext';
 import { buildVisualQuery, CF_WELL, modelExtras, type QueryItem } from '../query';
 import type { Visual } from '../types';
+import { interactionOf, scopedVisuals } from './interactions';
 
 export interface VisualData {
   loading: boolean;
@@ -20,6 +21,8 @@ export interface VisualData {
   percent: Set<string>;
   /** Visual queries paused and the visual's query changed since: shown data is not current. */
   stale?: boolean;
+  /** Cross-highlight: rows of the same query with the other visual's selection applied (the base rows stay unfiltered). */
+  highlight?: Record<string, any>[];
 }
 
 let pending = 0;
@@ -42,11 +45,14 @@ export function useVisualData(v: Visual): VisualData {
   // The visual's own page (PDF export renders every page at once).
   const page = report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? report.pages.find((p) => p.id === pageId) ?? report.pages[0];
 
-  const q = useMemo(
-    () => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters, ...extra], page.visuals, cross, report.measures, modelExtras(report, viewAs?.user)),
-    [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, cross, report.measures, extra, report.dateTables, report.calcGroups, viewAs?.user],
-  );
-  const key = q && 'sql' in q ? [q.sql, q.totalsSql, q.colTotalsSql, q.rowTotalsSql].join('|') : JSON.stringify(q);
+  // Modifica interazioni: the selection in another visual filters, highlights or leaves this visual alone.
+  const mode = cross && cross.visualId !== v.id ? interactionOf(report, page, cross.visualId, v) : 'filter';
+  const [q, hq] = useMemo(() => {
+    const build = (c: typeof cross) => buildVisualQuery(v, tables, report.relationships, [...report.reportFilters, ...page.filters, ...extra], scopedVisuals(page, v), c, report.measures, modelExtras(report, viewAs?.user));
+    return [build(mode === 'filter' ? cross : null), mode === 'highlight' ? build(cross) : null];
+  }, [v, tables, report.relationships, report.reportFilters, page.filters, page.visuals, page.interactions, cross, mode, report.measures, extra, report.dateTables, report.calcGroups, viewAs?.user]);
+  const hsql = hq && 'sql' in hq ? hq.sql : null;
+  const key = (q && 'sql' in q ? [q.sql, q.totalsSql, q.colTotalsSql, q.rowTotalsSql].join('|') : JSON.stringify(q)) + '|' + (hsql ?? '');
   const [state, setState] = useState<Omit<VisualData, 'percent' | 'cfItems'>>({ loading: false, empty: true, items: [], rows: [] });
   const percent = useMemo(() => new Set(state.items.filter((i) => i.field.agg === 'measure'
     && report.measures.find((m) => m.name === i.field.column)?.formatString?.includes('%')).map((i) => i.alias)), [state.items, report.measures]);
@@ -65,10 +71,11 @@ export function useVisualData(v: Visual): VisualData {
       q.totalsSql ? api.queryAs(q.totalsSql) : Promise.resolve(null),
       q.colTotalsSql ? api.queryAs(q.colTotalsSql) : Promise.resolve(null),
       q.rowTotalsSql ? api.queryAs(q.rowTotalsSql) : Promise.resolve(null),
-    ]).then(([res, tot, ctot, rtot]) => {
+      hsql ? api.queryAs(hsql) : Promise.resolve(null),
+    ]).then(([res, tot, ctot, rtot, hl]) => {
       if (!live) return;
       const t1 = performance.now();
-      setState({ loading: false, empty: false, items: q.items, rows: res.rows, totals: tot?.rows, colTotals: ctot?.rows, rowTotals: rtot?.rows });
+      setState({ loading: false, empty: false, items: q.items, rows: res.rows, totals: tot?.rows, colTotals: ctot?.rows, rowTotals: rtot?.rows, ...(hl ? { highlight: hl.rows } : {}) });
       // Rendering time: until the browser has painted the new data.
       requestAnimationFrame(() => setTimeout(() => recordPerf({ visualId: v.id, at: Date.now(), queryMs: t1 - t0, renderMs: performance.now() - t1, rows: res.rows.length, sql: q.sql })));
     }).catch((e) => {
@@ -89,8 +96,9 @@ export function useVisualData(v: Visual): VisualData {
 export async function runVisualQuery(v: Visual, extra: import('../types').Filter[] = []): Promise<{ items: import('../query').QueryItem[]; rows: Record<string, any>[] }> {
   const s = useStore.getState();
   const page = s.report.pages.find((p) => p.visuals.some((x) => x.id === v.id)) ?? s.page();
+  const c = s.crossFilter && s.crossFilter.visualId !== v.id && interactionOf(s.report, page, s.crossFilter.visualId, v) !== 'filter' ? null : s.crossFilter;
   const q = buildVisualQuery({ ...v, filters: [...(v.filters ?? []), ...extra] }, s.tables, s.report.relationships,
-    [...s.report.reportFilters, ...page.filters], page.visuals, s.crossFilter, s.report.measures, modelExtras(s.report, s.viewAs?.user));
+    [...s.report.reportFilters, ...page.filters], scopedVisuals(page, v), c, s.report.measures, modelExtras(s.report, s.viewAs?.user));
   if (!q) return { items: [], rows: [] };
   if ('error' in q) throw new Error(q.error);
   const res = await api.queryAs(q.sql);

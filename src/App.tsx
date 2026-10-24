@@ -32,6 +32,8 @@ import { VisualizationsPane } from './panes/VisualizationsPane';
 import { BookmarksPane, SelectionPane } from './panes/SelectionPane';
 import { DataPane } from './panes/DataPane';
 import { PerformancePane } from './panes/PerformancePane';
+import { SyncPane } from './panes/SyncPane';
+import { ExportDataDialog } from './components/ExportDataDialog';
 import type { View } from './types';
 
 const VIEWS: [View, string, string][] = [
@@ -112,6 +114,7 @@ export function App() {
           {s.view === 'model' && <ModelView />}
           {s.view === 'dax' && <DaxQueryView />}
           {s.view === 'report' && !s.readMode && s.panes.perf && <PerformancePane />}
+          {s.view === 'report' && !s.readMode && s.panes.sync && <SyncPane />}
           {s.view === 'report' && !s.readMode && s.panes.bookmarks && <BookmarksPane />}
           {s.view === 'report' && !s.readMode && s.panes.selection && <SelectionPane />}
           {s.view === 'report' && (s.panes.filters ? <FiltersPane /> : <CollapsedPane title="Filtri" onOpen={() => s.set({ panes: { ...s.panes, filters: true } })} />)}
@@ -121,6 +124,7 @@ export function App() {
       </div>
       <StatusBar fitScale={fit} />
       <Backstage />
+      <ExportDataDialog />
       <Navigator />
       <DatabaseDialog />
       <PublishDialog />

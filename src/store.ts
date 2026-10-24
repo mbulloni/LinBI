@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { globalOptions } from './options';
 import { api } from './api';
-import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, Interaction, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
+import { interactionKey } from './visuals/interactions';
+import { propagateSync } from './visuals/sync';
 import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, modelExtras, NULL_KEY, qi, ql } from './query';
@@ -178,7 +180,7 @@ interface State {
   view: View;
   selectedVisualId: string | null;
   crossFilter: CrossFilter | null;
-  panes: { filters: boolean; viz: boolean; data: boolean; selection: boolean; bookmarks: boolean; perf?: boolean };
+  panes: { filters: boolean; viz: boolean; data: boolean; selection: boolean; bookmarks: boolean; perf?: boolean; sync?: boolean };
   /** Analizzatore prestazioni: recording on, and one entry per visual query (ms). */
   perf: { recording: boolean; entries: PerfEntry[] };
   /** Visuals selected together (Ctrl+click), e.g. to group them. */
@@ -222,6 +224,16 @@ interface State {
   paramDialog: 'numeric' | 'fields' | null;
   clipboard: Visual | null;
   focusId: string | null;
+  /** Focus view as "Mostra come tabella": the visual with its data below. */
+  focusTable: boolean;
+  /** Esporta dati dialog for this visual. */
+  exportData: string | null;
+  /** Formato › Modifica interazioni: the selected visual's interactions are shown (and set) on the other visuals. */
+  editInteractions: boolean;
+  setInteraction: (source: string, target: string, mode: Interaction | null) => void;
+  /** Sincronizza filtri dei dati: on page `pageId`, the synced copy of slicer `id` exists (sync) and is shown (visible). */
+  syncSlicer: (id: string, pageId: string, state: { sync: boolean; visible: boolean }) => void;
+  setSyncGroup: (id: string, patch: Partial<NonNullable<Visual['syncGroup']>>) => void;
   relManage: boolean;
   relEditor: RelEditor | null;
   selectedRelId: string | null;
@@ -558,6 +570,50 @@ export const useStore = create<State>((set, get) => {
     sourceDialog: null,
     clipboard: null,
     focusId: null,
+    focusTable: false,
+    exportData: null,
+    editInteractions: false,
+    setInteraction: (source, target, mode) => get().mut((r) => {
+      const p = r.pages.find((x) => x.visuals.some((v) => v.id === source));
+      if (!p) return;
+      const all = { ...p.interactions };
+      if (mode) all[interactionKey(source, target)] = mode; else delete all[interactionKey(source, target)];
+      if (Object.keys(all).length) p.interactions = all; else delete p.interactions;
+    }),
+    syncSlicer: (id, pageId, st) => get().mut((r) => {
+      const src = findVisual(r, id);
+      const page = r.pages.find((p) => p.id === pageId);
+      if (!src || !page) return;
+      // A group is created on first use; members share its name across pages.
+      if (!src.syncGroup) {
+        const used = new Set(r.pages.flatMap((p) => p.visuals.map((v) => v.syncGroup?.name).filter(Boolean)));
+        let name = src.fields.category?.[0]?.column ?? 'Filtro', i = 2;
+        while (used.has(name)) name = `${src.fields.category?.[0]?.column ?? 'Filtro'}${i++}`;
+        src.syncGroup = { name };
+      }
+      const group = src.syncGroup.name;
+      const own = page.visuals.some((v) => v.id === id);
+      const member = own ? src : page.visuals.find((v) => v.syncGroup?.name === group);
+      if (!st.sync && !st.visible) {
+        if (member && member.id !== id) page.visuals = page.visuals.filter((v) => v.id !== member.id);
+        else if (member) member.hidden = true;
+        return;
+      }
+      // Visible but not synced: the copy stays on the page, out of the group.
+      if (!st.sync && member && member.id !== id) { delete member.syncGroup; delete member.hidden; return; }
+      if (member) { if (st.visible) delete member.hidden; else member.hidden = true; return; }
+      const z = Math.max(0, ...page.visuals.map((v) => v.z)) + 1;
+      const copy: Visual = { ...structuredClone(src), id: uid(), z, ...(st.visible ? {} : { hidden: true }) };
+      delete copy.pbiName; delete copy.group;
+      page.visuals.push(copy);
+    }),
+    setSyncGroup: (id, patch) => get().mut((r) => {
+      const v = findVisual(r, id);
+      if (!v?.syncGroup) return;
+      const old = v.syncGroup.name;
+      // Renaming the group renames it on every member.
+      for (const p of r.pages) for (const x of p.visuals) if (x.syncGroup?.name === old) x.syncGroup = { ...x.syncGroup, ...patch };
+    }),
     sourceName: null,
 
     serviceDialog: false,
@@ -656,7 +712,7 @@ export const useStore = create<State>((set, get) => {
         const parsed = layoutJson ? parseLayout(layoutJson, tables, new Set(measures.map((m) => m.name)), model.resources) : null;
         const pages = parsed?.pages ?? emptyReport().pages;
         const theme = layoutJson ? themeFromLayout(layoutJson, model.resources) : undefined;
-        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}), ...extrasReport };
+        const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}), ...(parsed?.filterByDefault ? { options: { filterByDefault: true } } : {}), ...extrasReport };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
         const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
@@ -1126,7 +1182,7 @@ export const useStore = create<State>((set, get) => {
     }),
     clearAllSlicers: (pageId) => get().mut((r) => {
       for (const v of r.pages.find((p) => p.id === pageId)?.visuals ?? []) {
-        if (v.type === 'slicer') { v.slicerValues = []; delete v.pendingSlicer; }
+        if (v.type === 'slicer') { v.slicerValues = []; delete v.pendingSlicer; delete v.slicerRange; delete v.slicerText; delete v.slicerRelative; }
         if (v.jsonFilters) delete v.jsonFilters;
       }
     }),
@@ -1256,6 +1312,7 @@ export const useStore = create<State>((set, get) => {
       const prev = clone(get().report);
       const next = clone(prev);
       fn(next);
+      propagateSync(prev, next);
       set((s) => ({ report: next, past: [...s.past.slice(-49), prev], future: [], dirty: true }));
     },
     undo: () => {
@@ -1402,6 +1459,8 @@ export const useStore = create<State>((set, get) => {
         reportFilters: clone(r.reportFilters),
         pageFilters: clone(p.filters),
         slicers: Object.fromEntries(scope.filter((v) => v.type === 'slicer').map((v) => [v.id, [...(v.slicerValues ?? [])]])),
+        slicerState: Object.fromEntries(scope.filter((v) => v.type === 'slicer' && (v.slicerRange || v.slicerText || v.slicerRelative))
+          .map((v) => [v.id, { ...(v.slicerRange ? { range: { ...v.slicerRange } } : {}), ...(v.slicerText ? { text: v.slicerText } : {}), ...(v.slicerRelative ? { relative: { ...v.slicerRelative } } : {}) }])),
       };
     }),
     applyBookmark: (id) => {
@@ -1419,7 +1478,13 @@ export const useStore = create<State>((set, get) => {
         if (b.applyData) {
           if (!b.targets && b.state.reportFilters) r.reportFilters = clone(b.state.reportFilters);
           if (!b.targets && b.state.pageFilters && p.id === b.page) p.filters = clone(b.state.pageFilters);
-          for (const v of scope) if (v.type === 'slicer' && b.state.slicers?.[v.id]) { v.slicerValues = [...b.state.slicers[v.id]]; delete v.pendingSlicer; }
+          for (const v of scope) if (v.type === 'slicer' && b.state.slicers?.[v.id]) {
+            v.slicerValues = [...b.state.slicers[v.id]]; delete v.pendingSlicer;
+            const st = b.state.slicerState?.[v.id];
+            if (st?.range) v.slicerRange = { ...st.range }; else delete v.slicerRange;
+            if (st?.text) v.slicerText = st.text; else delete v.slicerText;
+            if (st?.relative) v.slicerRelative = { ...st.relative }; else delete v.slicerRelative;
+          }
         }
       });
       set({ activePageId: target, selectedVisualId: null, ...(b.applyData ? { crossFilter: null } : {}) });
@@ -1464,12 +1529,16 @@ export const useStore = create<State>((set, get) => {
       else {
         const r = clone(get().report);
         Object.assign(findVisual(r, id)!, patch);
+        propagateSync(get().report, r);
         set({ report: r, dirty: true });
       }
     },
     updateFormat: (id, patch) => get().mut((r) => { const v = findVisual(r, id); if (v) v.format = { ...v.format, ...patch }; }),
     removeVisual: (id) => {
-      get().mut((r) => r.pages.forEach((p) => (p.visuals = p.visuals.filter((v) => v.id !== id))));
+      get().mut((r) => r.pages.forEach((p) => {
+        p.visuals = p.visuals.filter((v) => v.id !== id);
+        if (p.interactions) for (const k of Object.keys(p.interactions)) if (k.split('>').includes(id)) delete p.interactions[k];
+      }));
       set((s) => ({ selectedVisualId: s.selectedVisualId === id ? null : s.selectedVisualId, crossFilter: s.crossFilter?.visualId === id ? null : s.crossFilter }));
     },
     duplicateVisual: (id) => {

@@ -1,4 +1,4 @@
-import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, Report, TableMeta, Visual } from './types';
+import type { CrossFilter, DatePart, Filter, FieldRef, Measure, Relationship, RelativeSlicer, Report, TableMeta, Visual } from './types';
 import { measureFormatSql, measureSql, type Model } from './dax';
 import { isNumeric, monthNames, quarterPrefix } from './format';
 import { visualDef } from './visuals/catalog';
@@ -22,7 +22,11 @@ export interface VisualQuery {
   rowTotalsSql?: string;  // matrix: one row per row group
   items: QueryItem[];
 }
-export interface FilterSpec { table: string; column: string; values: string[]; datePart?: DatePart; }
+/** Values (IN list), or a range / text condition from range, relative date and text slicers. */
+export interface FilterSpec { table: string; column: string; values: string[]; datePart?: DatePart; range?: RangeCond; contains?: string; textMode?: TextMode; }
+export type TextMode = NonNullable<import('./types').VisualFormat['slicerTextMode']>;
+/** Bounds are numbers or ISO dates/timestamps; `maxExclusive` for computed periods (relative dates). */
+export interface RangeCond { min?: string; max?: string; kind: 'number' | 'date' | 'datetime'; maxExclusive?: boolean; }
 
 /** SQL of a date hierarchy level applied to a column expression (identity without a level). */
 export function partExpr(part: DatePart | undefined, sql: string): string {
@@ -149,8 +153,22 @@ function measureExpr(tables: TableMeta[], f: FieldRef, c: string): string {
   }
 }
 
-/** SQL predicate for a basic filter on column expression `expr`. */
-export function filterSql(expr: string, values: string[]): string {
+/** SQL predicate for a filter on column expression `expr`: IN list, or range / contains condition. */
+export function filterSql(expr: string, values: string[], cond?: { range?: RangeCond; contains?: string; textMode?: TextMode }): string {
+  if (cond?.range) {
+    const r = cond.range;
+    const lit = (x: string) => (r.kind === 'number' ? `CAST(${Number(x)} AS DOUBLE)` : r.kind === 'date' && !r.maxExclusive ? `DATE ${ql(x.slice(0, 10))}` : `TIMESTAMP ${ql(x.replace('T', ' ').slice(0, 19))}`);
+    const col = r.kind === 'number' ? `TRY_CAST(${expr} AS DOUBLE)` : r.kind === 'date' && !r.maxExclusive ? `TRY_CAST(${expr} AS DATE)` : `TRY_CAST(${expr} AS TIMESTAMP)`;
+    const parts = [...(r.min ? [`${col} >= ${lit(r.min)}`] : []), ...(r.max ? [`${col} ${r.maxExclusive ? '<' : '<='} ${lit(r.max)}`] : [])];
+    return parts.length ? '(' + parts.join(' AND ') + ')' : 'TRUE';
+  }
+  if (cond?.contains !== undefined) {
+    const m = cond.textMode ?? 'contains';
+    const esc = cond.contains.replace(/[\\%_]/g, (c) => '\\' + c);
+    const pat = m === 'is' || m === 'isNot' ? esc : m === 'startsWith' || m === 'notStartsWith' ? esc + '%' : '%' + esc + '%';
+    const like = `CAST(${expr} AS VARCHAR) ILIKE ${ql(pat)} ESCAPE '\\'`;
+    return m.startsWith('not') || m === 'isNot' ? `(${expr} IS NULL OR NOT (${like}))` : `(${like})`;
+  }
   const vals = values.filter((v) => v !== NULL_KEY);
   const parts: string[] = [];
   if (vals.length) parts.push(`CAST(${expr} AS VARCHAR) IN (${vals.map(ql).join(', ')})`);
@@ -158,14 +176,82 @@ export function filterSql(expr: string, values: string[]): string {
   return '(' + parts.join(' OR ') + ')';
 }
 
+/** Column kind of a slicer field: drives range slicers (numbers / dates). */
+export function fieldKind(f: { table: string; column: string; datePart?: DatePart }, tables: TableMeta[]): 'number' | 'date' | 'datetime' | 'text' {
+  if (f.datePart) return f.datePart === 'year' || f.datePart === 'day' ? 'number' : 'text';
+  const t = tables.find((x) => x.name === f.table)?.columns.find((c) => c.name === f.column)?.type.toUpperCase() ?? '';
+  if (/^TIMESTAMP|DATETIME/.test(t)) return 'datetime';
+  if (/^DATE/.test(t)) return 'date';
+  if (/INT|DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC/.test(t)) return 'number';
+  return 'text';
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const isoTs = (d: Date) => `${isoDay(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+/** Period of a relative date/time slicer as [start, end) in local time (Power BI semantics:
+ *  "Ultimi N giorni" includes today unless includeToday is false; "(calendario)" = complete periods before the current one). */
+export function relativePeriod(r: RelativeSlicer, now = new Date()): { start: Date; end: Date } {
+  const n = Math.max(1, Math.floor(r.n || 1));
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const addDays = (d: Date, k: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + k);
+  const addMonths = (d: Date, k: number) => new Date(d.getFullYear(), d.getMonth() + k, d.getDate());
+  if (r.unit === 'minutes' || r.unit === 'hours') {
+    const ms = (r.unit === 'minutes' ? 60e3 : 36e5);
+    const cur = new Date(Math.floor(now.getTime() / ms) * ms);
+    if (r.anchor === 'this') return { start: cur, end: new Date(cur.getTime() + ms) };
+    if (r.anchor === 'last') return { start: new Date(now.getTime() - n * ms), end: now };
+    return { start: now, end: new Date(now.getTime() + n * ms) };
+  }
+  // Start of the current period (weeks start on Monday, like the Italian locale).
+  const periodStart = (d: Date) => (r.unit === 'weeks' ? addDays(d, -((d.getDay() + 6) % 7)) : r.unit === 'months' ? new Date(d.getFullYear(), d.getMonth(), 1) : r.unit === 'years' ? new Date(d.getFullYear(), 0, 1) : d);
+  const step = (d: Date, k: number) => (r.unit === 'days' ? addDays(d, k) : r.unit === 'weeks' ? addDays(d, 7 * k) : r.unit === 'months' ? addMonths(d, k) : addMonths(d, 12 * k));
+  const cur = periodStart(day);
+  if (r.anchor === 'this') return { start: cur, end: step(cur, 1) };
+  const today = r.includeToday === false ? 0 : 1;
+  if (r.anchor === 'last') {
+    if (r.calendar || r.unit === 'days') return r.unit === 'days' ? { start: addDays(day, -n + today), end: addDays(day, today) } : { start: step(cur, -n), end: cur };
+    return { start: addDays(step(day, -n), today), end: addDays(day, today) };
+  }
+  if (r.calendar || r.unit === 'days') return r.unit === 'days' ? { start: addDays(day, 1 - today), end: addDays(day, n + 1 - today) } : { start: step(cur, 1), end: step(cur, n + 1) };
+  return { start: addDays(day, 1 - today), end: addDays(step(day, n), 1 - today) };
+}
+
+/** Filter applied by a slicer: selected values, range (Tra / Prima di / Dopo / data relativa) or text. */
+export function slicerSpec(s: Visual, tables: TableMeta[]): FilterSpec | null {
+  const field = s.fields.category?.[0];
+  if (!field) return null;
+  const base = { table: field.table, column: field.column, values: [] as string[], ...(field.datePart ? { datePart: field.datePart } : {}) };
+  const style = s.format.slicerStyle;
+  if (style === 'text') return s.slicerText?.trim() ? { ...base, contains: s.slicerText.trim(), ...(s.format.slicerTextMode ? { textMode: s.format.slicerTextMode } : {}) } : null;
+  if (style === 'between' || style === 'before' || style === 'after') {
+    const r = s.slicerRange;
+    const kind = fieldKind(field, tables);
+    if (!r || kind === 'text') return null;
+    const min = style === 'before' ? undefined : r.min || undefined, max = style === 'after' ? undefined : r.max || undefined;
+    if (!min && !max) return null;
+    if (kind === 'number') return { ...base, range: { min, max, kind } };
+    // Dates: the upper day is included whole (timestamps up to the next midnight).
+    const next = max ? isoDay(new Date(Number(max.slice(0, 4)), Number(max.slice(5, 7)) - 1, Number(max.slice(8, 10)) + 1)) : undefined;
+    return { ...base, range: { min: min?.slice(0, 10), max: next, kind: 'datetime', maxExclusive: true } };
+  }
+  if (style === 'relativeDate' || style === 'relativeTime') {
+    if (!s.slicerRelative) return null;
+    const p = relativePeriod(s.slicerRelative);
+    return { ...base, range: { min: isoTs(p.start), max: isoTs(p.end), kind: 'datetime', maxExclusive: true } };
+  }
+  return s.slicerValues?.length ? { ...base, values: s.slicerValues } : null;
+}
+
 /** Filters in scope for visual `v`: report/page/visual filters, other slicers, cross-filter. */
-export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[], cross: CrossFilter | null): FilterSpec[] {
+export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[], cross: CrossFilter | null, tables: TableMeta[] = []): FilterSpec[] {
   const out: FilterSpec[] = [];
   for (const f of [...filters, ...(v.filters ?? [])]) if (f.values.length) out.push(f);
   for (const s of visuals) {
-    if (s.id === v.id || s.type !== 'slicer' || !s.slicerValues?.length) continue;
-    const field = s.fields.category?.[0];
-    if (field) out.push({ table: field.table, column: field.column, values: s.slicerValues, datePart: field.datePart });
+    if (s.id === v.id || s.type !== 'slicer') continue;
+    const spec = slicerSpec(s, tables);
+    if (spec) out.push(spec);
   }
   // Custom visuals acting as slicers (host.applyJsonFilter).
   for (const s of visuals) {
@@ -174,6 +260,27 @@ export function effectiveFilters(v: Visual, filters: Filter[], visuals: Visual[]
   }
   if (cross && cross.visualId !== v.id) out.push({ table: cross.table, column: cross.column, values: [cross.value], datePart: cross.datePart });
   return out;
+}
+
+/** Esporta dati › Dati sottostanti: the rows behind a visual (its columns, not aggregated), with every filter in scope.
+ *  The base table is the first field table from which the others are reachable (fact → dimensions). */
+export function underlyingQuery(v: Visual, tables: TableMeta[], rels: Relationship[], filters: Filter[], visuals: Visual[], cross: CrossFilter | null, limit = 150000):
+  { sql: string; columns: { name: string; table: string; column: string }[] } | { error: string } {
+  const fields = Object.values(v.fields).flat().filter((f) => f.agg !== 'measure' && tables.some((t) => t.name === f.table && t.columns.some((c) => c.name === f.column)));
+  const cols = uniq(fields.map((f) => `${f.table}\u0001${f.column}`)).map((x) => { const [table, column] = x.split('\u0001'); return { table, column }; });
+  if (!cols.length) return { error: "L'oggetto visivo non contiene colonne da esportare." };
+  const need = uniq(cols.map((c) => c.table));
+  // Aggregated fields point at the fact table: try their tables first.
+  const order = uniq([...fields.filter((f) => f.agg !== 'none').map((f) => f.table), ...need, ...tables.map((t) => t.name)]);
+  const specs = effectiveFilters(v, filters, visuals, cross, tables).filter((f) => tables.some((t) => t.name === f.table));
+  for (const base of order) {
+    const tree = joinTree(rels, base, need, specs.map((f) => f.table));
+    if ('missing' in tree) continue;
+    const ctx: Ctx = { tables, rels, compiled: new Map(), filters: specs };
+    const sel = cols.map((c) => `${tree.alias.get(c.table)}.${qi(c.column)} AS ${qi(c.table + '.' + c.column)}`);
+    return { sql: `SELECT ${sel.join(', ')} FROM ${tree.from}${whereFor(ctx, tree)} LIMIT ${limit}`, columns: cols.map((c) => ({ ...c, name: cols.filter((x) => x.column === c.column).length > 1 ? `${c.table}.${c.column}` : c.column })) };
+  }
+  return { error: `Impossibile determinare le relazioni tra le tabelle ${need.map((t) => `"${t}"`).join(', ')}. Creare una relazione nella vista modello.` };
 }
 
 /** Model properties the DAX compiler needs besides tables/relationships/measures. */
@@ -198,7 +305,7 @@ const sortKeyOf = (d: QueryItem, colSql: string) => (d.field.datePart === 'month
 const sk = (it: QueryItem) => 's_' + it.alias;
 
 function whereFor(ctx: Ctx, tree: JoinTree): string {
-  const where = ctx.filters.filter((f) => tree.alias.has(f.table)).map((f) => filterSql(partExpr(f.datePart, `${tree.alias.get(f.table)}.${qi(f.column)}`), f.values));
+  const where = ctx.filters.filter((f) => tree.alias.has(f.table)).map((f) => filterSql(partExpr(f.datePart, `${tree.alias.get(f.table)}.${qi(f.column)}`), f.values, f));
   return where.length ? ` WHERE ${where.join(' AND ')}` : '';
 }
 
@@ -372,7 +479,7 @@ export function buildVisualQuery(
     }
   }
 
-  const ctx: Ctx = { tables, rels, compiled, filters: effectiveFilters(v, filters, visuals, cross).filter((f) => tables.some((t) => t.name === f.table)) };
+  const ctx: Ctx = { tables, rels, compiled, filters: effectiveFilters(v, filters, visuals, cross, tables).filter((f) => tables.some((t) => t.name === f.table)) };
   const dims = items.filter((i) => !i.measure);
   const measures = items.filter((i) => i.measure);
   for (const d of dims) {

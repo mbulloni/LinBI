@@ -24,6 +24,10 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | **File › Salva come file Power BI (.pbix)** — report, modello e dati in un vero `.pbix` |
 | ![Report salvato da LinBI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | ![Strumento di navigazione su SQL Server](docs/screenshots/connettori.png) |
 | **Il `.pbix` di LinBI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | **Database SQL Server** — tabelle e viste con anteprima; anche Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB, Access, ODBC |
+| ![Modifica interazioni: evidenziazione incrociata](docs/screenshots/interazioni.png) | ![Nuovi filtri dei dati e Sincronizza filtri dei dati](docs/screenshots/filtri-dati.png) |
+| **Modifica interazioni** — evidenziazione (barre piene/sbiadite), filtro o nessuna, per ogni coppia di oggetti visivi | **Filtri dei dati** — Tra (date e numeri), data relativa, testo, pulsanti; **Sincronizza filtri dei dati** tra le pagine |
+| ![Mostra come tabella ed Esporta dati](docs/screenshots/mostra-tabella.png) | |
+| **Mostra come tabella** ed **Esporta dati** — dati riepilogati (.xlsx/.csv) o sottostanti (.xlsx) | |
 
 ## Scaricare e installare
 
@@ -389,6 +393,24 @@ Fabric, PDF, `.lbix` con i dati.
   con i campi della pagina di destinazione), Spostamento tra le pagine, Q&A (apre **Esplora Q&A**), URL Web,
   **Applica tutti i filtri dei dati** (con il pulsante nella pagina le selezioni dei filtri dei dati restano in attesa) e
   **Cancella tutti i filtri dei dati**; scheda **Azione** nel riquadro Formato (tipo, destinazione, descrizione comando)
+- **Interazioni tra oggetti visivi** (Formato › *Modifica interazioni*): per ogni coppia sorgente → destinazione *Filtro*,
+  *Evidenzia* o *Nessuna*. L'evidenziazione incrociata è il comportamento predefinito come in Power BI (istogrammi e barre,
+  combinati, torta, anello, treemap, imbuto, dispersione: il totale resta sbiadito e la parte selezionata è piena, la
+  descrizione comando mostra *selezionato / totale*); tabelle, matrici, schede, mappe e filtri dei dati vengono filtrati.
+  Opzioni › *Impostazioni report* passa al filtro incrociato predefinito (`defaultFilterActionIsDataFilter`). Le interazioni
+  sono lette e scritte nei file Power BI (`relationships` della pagina, PBIR `visualInteractions`)
+- **Filtri dei dati**: elenco, elenco a discesa, **riquadro/pulsanti**, **Tra**, **Prima di / Dopo** (date) e
+  **Minore o uguale a / Maggiore o uguale a** (numeri) con cursore a due maniglie, **Data relativa** e **Ora relativa**
+  (Ultimi / Questo / Prossimi N giorni, settimane, mesi, anni, anche *calendario*, *Includi oggi*), **testo**
+  (contiene, non contiene, inizia con, è…); selezione singola, opzione *Seleziona tutto*, casella di ricerca. Import ed
+  export con le proprietà dello schema ufficiale (`data.mode`, `startDate/endDate`, `numericStart/End`, `relativeRange`,
+  `relativePeriod`, `selection.singleSelect`, `selfFilterEnabled`) e i tipi `slicer`, `advancedSlicerVisual`, `listSlicer`,
+  `textSlicer`; i segnalibri ricordano anche intervalli, testo e periodi relativi
+- **Sincronizza filtri dei dati** (Formato o Visualizza › Mostra riquadri): per ogni pagina *Sincronizza* e *Visibile*,
+  nome del gruppo, sincronizzazione di campi e selezioni (`syncGroup` nei file Power BI)
+- **Esporta dati** e **Mostra come tabella** (menu *Altre opzioni* dell'oggetto visivo e modalità messa a fuoco): dati
+  riepilogati in .xlsx (max 150.000 righe) o .csv (max 30.000), dati sottostanti in .xlsx (righe delle tabelle con tutti i
+  filtri attivi, filtro incrociato compreso)
 - File › **Ottieni dati** (tutte le origini) e **Opzioni e impostazioni**: rilevamento automatico delle relazioni, interprete
   Python ed eseguibile Rscript per gli oggetti visivi script, chiave e modello Claude per Q&A, impostazioni origine dati,
   *Data/ora automatica* del file corrente (tabelle date e gerarchie nelle esportazioni)
@@ -403,7 +425,9 @@ IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio 
   modelli semantici, SharePoint in Power Query (serve un ID applicazione Entra, vedi *Pubblica*);
 - in Power BI Desktop reale: icone della formattazione condizionale, tabelle date automatiche, etichette di
   riservatezza, linee di analisi/previsione/barre di errore e livelli delle gerarchie utente esportati;
-- Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`).
+- Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`);
+- in Power BI Desktop reale: filtri dei dati Data relativa (il periodo è scritto come filtro calcolato al salvataggio
+  più le impostazioni `relativeRange/Duration/Period`) e filtro dei dati di testo esportati.
 
 **Limiti noti**:
 - dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);

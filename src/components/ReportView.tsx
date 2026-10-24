@@ -1,3 +1,4 @@
+import { VisualDataTable } from './ExportDataDialog';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { THEME } from '../themes';
 import { useStore, pageSize, isHiddenVisual } from '../store';
@@ -135,8 +136,12 @@ export function ReportView({ onFit }: { onFit: (n: number) => void }) {
             <div style={{ height: 36, display: 'flex', alignItems: 'center', padding: '0 12px', gap: 12 }}>
               <button className="btn" style={{ minWidth: 0 }} onClick={() => s.set({ focusId: null })}>← Torna al report</button>
               <span style={{ fontSize: 14 }}>{focus.format.titleText || autoTitle(focus)}</span>
+              <span style={{ flex: 1 }} />
+              <button className="btn" style={{ minWidth: 0 }} onClick={() => s.set({ focusTable: !s.focusTable })}>{s.focusTable ? 'Nascondi tabella' : 'Mostra come tabella'}</button>
+              <button className="btn" style={{ minWidth: 0 }} onClick={() => s.set({ exportData: focus.id })}>Esporta dati</button>
             </div>
-            <div style={{ flex: 1, position: 'relative' }}><VisualBody v={focus} selected={false} /></div>
+            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}><VisualBody v={focus} selected={false} /></div>
+            {s.focusTable && <div style={{ flex: 1, position: 'relative', minHeight: 0, borderTop: '1px solid var(--line)' }}><VisualDataTable v={focus} /></div>}
           </div>
         ) : (
           <div className="canvas-inner" style={{ width: cw, height: ch }}>

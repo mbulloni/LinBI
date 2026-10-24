@@ -10,7 +10,7 @@ import { fmtWith, setLocale } from '../format';
 const LOCALES: [string, string][] = [['it-IT', 'Italiano (Italia)'], ['it-CH', 'Italiano (Svizzera)'], ['en-US', 'Inglese (Stati Uniti)'], ['en-GB', 'Inglese (Regno Unito)'], ['de-DE', 'Tedesco (Germania)'], ['fr-FR', 'Francese (Francia)'], ['es-ES', 'Spagnolo (Spagna)'], ['pt-BR', 'Portoghese (Brasile)']];
 import { DataSourceSettings } from './SourceDialogs';
 
-type Section = 'load' | 'intl' | 'python' | 'r' | 'qna' | 'fileLoad';
+type Section = 'load' | 'intl' | 'python' | 'r' | 'qna' | 'fileLoad' | 'reportSettings';
 
 export function OptionsDialog() {
   const s = useStore();
@@ -47,6 +47,7 @@ export function OptionsDialog() {
             <button onClick={() => setDs(true)}>Impostazioni origine dati…</button>
             <div className="hdr">FILE CORRENTE</div>
             {nav('fileLoad', 'Caricamento dati')}
+            {nav('reportSettings', 'Impostazioni report')}
           </nav>
           <main>
             {sec === 'load' && <>
@@ -97,6 +98,12 @@ export function OptionsDialog() {
               <div className="fmt-row inline"><span>Data/ora automatica</span>
                 <Toggle on={autoDate} onChange={(b) => s.mut((r) => { r.options = { ...r.options, autoDateTime: b ? undefined : false }; if (!Object.values(r.options).some((x) => x !== undefined)) delete r.options; })} /></div>
               <p>Crea automaticamente le tabelle date (LocalDateTable) e le gerarchie Anno › Trimestre › Mese › Giorno per le colonne data quando il report viene esportato in .pbit/.pbip o pubblicato.</p>
+            </>}
+            {sec === 'reportSettings' && <>
+              <h3>Interazioni oggetto visivo</h3>
+              <div className="fmt-row inline"><span>Modifica l'interazione predefinita degli oggetti visivi da evidenziazione incrociata a filtro incrociato</span>
+                <Toggle on={!!s.report.options?.filterByDefault} onChange={(b) => s.mut((r) => { r.options = { ...r.options, filterByDefault: b || undefined }; if (!Object.values(r.options).some((x) => x !== undefined)) delete r.options; })} /></div>
+              <p>Le interazioni impostate con Formato › Modifica interazioni restano invariate.</p>
             </>}
             {msg && <div style={{ marginTop: 8, color: 'var(--text2)' }}>{msg}</div>}
           </main>

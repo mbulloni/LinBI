@@ -1278,7 +1278,7 @@ class Compiler {
 /* --------------------------------- public API --------------------------------- */
 
 /** `expr` wraps the column (date hierarchy level, e.g. YEAR(col)). */
-export interface FilterIn { table: string; column: string; values: string[]; expr?: (col: string) => string; }
+export interface FilterIn { table: string; column: string; values: string[]; expr?: (col: string) => string; range?: import('../query').RangeCond; contains?: string; textMode?: import('../query').TextMode; }
 export interface GroupIn { table: string; column: string; ref: string; expr?: (col: string) => string; }
 
 const emptyEnv = (model: Model, home: string): Env => ({ fc: { filters: [], rels: model.rels }, rows: [], vars: new Map(), home });
@@ -1290,7 +1290,7 @@ export function measureSql(model: Model, name: string, home: string, outer: Filt
   if (!m) throw new DaxError(`Misura non trovata: [${name}]`);
   const env = emptyEnv(model, m.table);
   env.fc.filters = [
-    ...outer.map((f): Filt => ({ table: f.table, cols: [f.column], pred: (a) => filterSql((f.expr ?? ((x) => x))(`${a}.${qi(f.column)}`), f.values), tag: 'outer' })),
+    ...outer.map((f): Filt => ({ table: f.table, cols: [f.column], pred: (a) => filterSql((f.expr ?? ((x) => x))(`${a}.${qi(f.column)}`), f.values, f), tag: 'outer' })),
     ...groups.map((g): Filt => ({ table: g.table, cols: [g.column], pred: (a) => `${(g.expr ?? ((x) => x))(`${a}.${qi(g.column)}`)} IS NOT DISTINCT FROM ${g.ref}`, tag: 'group' })),
   ];
   try {
@@ -1309,7 +1309,7 @@ export function measureFormatSql(model: Model, name: string, home: string, outer
   if (!m) return null;
   const env = emptyEnv(model, m.table);
   env.fc.filters = [
-    ...outer.map((f): Filt => ({ table: f.table, cols: [f.column], pred: (a) => filterSql((f.expr ?? ((x) => x))(`${a}.${qi(f.column)}`), f.values), tag: 'outer' })),
+    ...outer.map((f): Filt => ({ table: f.table, cols: [f.column], pred: (a) => filterSql((f.expr ?? ((x) => x))(`${a}.${qi(f.column)}`), f.values, f), tag: 'outer' })),
     ...groups.map((g): Filt => ({ table: g.table, cols: [g.column], pred: (a) => `${(g.expr ?? ((x) => x))(`${a}.${qi(g.column)}`)} IS NOT DISTINCT FROM ${g.ref}`, tag: 'group' })),
   ];
   try { return c.formatRef(m.name, env); } catch { return null; }

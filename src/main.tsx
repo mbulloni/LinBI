@@ -24,3 +24,8 @@ import * as dax from './dax';
 (window as any).__linbiDax = dax;
 import { runVisualQuery } from './visuals/useVisualData';
 (window as any).__linbiRun = runVisualQuery;
+import { filterSql, relativePeriod, slicerSpec, underlyingQuery } from './query';
+import { interactionOf } from './visuals/interactions';
+(window as any).__linbiQ = { filterSql, relativePeriod, slicerSpec, underlyingQuery, interactionOf };
+import { buildLayout, parseLayout } from './pbix/layout';
+(window as any).__linbiLayout = { buildLayout, parseLayout };

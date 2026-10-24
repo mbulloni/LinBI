@@ -80,6 +80,7 @@ interface Api {
   savePbit(parts: PbitPart[], suggested?: string): Promise<string | null>;
   savePbix(parts: PbitPart[], schema: unknown, extra: { monthNames: string[]; quarterPrefix: string }, suggested?: string, target?: string): Promise<string | null>;
   printPdf(suggested?: string): Promise<string | null>;
+  exportData(name: string, columns: { name: string; kind: 'number' | 'date' | 'text' }[], rows: unknown[][], format: 'xlsx' | 'csv'): Promise<string | null>;
   savePbip(parts: { path: string; text?: string; dataUrl?: string }[], suggested?: string): Promise<string | null>;
   claude: {
     status(): Promise<ClaudeStatus>;

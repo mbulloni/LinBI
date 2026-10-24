@@ -3,11 +3,12 @@
  * Reference: sections[] → visualContainers[] whose `config` is a JSON string holding
  * singleVisual { visualType, projections, prototypeQuery, objects, vcObjects }.
  */
-import { levelName, type Agg, type Bookmark, type FieldRef, type Filter, type Hierarchy, type Page, type TableMeta, type Theme, type Visual, type VisualGroup, type VisualType } from '../types';
+import { levelName, type Agg, type Bookmark, type FieldRef, type Filter, type Hierarchy, type Page, type TableMeta, type Theme, type Visual, type VisualFormat, type VisualGroup, type VisualType, type Interaction, type RelativeSlicer } from '../types';
 import { parseTheme, themeJson } from '../themes';
 import { defaultFormat, PAGE_H, PAGE_W } from '../store';
 import { customPkg, isChart as isChartType, visualDef } from '../visuals/catalog';
-import { NULL_KEY } from '../query';
+import { NULL_KEY, relativePeriod, type RangeCond } from '../query';
+import { INTERACTION_IN, INTERACTION_OUT, interactionKey } from '../visuals/interactions';
 import { uid } from '../format';
 import { decode, pt } from '../visuals/pbistyle';
 import { basicJsonFilter } from '../visuals/custom/objects';
@@ -37,7 +38,7 @@ const TYPE_IN: Record<string, VisualType> = {
   ribbonChart: 'ribbon', waterfallChart: 'waterfall',
   pieChart: 'pie', donutChart: 'donut', treemap: 'treemap', funnel: 'funnel', scatterChart: 'scatter', gauge: 'gauge',
   card: 'card', cardVisual: 'card', multiRowCard: 'multiRowCard', kpi: 'kpi',
-  tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer',
+  tableEx: 'table', table: 'table', pivotTable: 'matrix', slicer: 'slicer', advancedSlicerVisual: 'slicer', listSlicer: 'slicer', textSlicer: 'slicer',
   textbox: 'textbox', image: 'image', actionButton: 'button', basicShape: 'shape', shape: 'shape',
   map: 'map', azureMap: 'map', filledMap: 'filledMap', shapeMap: 'filledMap',
   decompositionTreeVisual: 'decompositionTree', keyDriversVisual: 'keyInfluencers', smartNarrativeVisual: 'smartNarrative',
@@ -160,7 +161,7 @@ function parseFilters(raw: unknown, tables: TableMeta[]): Filter[] {
 
 /* -------------------------------- import -------------------------------- */
 
-export interface LayoutImport { pages: Page[]; reportFilters: Filter[]; skipped: Record<string, number>; bookmarks: Bookmark[]; }
+export interface LayoutImport { pages: Page[]; reportFilters: Filter[]; skipped: Record<string, number>; bookmarks: Bookmark[]; filterByDefault?: boolean; }
 
 export function parseLayout(layoutJson: string, tables: TableMeta[], measureNames: Set<string>, resources: Record<string, string>): LayoutImport {
   const layout = JSON.parse(layoutJson);
@@ -273,7 +274,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         const r = decode(bd.radius);
         if (typeof r === 'number') format.borderRadius = r;
       }
-      if (type === 'slicer' && litText(prop(sv.objects, 'data').mode) === 'Dropdown') format.slicerStyle = 'dropdown';
+      if (type === 'slicer') importSlicerFormat(pbiType, sv.objects, format);
       importCondFormat(sv.objects, byRef, Object.values(fields).flat(), format, (e) => exprToField(e, from), isChartType(type) || type === 'filledMap' || type === 'map');
       if (isChartType(type)) { const al = importAnalytics(sv.objects, byRef); if (al.length) format.analytics = al; }
       const axisType = litText(prop(sv.objects, 'categoryAxis').axisType);
@@ -324,7 +325,9 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       if (type === 'slicer') {
         const sel = parseCondition(prop(sv.objects, 'general').filter?.filter, tables);
         if (sel) v.slicerValues = sel.values;
+        importSlicerState(v, sv.objects);
       }
+      if (sv.syncGroup?.groupName) v.syncGroup = { name: sv.syncGroup.groupName, ...(sv.syncGroup.fieldChanges === false ? { fieldChanges: false } : {}), ...(sv.syncGroup.filterChanges === false ? { filterChanges: false } : {}) };
       if (custom) {
         // Selections of custom slicers: filter-typed properties hold a semantic-query filter.
         for (const [obj, d] of Object.entries<any>(customPkg(custom)!.pbiviz?.capabilities?.objects ?? {})) {
@@ -359,6 +362,16 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       ...(sec.name ? { pbiName: sec.name } : {}),
       ...(secCfg.type === 1 ? { tooltip: true } : {}),
       ...(() => {
+        // Modifica interazioni: section config relationships [{source, target, type}] between visual names.
+        const byName = new Map(visuals.filter((v) => v.pbiName).map((v) => [v.pbiName!, v.id]));
+        const out: Record<string, Interaction> = {};
+        for (const r of Array.isArray(secCfg.relationships) ? secCfg.relationships : []) {
+          const a = byName.get(r?.source), b = byName.get(r?.target), m = INTERACTION_IN[r?.type];
+          if (a && b && m) out[interactionKey(a, b)] = m;
+        }
+        return Object.keys(out).length ? { interactions: out } : {};
+      })(),
+      ...(() => {
         const pb = secCfg.pageBinding ?? sec.pageBinding;
         if (pb?.type !== 'Drillthrough' && pb?.type !== 0) return {};
         const fields = (pb.parameters ?? []).map((x: any) => exprToField(x.fieldExpr, {})).filter((f: FieldRef | null): f is FieldRef => !!f)
@@ -374,6 +387,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
     pages: pages.length ? pages : [{ id: uid(), name: 'Pagina 1', visuals: [], filters: [] }],
     reportFilters: parseFilters(layout.filters, tables), skipped,
     bookmarks: parseBookmarks(json(layout.config).bookmarks, pages, tables),
+    ...(json(layout.config).settings?.defaultFilterActionIsDataFilter ? { filterByDefault: true } : {}),
   };
 }
 
@@ -513,7 +527,7 @@ function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
 }
 
 /** `dateHierarchies`: date levels as HierarchyLevel of the automatic date tables (false: plain date column). */
-export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean; dateTables?: string[]; hierarchies?: Hierarchy[] } = {}): { layout: string; resources: Record<string, string> } {
+export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Theme, bookmarks: Bookmark[] = [], opts: { dateHierarchies?: boolean; dateTables?: string[]; hierarchies?: Hierarchy[]; filterByDefault?: boolean } = {}): { layout: string; resources: Record<string, string> } {
   DATE_HIER = opts.dateHierarchies !== false;
   NO_VAR = new Set(opts.dateTables ?? []);
   USER_HIER = new Map((opts.hierarchies ?? []).map((h) => [`${h.table}\u0001${h.name}`, h]));
@@ -610,12 +624,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       if (v.type === 'image' && v.image) {
         put(objects, 'general', { imageUrl: { expr: { ResourcePackageItem: { PackageName: 'RegisteredResources', PackageType: 1, ItemName: addResource(v.image) } } } });
       }
-      if (v.type === 'slicer') {
-        put(objects, 'data', { mode: Ls(v.format.slicerStyle === 'dropdown' ? 'Dropdown' : 'Basic') });
-        const f = v.fields.category?.[0];
-        if (f && v.slicerValues?.length) put(objects, 'general', { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: v.slicerValues }, '').filter } });
-        else if (objects.general) for (const e of objects.general) delete e.properties?.filter;
-      }
+      if (v.type === 'slicer') exportSlicer(v, objects, put);
       if (v.type === 'custom') {
         for (const [key, x] of Object.entries<any>(v.jsonFilters ?? {})) {
           const [obj, pn] = key.split('.');
@@ -636,7 +645,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         singleVisual: {
           ...(v.hidden ? { display: { mode: 'hidden' } } : {}),
           // Same Power BI type as imported when it maps to this LinBI type (cardVisual, advancedSlicerVisual, shape…).
-          visualType: v.type === 'custom' ? v.custom : v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
+          visualType: v.type === 'custom' ? v.custom : v.type === 'slicer' ? slicerType(v) : v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
           projections,
           prototypeQuery: {
             Version: 2,
@@ -645,6 +654,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
             ...(sortSel ? { OrderBy: [{ Direction: v.format.sortDir === 'asc' ? 1 : 2, Expression: Object.fromEntries(Object.entries(sortSel).filter(([k]) => k !== 'Name')) }] } : {}),
           },
           drillFilterOtherVisuals: true,
+          ...(v.syncGroup ? { syncGroup: { groupName: v.syncGroup.name, fieldChanges: v.syncGroup.fieldChanges !== false, filterChanges: v.syncGroup.filterChanges !== false } } : {}),
           objects,
           vcObjects,
         },
@@ -663,6 +673,11 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
     if (Object.keys(bgProps).length) secConfig.objects.background = [{ properties: bgProps }];
     if (p.wallpaper) secConfig.objects.outspace = [{ properties: { color: { solid: { color: Ls(p.wallpaper) } } } }];
     if (p.hidden) secConfig.visibility = 1;
+    const rels = Object.entries(p.interactions ?? {}).map(([k, m]) => {
+      const [a, b] = k.split('>').map((id) => p.visuals.find((x) => x.id === id));
+      return a && b ? { source: vname(a), target: vname(b), type: INTERACTION_OUT[m] } : null;
+    }).filter(Boolean);
+    if (rels.length) secConfig.relationships = rels;
     if (p.tooltip) secConfig.type = 1;
     const dtFilters: any[] = [];
     if (p.drillthrough?.fields.length) {
@@ -702,9 +717,159 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       resourcePackage: { name: 'RegisteredResources', type: 1, items: Object.keys(resources).map((n) => ({ type: n === themeName ? 202 : 100, path: n, name: n })), disabled: false },
     }] : [],
     sections,
-    config: JSON.stringify({ version: '5.43', themeCollection: themeName ? { customTheme: { name: themeName, version: '5.43', type: 2 } } : {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true }, objects: {}, ...(bookmarks.length ? { bookmarks: bookmarksJson(bookmarks, pages) } : {}) }),
+    config: JSON.stringify({ version: '5.43', themeCollection: themeName ? { customTheme: { name: themeName, version: '5.43', type: 2 } } : {}, activeSectionIndex: 0, defaultDrillFilterOtherVisuals: true, linguisticSchemaSyncVersion: 0, settings: { useNewFilterPaneExperience: true, allowChangeFilterTypes: true, ...(opts.filterByDefault ? { defaultFilterActionIsDataFilter: true } : {}) }, objects: {}, ...(bookmarks.length ? { bookmarks: bookmarksJson(bookmarks, pages) } : {}) }),
     filters: JSON.stringify(reportFilters.filter((f) => f.values.length).map((f) => filterJson(f, hex()))),
     layoutOptimization: 0,
   };
   return { layout: JSON.stringify(layout), resources };
+}
+
+/* ------------------------------- slicers -------------------------------- */
+
+const REL_PERIOD_IN: Record<string, [RelativeSlicer['unit'], boolean]> = {
+  Days: ['days', false], Weeks: ['weeks', false], 'Calendar Weeks': ['weeks', true], Months: ['months', false],
+  'Calendar Months': ['months', true], Years: ['years', false], 'Calendar Years': ['years', true], Minutes: ['minutes', false], Hours: ['hours', false],
+};
+const TEXT_MODE: Record<string, NonNullable<VisualFormat['slicerTextMode']>> = {
+  Filter_Contains_All: 'contains', Filter_Contains_Any: 'contains', Filter_Does_Not_Contain_Any: 'notContains', Filter_Starts_With_Any: 'startsWith',
+  Filter_Does_Not_Start_With_Any: 'notStartsWith', Filter_Is_Any: 'is', Filter_Is_Not_Any: 'isNot',
+};
+
+/** Slicer style and selection settings (data.mode, general.orientation/selfFilterEnabled, selection.*). */
+function importSlicerFormat(pbiType: string, objects: any, format: VisualFormat) {
+  const data = prop(objects, 'data'), gen = prop(objects, 'general'), sel = prop(objects, 'selection');
+  const mode = litText(data.mode);
+  if (pbiType === 'advancedSlicerVisual') format.slicerStyle = 'tile';
+  else if (pbiType === 'textSlicer') {
+    format.slicerStyle = 'text';
+    const m = TEXT_MODE[litText(prop(objects, 'dropdown').filterMode) ?? ''];
+    if (m && m !== 'contains') format.slicerTextMode = m;
+  } else if (pbiType === 'listSlicer') format.slicerStyle = litBool(data.dropdownMode) ? 'dropdown' : 'list';
+  else if (mode === 'Dropdown') format.slicerStyle = 'dropdown';
+  else if (mode === 'HorizontalList' || (mode !== 'VerticalList' && decode(gen.orientation) === 1)) format.slicerStyle = 'tile';
+  else if (mode === 'Between' || mode === 'RelativeDatePicker') format.slicerStyle = 'between';
+  else if (mode === 'Before') format.slicerStyle = 'before';
+  else if (mode === 'After') format.slicerStyle = 'after';
+  else if (mode === 'Relative') format.slicerStyle = 'relativeDate';
+  else if (mode === 'RelativeTime') format.slicerStyle = 'relativeTime';
+  else if (mode === 'Single') format.slicerStyle = 'slider';
+  if (litBool(sel.singleSelect) || litBool(sel.strictSingleSelect)) format.slicerSingle = true;
+  // Power BI shows "Seleziona tutto" only when enabled.
+  if (pbiType !== 'textSlicer') { if (litBool(sel.selectAllCheckboxEnabled) !== true) format.slicerSelectAll = false; }
+  if (litBool(gen.selfFilterEnabled)) format.slicerSearch = true;
+}
+
+/** Range bounds and relative period kept in the slicer's data object. */
+function importSlicerState(v: Visual, objects: any) {
+  const data = prop(objects, 'data');
+  const style = v.format.slicerStyle;
+  if (style === 'between' || style === 'before' || style === 'after') {
+    const d = (x: any) => { const t = lit(x); const m = t && /^datetime'(.*)'$/.exec(t); return m ? m[1].slice(0, 10) : undefined; };
+    const n = (x: any) => { const t = decode(x); return typeof t === 'number' ? String(t) : undefined; };
+    const min = d(data.startDate) ?? n(data.numericStart), max = d(data.endDate) ?? n(data.numericEnd);
+    if (min || max) v.slicerRange = { ...(min ? { min } : {}), ...(max ? { max } : {}) };
+  }
+  if (style === 'text') {
+    // Contains / StartsWith / Comparison Equal, optionally under Not.
+    let c = prop(objects, 'general').filter?.filter?.Where?.[0]?.Condition;
+    const neg = !!c?.Not;
+    if (neg) c = c.Not.Expression;
+    const kind = c?.Contains ? 'contains' : c?.StartsWith ? 'startsWith' : c?.Comparison?.ComparisonKind === 0 ? 'is' : null;
+    const val = litText({ expr: (c?.Contains ?? c?.StartsWith ?? c?.Comparison)?.Right });
+    if (kind && val) {
+      v.slicerText = val;
+      const m = (neg ? { contains: 'notContains', startsWith: 'notStartsWith', is: 'isNot' } as const : { contains: 'contains', startsWith: 'startsWith', is: 'is' } as const)[kind];
+      if (m !== 'contains') v.format.slicerTextMode = m; else delete v.format.slicerTextMode;
+    }
+  }
+  if (style === 'relativeDate' || style === 'relativeTime') {
+    const range = litText(data.relativeRange);
+    const per = REL_PERIOD_IN[litText(style === 'relativeTime' ? data.relativeTimePeriod : data.relativePeriod) ?? ''];
+    if (range && per) {
+      const today = litBool(prop(objects, 'dateRange').includeToday);
+      v.slicerRelative = { anchor: range === 'This' ? 'this' : range === 'Next' ? 'next' : 'last', n: Number(decode(data.relativeDuration)) || 1, unit: per[0],
+        ...(per[1] ? { calendar: true } : {}), ...(today === false ? { includeToday: false } : {}) };
+    }
+  }
+}
+
+/** Comparison filter of a range slicer (Power BI advanced filter: ComparisonKind 2 = ≥, 4 = ≤, 3 = <). */
+function rangeFilterJson(f: { table: string; column: string }, r: RangeCond) {
+  const col = { Column: { Expression: { SourceRef: { Source: 't' } }, Property: f.column } };
+  const val = (x: string) => ({ Literal: { Value: r.kind === 'number' ? `${Number(x)}D` : `datetime'${x.length <= 10 ? x + 'T00:00:00' : x.replace(' ', 'T')}'` } });
+  const conds = [
+    ...(r.min ? [{ Comparison: { ComparisonKind: 2, Left: col, Right: val(r.min) } }] : []),
+    ...(r.max ? [{ Comparison: { ComparisonKind: r.maxExclusive ? 3 : 4, Left: col, Right: val(r.max) } }] : []),
+  ];
+  const cond = conds.length === 2 ? { And: { Left: conds[0], Right: conds[1] } } : conds[0];
+  return { Version: 2, From: [{ Name: 't', Entity: f.table, Type: 0 }], Where: [{ Condition: cond }] };
+}
+
+const REL_PERIOD_OUT = (r: RelativeSlicer) => (r.unit === 'minutes' ? 'Minutes' : r.unit === 'hours' ? 'Hours' : (r.calendar ? 'Calendar ' : '') + r.unit[0].toUpperCase() + r.unit.slice(1));
+
+/** Power BI slicer visual for the style: textSlicer for text, the imported new slicers while their style fits, else the classic slicer. */
+function slicerType(v: Visual): string {
+  const st = v.format.slicerStyle, pbi = v.style?.pbiType;
+  if (st === 'text') return 'textSlicer';
+  if (pbi === 'listSlicer' && (st === 'list' || st === 'dropdown')) return pbi;
+  if (pbi === 'advancedSlicerVisual' && st === 'tile') return pbi;
+  return 'slicer';
+}
+
+function exportSlicer(v: Visual, objects: any, put: (objs: any, obj: string, props: Record<string, unknown>) => void) {
+  const f = v.fields.category?.[0];
+  const st = v.format.slicerStyle;
+  const pbi = slicerType(v);
+  const MODE: Record<string, string> = { list: 'Basic', dropdown: 'Dropdown', tile: 'Basic', between: 'Between', before: 'Before', after: 'After', relativeDate: 'Relative', relativeTime: 'RelativeTime', slider: 'Single', text: 'Basic' };
+  if (pbi === 'listSlicer') put(objects, 'data', { dropdownMode: L(String(st === 'dropdown')) });
+  else if (pbi !== 'advancedSlicerVisual' && pbi !== 'textSlicer') {
+    put(objects, 'data', { mode: Ls(MODE[st] ?? 'Basic') });
+    put(objects, 'general', { orientation: L(st === 'tile' ? '1D' : '0D') });
+  }
+  if (pbi === 'textSlicer') {
+    const m = Object.entries(TEXT_MODE).find(([k, x]) => x === (v.format.slicerTextMode ?? 'contains') && k !== 'Filter_Contains_All')?.[0];
+    if (m) put(objects, 'dropdown', { filterMode: Ls(m) });
+  }
+  if (pbi !== 'textSlicer') {
+    put(objects, 'selection', { singleSelect: L(String(!!v.format.slicerSingle)), selectAllCheckboxEnabled: L(String(v.format.slicerSelectAll !== false)) });
+    put(objects, 'general', { selfFilterEnabled: L(String(!!v.format.slicerSearch)) });
+  }
+  const clear = () => { if (objects.general) for (const e of objects.general) delete e.properties?.filter; };
+  if (!f) { clear(); return; }
+  if ((st === 'between' || st === 'before' || st === 'after') && v.slicerRange) {
+    const num = !/^\d{4}-\d{2}-\d{2}/.test(v.slicerRange.min ?? v.slicerRange.max ?? '');
+    const r = v.slicerRange;
+    const min = st === 'before' ? undefined : r.min, max = st === 'after' ? undefined : r.max;
+    const dt = (x?: string) => (x ? L(`datetime'${x.slice(0, 10)}T00:00:00'`) : undefined);
+    put(objects, 'data', num
+      ? { ...(min ? { numericStart: L(`${Number(min)}D`) } : {}), ...(max ? { numericEnd: L(`${Number(max)}D`) } : {}) }
+      : { ...(min ? { startDate: dt(min) } : {}), ...(max ? { endDate: dt(max) } : {}) });
+    if (min || max) put(objects, 'general', { filter: { filter: rangeFilterJson(f, { min, max, kind: num ? 'number' : 'date' }) } });
+    else clear();
+    return;
+  }
+  if ((st === 'relativeDate' || st === 'relativeTime') && v.slicerRelative) {
+    const r = v.slicerRelative;
+    put(objects, 'data', { relativeRange: Ls(r.anchor === 'this' ? 'This' : r.anchor === 'next' ? 'Next' : 'Last'), relativeDuration: L(`${r.n}D`),
+      [st === 'relativeTime' ? 'relativeTimePeriod' : 'relativePeriod']: Ls(REL_PERIOD_OUT(r)) });
+    put(objects, 'dateRange', { includeToday: L(String(r.includeToday !== false)) });
+    // The period is computed now (Power BI recomputes it from the settings above when the report opens).
+    const p = relativePeriod(r);
+    const ts = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`;
+    put(objects, 'general', { filter: { filter: rangeFilterJson(f, { min: ts(p.start), max: ts(p.end), kind: 'datetime', maxExclusive: true }) } });
+    return;
+  }
+  if (st === 'text') {
+    const t = v.slicerText?.trim();
+    if (!t) { clear(); return; }
+    const m = v.format.slicerTextMode ?? 'contains';
+    const col = { Column: { Expression: { SourceRef: { Source: 't' } }, Property: f.column } };
+    const right = { Literal: { Value: `'${t.replace(/'/g, "''")}'` } };
+    const pos = m === 'is' || m === 'isNot' ? { Comparison: { ComparisonKind: 0, Left: col, Right: right } } : m === 'startsWith' || m === 'notStartsWith' ? { StartsWith: { Left: col, Right: right } } : { Contains: { Left: col, Right: right } };
+    const cond = m === 'notContains' || m === 'notStartsWith' || m === 'isNot' ? { Not: { Expression: pos } } : pos;
+    put(objects, 'general', { filter: { filter: { Version: 2, From: [{ Name: 't', Entity: f.table, Type: 0 }], Where: [{ Condition: cond }] } } });
+    return;
+  }
+  if (v.slicerValues?.length && ['list', 'dropdown', 'tile', 'slider'].includes(st)) put(objects, 'general', { filter: { filter: filterJson({ id: '', table: f.table, column: f.column, values: v.slicerValues }, '').filter } });
+  else clear();
 }
