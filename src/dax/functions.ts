@@ -69,7 +69,8 @@ export const DAX_FUNCTIONS: DaxFn[] = [
   F('CALENDAR', 'DataInizio; DataFine', 'Tabella di date contigue tra le due date.'),
   F('CALENDARAUTO', '[MeseFineAnnoFiscale]', 'Tabella di date che copre tutte le date del modello.'),
   F('ISEMPTY', 'Tabella', 'TRUE se la tabella non ha righe.'),
-  F('NAMEOF', 'Valore', 'Nome della colonna o misura.'),
+  F('NAMEOF', 'Valore', 'Nome della tabella, colonna, misura o calendario.'),
+  F('TABLEOF', 'Riferimento', 'La tabella di una colonna, misura o calendario.'),
   // time intelligence
   F('TOTALYTD', 'Espressione; Date; [Filtro]', "Valore dall'inizio dell'anno."),
   F('TOTALQTD', 'Espressione; Date; [Filtro]', "Valore dall'inizio del trimestre."),
@@ -78,7 +79,7 @@ export const DAX_FUNCTIONS: DaxFn[] = [
   F('DATESQTD', 'Date', "Date dall'inizio del trimestre."),
   F('DATESMTD', 'Date', "Date dall'inizio del mese."),
   F('SAMEPERIODLASTYEAR', 'Date', "Le stesse date dell'anno precedente."),
-  F('DATEADD', 'Date; NumeroIntervalli; Intervallo', 'Date spostate di N intervalli (YEAR, QUARTER, MONTH, DAY).'),
+  F('DATEADD', 'DateOCalendario; NumeroIntervalli; Intervallo; [Estensione]; [Troncamento]', 'Date spostate di N intervalli (YEAR, QUARTER, MONTH, WEEK, DAY). Con un calendario: PRECISE/EXTENDED/ENDALIGNED, ANCHORED/BLANK.'),
   F('PARALLELPERIOD', 'Date; NumeroIntervalli; Intervallo', 'Periodo parallelo spostato di N intervalli.'),
   F('DATESBETWEEN', 'Date; DataInizio; DataFine', 'Date comprese tra due date.'),
   F('DATESINPERIOD', 'Date; DataInizio; NumeroIntervalli; Intervallo', 'Date in un periodo a partire da una data.'),
@@ -88,6 +89,10 @@ export const DAX_FUNCTIONS: DaxFn[] = [
   F('NEXTQUARTER', 'Date', 'Il trimestre successivo.'), F('NEXTYEAR', 'Date', "L'anno successivo."),
   F('FIRSTDATE', 'Date', 'La prima data del contesto.'), F('LASTDATE', 'Date', "L'ultima data del contesto."),
   F('STARTOFMONTH', 'Date', 'Primo giorno del mese.'), F('STARTOFQUARTER', 'Date', 'Primo giorno del trimestre.'), F('STARTOFYEAR', 'Date', "Primo giorno dell'anno."),
+  F('TOTALWTD', 'Espressione; Calendario; [Filtro]', "Valore dall'inizio della settimana (calendario con la categoria Settimana)."),
+  F('DATESWTD', 'Calendario', "Date dall'inizio della settimana."),
+  F('PREVIOUSWEEK', 'Calendario', 'La settimana precedente.'), F('NEXTWEEK', 'Calendario', 'La settimana successiva.'),
+  F('STARTOFWEEK', 'Calendario', 'Primo giorno della settimana.'), F('ENDOFWEEK', 'Calendario', 'Ultimo giorno della settimana.'),
   F('ENDOFMONTH', 'Date', 'Ultimo giorno del mese.'), F('ENDOFQUARTER', 'Date', 'Ultimo giorno del trimestre.'), F('ENDOFYEAR', 'Date', "Ultimo giorno dell'anno."),
   // logical / information
   F('IF', 'Condizione; ValoreSeVero; [ValoreSeFalso]', 'Restituisce un valore se la condizione è vera, un altro se è falsa.'),
@@ -96,6 +101,13 @@ export const DAX_FUNCTIONS: DaxFn[] = [
   F('IFERROR', 'Valore; ValoreSeErrore', "Valore alternativo se l'espressione genera un errore."),
   F('ISERROR', 'Valore', 'TRUE se il valore è un errore.'),
   F('ISBLANK', 'Valore', 'TRUE se il valore è vuoto.'),
+  F('ISSTRING', 'Valore', 'TRUE se il valore è un testo.'), F('ISTEXT', 'Valore', 'TRUE se il valore è un testo.'), F('ISNONTEXT', 'Valore', 'TRUE se il valore non è un testo.'),
+  F('ISNUMERIC', 'Valore', 'TRUE se il valore è un numero.'), F('ISNUMBER', 'Valore', 'TRUE se il valore è un numero.'),
+  F('ISINT64', 'Valore', 'TRUE se il valore è un numero intero.'), F('ISINTEGER', 'Valore', 'TRUE se il valore è un numero intero.'),
+  F('ISDOUBLE', 'Valore', 'TRUE se il valore è un numero decimale (virgola mobile).'),
+  F('ISDECIMAL', 'Valore', 'TRUE se il valore è un decimale fisso (valuta).'), F('ISCURRENCY', 'Valore', 'TRUE se il valore è un decimale fisso (valuta).'),
+  F('ISBOOLEAN', 'Valore', 'TRUE se il valore è logico.'), F('ISLOGICAL', 'Valore', 'TRUE se il valore è logico.'),
+  F('ISDATETIME', 'Valore', 'TRUE se il valore è una data/ora.'),
   F('BLANK', '', 'Valore vuoto.'),
   F('COALESCE', 'Espressione1; Espressione2; …', 'Il primo valore non vuoto.'),
   F('AND', 'Logico1; Logico2', 'TRUE se entrambi sono veri.'), F('OR', 'Logico1; Logico2', 'TRUE se almeno uno è vero.'),
@@ -139,4 +151,6 @@ export const DAX_FUNCTIONS: DaxFn[] = [
   F('EDATE', 'Data; Mesi', 'Data spostata di N mesi.'), F('DATEDIFF', 'Data1; Data2; Intervallo', 'Numero di intervalli tra due date.'),
 ];
 
-export const DAX_KEYWORDS = ['VAR', 'RETURN', 'DEFINE', 'EVALUATE', 'MEASURE', 'ORDER BY', 'ASC', 'DESC', 'YEAR', 'QUARTER', 'MONTH', 'DAY'];
+export const DAX_KEYWORDS = ['VAR', 'RETURN', 'DEFINE', 'EVALUATE', 'MEASURE', 'ORDER BY', 'ASC', 'DESC', 'YEAR', 'QUARTER', 'MONTH', 'WEEK', 'DAY', 'FUNCTION',
+  'PRECISE', 'EXTENDED', 'ENDALIGNED', 'ANCHORED', 'ANYVAL', 'SCALAR', 'TABLE', 'ANYREF', 'COLUMNREF', 'MEASUREREF', 'TABLEREF', 'CALENDARREF',
+  'VARIANT', 'INT64', 'DECIMAL', 'DOUBLE', 'STRING', 'DATETIME', 'BOOLEAN', 'NUMERIC', 'VAL', 'EXPR'];

@@ -333,6 +333,10 @@ export interface Report {
   calcGroups?: CalcGroup[];
   /** Sicurezza a livello di riga: Gestisci ruoli (DAX row filters per table). */
   roles?: RoleDef[];
+  /** Funzioni DAX definite dall'utente (Model explorer › Funzioni). */
+  functions?: DaxFunction[];
+  /** Calendari (Strumenti tabella › Opzioni calendario). */
+  calendars?: CalendarDef[];
 }
 
 /** `levels` = columns in order; `levelNames` = level name when it differs from the column. */
@@ -341,6 +345,16 @@ export const levelName = (h: Hierarchy, column: string) => h.levelNames?.[column
 export interface CalcItem { name: string; expression: string; formatString?: string; }
 export interface CalcGroup { table: string; column: string; precedence: number; items: CalcItem[]; }
 export interface RoleDef { name: string; filters: { table: string; expression: string }[]; }
+/** DAX user-defined function (DEFINE FUNCTION / TMDL `function`): `expression` = "( params ) => body". */
+export interface DaxFunction { name: string; expression: string; description?: string; }
+/** Calendar category (TOM TimeUnit) of a column group. */
+export type TimeUnit = 'year' | 'semester' | 'semesterOfYear' | 'quarter' | 'quarterOfYear' | 'quarterOfSemester' | 'month' | 'monthOfYear'
+  | 'monthOfSemester' | 'monthOfQuarter' | 'week' | 'weekOfYear' | 'weekOfSemester' | 'weekOfQuarter' | 'weekOfMonth' | 'date'
+  | 'dayOfYear' | 'dayOfSemester' | 'dayOfQuarter' | 'dayOfMonth' | 'dayOfWeek';
+/** Column group of a calendar: a category with its primary and associated columns, or (unit null) the time-related columns. */
+export interface CalendarGroup { unit: TimeUnit | null; primary?: string; associated?: string[]; }
+/** Calendar-based time intelligence (Opzioni calendario): TOTALYTD([M], 'Calendario fiscale'). */
+export interface CalendarDef { name: string; table: string; groups: CalendarGroup[]; description?: string; }
 
 export interface ReportOptions {
   /** Data/ora automatica: LocalDateTable_* + date hierarchies in exports (default on). */

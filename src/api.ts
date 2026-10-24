@@ -22,6 +22,8 @@ export interface PowerBIModel {
     folders: { table: string; name: string; folder: string }[];
     dateTables: Record<string, string>;
     calcGroups: { table: string; column: string; precedence: number; items: { name: string; expression: string; formatString?: string }[] }[];
+    functions?: import('./types').DaxFunction[];
+    calendars?: import('./types').CalendarDef[];
     roles: { name: string; filters: { table: string; expression: string }[] }[];
   };
   warnings: string[];

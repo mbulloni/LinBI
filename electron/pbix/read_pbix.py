@@ -215,13 +215,53 @@ def model_extras_sqlite(db, out):
         if r["R"] in roles and isinstance(r["E"], str) and r["E"].strip():
             roles[r["R"]]["filters"].append({"table": r["T"], "expression": r["E"]})
     mx["roles"].extend(roles.values())
+    for _, r in q("SELECT Name AS N, Expression AS E, Description AS D FROM [Function]"):
+        if isinstance(r["N"], str) and isinstance(r["E"], str):
+            mx["functions"].append({"name": r["N"], "expression": r["E"], **({"description": r["D"]} if isinstance(r["D"], str) and r["D"] else {})})
+    cals = {}
+    for _, r in q("SELECT c.ID AS I, c.Name AS N, t.Name AS T, c.Description AS D FROM [Calendar] c JOIN [Table] t ON c.TableID = t.ID"):
+        cals[r["I"]] = {"name": r["N"], "table": r["T"], "groups": [], **({"description": r["D"]} if isinstance(r["D"], str) and r["D"] else {})}
+    groups = {}
+    for _, r in q("SELECT ID AS I, CalendarID AS C, TimeUnit AS U FROM [CalendarColumnGroup]"):
+        if r["C"] in cals:
+            g = {"unit": TIME_UNITS.get(int(r["U"] or 0))}
+            groups[r["I"]] = g
+            cals[r["C"]]["groups"].append(g)
+    for _, r in q("SELECT g.CalendarColumnGroupID AS G, COALESCE(c.ExplicitName, c.InferredName) AS C, g.IsPrimaryColumn AS P FROM [CalendarColumnReference] g JOIN [Column] c ON g.ColumnID = c.ID"):
+        g = groups.get(r["G"])
+        if g is None:
+            continue
+        if r["P"] and g["unit"]:
+            g["primary"] = r["C"]
+        else:
+            g.setdefault("associated", []).append(r["C"])
+    mx["calendars"].extend(cals.values())
+
+
+# TOM TimeUnit (Calendar column groups); 0 = time-related columns.
+TIME_UNITS = {i: n for i, n in enumerate(["", "year", "semester", "semesterOfYear", "quarter", "quarterOfYear", "quarterOfSemester", "month", "monthOfYear",
+                                            "monthOfSemester", "monthOfQuarter", "week", "weekOfYear", "weekOfSemester", "weekOfQuarter", "weekOfMonth", "date",
+                                            "dayOfYear", "dayOfSemester", "dayOfQuarter", "dayOfMonth", "dayOfWeek"]) if n}
 
 
 def model_extras_tmsl(model, out):
     """Same as model_extras_sqlite, from TMSL (DataModelSchema / model.bim)."""
     mx = out["model"]
+    for f in model.get("functions", []):
+        mx["functions"].append({"name": f["name"], "expression": text_of(f.get("expression")), **({"description": text_of(f["description"])} if f.get("description") else {})})
     for t in model.get("tables", []):
         name = t["name"]
+        for c in t.get("calendars", []):
+            groups = []
+            for g in c.get("calendarColumnGroups", []):
+                unit = g.get("timeUnit")
+                if isinstance(unit, int):
+                    unit = TIME_UNITS.get(unit)
+                if unit and unit != "unknown":
+                    groups.append({"unit": unit[0].lower() + unit[1:], "primary": g.get("primaryColumn"), **({"associated": g["associatedColumns"]} if g.get("associatedColumns") else {})})
+                else:
+                    groups.append({"unit": None, "associated": list(g.get("columns", []))})
+            mx["calendars"].append({"name": c["name"], "table": name, "groups": groups, **({"description": text_of(c["description"])} if c.get("description") else {})})
         for h in t.get("hierarchies", []):
             lv = sorted(h.get("levels", []), key=lambda l: l.get("ordinal", 0))
             mx["hierarchies"].append({"table": name, "name": h["name"], "levels": [{"name": l["name"], "column": l["column"]} for l in lv]})
@@ -333,7 +373,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
     out = {"file": path, "kind": None, "tables": [], "relationships": [], "measures": [],
            "layout": None, "resources": {}, "customVisuals": [], "parameters": [], "warnings": [],
-           "model": {"hierarchies": [], "folders": [], "dateTables": {}, "calcGroups": [], "roles": []}}
+           "model": {"hierarchies": [], "folders": [], "dateTables": {}, "calcGroups": [], "roles": [], "functions": [], "calendars": []}}
     with zipfile.ZipFile(path) as z:
         names = z.namelist()
         if "Report/Layout" in names:

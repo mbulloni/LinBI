@@ -48,12 +48,23 @@ function fromTmsl(schema, out) {
       });
     }
   }
+  for (const f of model.functions ?? []) mx.functions.push({ name: f.name, expression: joinExpr(f.expression), ...(f.description ? { description: joinExpr(f.description) } : {}) });
+  for (const t of model.tables ?? []) {
+    for (const c of t.calendars ?? []) {
+      mx.calendars.push({
+        name: c.name, table: t.name, ...(c.description ? { description: joinExpr(c.description) } : {}),
+        groups: (c.calendarColumnGroups ?? []).map((g) => (g.timeUnit && g.timeUnit !== 'unknown'
+          ? { unit: g.timeUnit[0].toLowerCase() + g.timeUnit.slice(1), primary: g.primaryColumn, ...(g.associatedColumns?.length ? { associated: g.associatedColumns } : {}) }
+          : { unit: null, associated: [...(g.columns ?? [])] })),
+      });
+    }
+  }
   for (const r of model.roles ?? []) mx.roles.push({ name: r.name, filters: (r.tablePermissions ?? []).filter((p) => joinExpr(p.filterExpression).trim()).map((p) => ({ table: p.name, expression: joinExpr(p.filterExpression) })) });
 }
 
 /** Model properties besides tables/relationships/measures (same shape as read_pbix.py). */
 function extras(out) {
-  out.model ??= { hierarchies: [], folders: [], dateTables: {}, calcGroups: [], roles: [] };
+  out.model ??= { hierarchies: [], folders: [], dateTables: {}, calcGroups: [], roles: [], functions: [], calendars: [] };
   return out.model;
 }
 
@@ -148,7 +159,7 @@ function parseTmdl(text) {
     const ind = indentOf(line);
     while (stack.length > 1 && stack[stack.length - 1].indent >= ind) stack.pop();
     const parent = stack[stack.length - 1];
-    const kw = /^(table|column|measure|partition|relationship|hierarchy|level|annotation|expression|model|database|role|tablePermission|culture|calculationGroup|calculationItem|perspective|dataSource|ref|cultureInfo|linguisticMetadata|variation|changedProperty|extendedProperty|queryGroup|function)\b(?!\s*:)\s*(.*)$/.exec(t);
+    const kw = /^(table|column|measure|partition|relationship|hierarchy|level|annotation|expression|model|database|role|tablePermission|culture|calculationGroup|calculationItem|perspective|dataSource|ref|cultureInfo|linguisticMetadata|variation|changedProperty|extendedProperty|queryGroup|function|calendar|calendarColumnGroup)\b(?!\s*:)\s*(.*)$/.exec(t);
     if (kw) {
       const [name, rest] = takeName(kw[2]);
       const obj = { kind: kw[1], name, props: {}, children: [], indent: ind };
@@ -168,7 +179,11 @@ function parseTmdl(text) {
         const [value, next] = block(i, ind, prop[3]);
         parent.props[prop[1]] = value;
         i = next;
-      } else parent.props[prop[1]] = prop[3].trim();
+      } else {
+        parent.props[prop[1]] = prop[3].trim();
+        // Repeated properties (calendar associatedColumn / column) keep every value.
+        (parent.multi ??= {})[prop[1]] = [...(parent.multi[prop[1]] ?? []), prop[3].trim()];
+      }
       continue;
     }
     if (/^[A-Za-z]\w*$/.test(t)) parent.props[t] = 'true'; // flags like "isHidden"
@@ -214,6 +229,16 @@ function fromTmdl(dir, out) {
     for (const c of t.children.filter((x) => x.kind === 'column' || x.kind === 'measure')) if (c.props.displayFolder) mx.folders.push({ table: t.name, name: c.name, folder: unquote(c.props.displayFolder) });
     const key = t.children.find((c) => c.kind === 'column' && c.props.isKey === 'true');
     if (unquote(t.props.dataCategory) === 'Time' && key) mx.dateTables[t.name] = key.name;
+    for (const c of t.children.filter((x) => x.kind === 'calendar')) {
+      mx.calendars.push({
+        name: c.name, table: t.name,
+        groups: c.children.filter((g) => g.kind === 'calendarColumnGroup').map((g) => {
+          const unit = (g.value ?? '').trim();
+          const many = (k) => (g.multi?.[k] ?? []).map(unquote);
+          return unit ? { unit, primary: unquote(g.props.primaryColumn), ...(many('associatedColumn').length ? { associated: many('associatedColumn') } : {}) } : { unit: null, associated: many('column') };
+        }),
+      });
+    }
     const cg = t.children.find((c) => c.kind === 'calculationGroup');
     if (cg) {
       const col = t.children.find((c) => c.kind === 'column' && c.name !== 'Ordinal')?.name ?? 'Name';
@@ -223,6 +248,7 @@ function fromTmdl(dir, out) {
       });
     }
   }
+  for (const f of objs.filter((o) => o.kind === 'function')) mx.functions.push({ name: f.name, expression: f.value ?? '' });
   for (const r of objs.filter((o) => o.kind === 'role')) {
     mx.roles.push({ name: r.name, filters: r.children.filter((p) => p.kind === 'tablePermission' && (p.value ?? '').trim()).map((p) => ({ table: p.name, expression: p.value })) });
   }

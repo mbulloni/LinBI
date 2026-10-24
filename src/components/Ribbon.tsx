@@ -20,7 +20,7 @@ function ThemeSwatch({ t, active, onClick, label }: { t: Theme; active: boolean;
   );
 }
 
-type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help' | 'format';
+type Tab = 'home' | 'insert' | 'modeling' | 'view' | 'optimize' | 'help' | 'format' | 'table';
 const TABS: [Tab, string][] = [['home', 'Home'], ['insert', 'Inserisci'], ['modeling', 'Modellazione'], ['view', 'Visualizza'], ['optimize', 'Ottimizza'], ['help', 'Guida']];
 
 export function Group({ label, children }: { label: string; children: ReactNode }) {
@@ -56,6 +56,9 @@ export function Ribbon() {
   const selVisual = sel ? s.page().visuals.find((v) => v.id === sel) : undefined;
   // The contextual Formato tab goes away with the selection.
   useEffect(() => { if (tab === 'format' && !selVisual && !s.editInteractions) setTab('home'); }, [tab, selVisual, s.editInteractions]);
+  // Strumenti tabella: contextual tab of the table shown in the Table view.
+  const toolTable = s.view === 'data' ? s.tables.find((t) => t.name === s.dataViewTable) : undefined;
+  useEffect(() => { if (tab === 'table' && !toolTable) setTab('home'); }, [tab, toolTable]);
 
   const copy = () => selVisual && s.set({ clipboard: JSON.parse(JSON.stringify(selVisual)) });
   const cut = () => { if (selVisual) { copy(); s.removeVisual(selVisual.id); } };
@@ -85,6 +88,7 @@ export function Ribbon() {
         {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'active' : ''} onClick={() => setTab(k)}>{l}</button>)}
         {/* Contextual tab of the selected visual, like Power BI's Formato. */}
         {report && (selVisual || s.editInteractions) && <button className={'ctx' + (tab === 'format' ? ' active' : '')} onClick={() => setTab('format')}>Formato</button>}
+        {toolTable && <button className={'ctx' + (tab === 'table' ? ' active' : '')} onClick={() => setTab('table')}>Strumenti tabella</button>}
       </div>
       <div className="ribbon-body">
         {tab === 'home' && <>
@@ -151,6 +155,11 @@ export function Ribbon() {
             <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', s.tables.find((t) => t.name === s.dataViewTable)?.name ?? s.tables[0]?.name)} disabled={!s.tables.length} />
             <Big icon="newTable" label={<>Nuova<br />tabella</>} onClick={() => s.startDax('table')} />
             <Big icon="calcGroup" label={<>Gruppo di<br />calcolo</>} onClick={() => void s.createCalcGroup()} disabled={!s.report.measures.length} title={s.report.measures.length ? undefined : 'Serve almeno una misura esplicita'} />
+            <Big icon="measure" label={<>Nuova<br />funzione</>} onClick={() => s.startDax('function')} disabled={!s.tables.length} title="Funzione DAX definita dall'utente, riutilizzabile in misure, colonne e altre funzioni" />
+          </Group>
+          <Group label="Calendari">
+            <Big icon="calendar" label={<>Opzioni<br />calendario</>} disabled={!s.tables.length} onClick={() => s.set({ calendarDialog: s.dataViewTable ?? s.tables.find((t) => t.columns.some((c) => /^(DATE|TIMESTAMP)/i.test(c.type)))?.name ?? s.tables[0].name })}
+              title="Calendari per la time intelligence basata su calendario (anni fiscali, settimane, 4-4-5…)" />
           </Group>
           <Group label="Sicurezza">
             <Big icon="shield" label={<>Gestisci<br />ruoli</>} onClick={() => s.set({ rolesDialog: true })} disabled={!s.tables.length} />
@@ -185,6 +194,25 @@ export function Ribbon() {
                 <label key={k} className="rcheck"><input type="checkbox" checked={!!s.panes[k]} onChange={(e) => s.set({ panes: { ...s.panes, [k]: e.target.checked } })} />{l}</label>
               ))}
             </div>
+          </Group>
+        </>}
+
+        {tab === 'table' && toolTable && <>
+          <Group label="Struttura">
+            <div className="rcol" style={{ justifyContent: 'center' }}><span className="hint">Nome</span><b>{toolTable.name}</b></div>
+          </Group>
+          <Group label="Calendari">
+            <Big icon="calendar" label={<>Contrassegna come<br />tabella delle date</>} onClick={() => s.set({ propsTarget: { table: toolTable.name } })} />
+            <Big icon="calendar" label={<>Opzioni<br />calendario</>} onClick={() => s.set({ calendarDialog: toolTable.name })} />
+          </Group>
+          <Group label="Relazioni">
+            <Big icon="relationships" label={<>Gestisci<br />relazioni</>} onClick={() => s.set({ relManage: true })} />
+          </Group>
+          <Group label="Calcoli">
+            <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure', toolTable.name)} />
+            <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} />
+            <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', toolTable.name)} />
+            <Big icon="newTable" label={<>Nuova<br />tabella</>} onClick={() => s.startDax('table')} />
           </Group>
         </>}
 

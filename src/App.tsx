@@ -17,6 +17,7 @@ import { OptionsDialog } from './components/OptionsDialog';
 import { ModelProperties } from './components/ModelProperties';
 import { ServiceDialog } from './components/ServiceDialog';
 import { RolesDialog, ViewAsBar, ViewAsDialog } from './components/RolesDialog';
+import { CalendarDialog } from './components/CalendarDialog';
 import { ScriptEditor } from './visuals/Script';
 import { ParameterDialog } from './components/ParameterDialog';
 import { SourceDialog } from './components/SourceDialogs';
@@ -135,6 +136,7 @@ export function App() {
       <ModelProperties />
       <ServiceDialog />
       <RolesDialog />
+      <CalendarDialog />
       <ViewAsDialog />
       <ScriptEditor />
       <ParameterDialog />

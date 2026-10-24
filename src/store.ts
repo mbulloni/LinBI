@@ -8,7 +8,7 @@ import { isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, modelExtras, NULL_KEY, qi, ql } from './query';
 import { daxShow, daxStore } from './dax/separators';
-import { calcColumnSql, calcTableSql, checkCalcItem, checkMeasure, rlsWhere, type Model } from './dax';
+import { calcColumnSql, calcTableSql, checkCalcItem, checkFunction, checkMeasure, parseQuery, rlsWhere, type Model } from './dax';
 import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
 import { inlineFromM } from './pq/mparse';
 import { parseLayout, setCfExportRanges, setHierarchyLevels, themeFromLayout } from './pbix/layout';
@@ -128,7 +128,7 @@ function renameTableInReport(r: Report, from: string, to: string) {
     for (const k of ['table', 'fromTable', 'toTable']) if (o[k] === from) o[k] = to;
     Object.values(o).forEach(walk);
   };
-  walk(r.pages); walk(r.reportFilters); walk(r.relationships); walk(r.measures); walk(r.hierarchies); walk(r.calcGroups); walk(r.roles);
+  walk(r.pages); walk(r.reportFilters); walk(r.relationships); walk(r.measures); walk(r.hierarchies); walk(r.calcGroups); walk(r.roles); walk(r.calendars);
   if (r.modelLayout[from]) { r.modelLayout[to] = r.modelLayout[from]; delete r.modelLayout[from]; }
   if (r.dateTables?.[from]) { r.dateTables[to] = r.dateTables[from]; delete r.dateTables[from]; }
   for (const k of Object.keys(r.displayFolders ?? {})) {
@@ -137,7 +137,7 @@ function renameTableInReport(r: Report, from: string, to: string) {
   const quoted = (n: string) => `'${n.replace(/'/g, "''")}'`;
   const bare = /^[A-Za-z_]\w*$/.test(from) ? new RegExp(`(^|[^\\w'\\]])${reEscape(from)}\\[`, 'g') : null;
   const target = /^[A-Za-z_]\w*$/.test(to) ? to : quoted(to);
-  for (const m of r.measures) {
+  for (const m of [...r.measures, ...(r.functions ?? [])]) {
     m.expression = m.expression.split(quoted(from) + '[').join(target + '[');
     if (bare) m.expression = m.expression.replace(bare, (_x, pre) => `${pre}${target}[`);
   }
@@ -153,15 +153,19 @@ function renameColumnInDax(r: Report, table: string, from: string, to: string) {
     if (bare) x = x.replace(bare, (_m, pre) => `${pre}${table}${col(to)}`);
     return x;
   };
-  for (const m of r.measures) m.expression = fix(m.expression);
+  for (const m of [...r.measures, ...(r.functions ?? [])]) m.expression = fix(m.expression);
+  for (const c of r.calendars ?? []) if (c.table === table) for (const g of c.groups) {
+    if (g.primary === from) g.primary = to;
+    g.associated = g.associated?.map((x) => (x === from ? to : x));
+  }
   for (const g of r.calcGroups ?? []) for (const i of g.items) { i.expression = fix(i.expression); if (i.formatString) i.formatString = fix(i.formatString); }
   for (const role of r.roles ?? []) for (const f of role.filters) f.expression = fix(f.expression);
 }
 
 /** Formula bar edit of a measure, calculated column or calculated table. */
-export interface DaxEdit { kind: 'measure' | 'column' | 'table' | 'calcItem'; table: string; original: string | null; text: string; formatString?: string; error?: string; }
+export interface DaxEdit { kind: 'measure' | 'column' | 'table' | 'calcItem' | 'function'; table: string; original: string | null; text: string; formatString?: string; error?: string; }
 
-const DAX_KIND = { measure: 'Misura', column: 'Colonna', table: 'Tabella', calcItem: 'Elemento di calcolo' } as const;
+const DAX_KIND = { measure: 'Misura', column: 'Colonna', table: 'Tabella', calcItem: 'Elemento di calcolo', function: 'Funzione' } as const;
 
 /** "Name = expression" → parts; names may be written as [Name] or 'Name'. */
 function splitDax(text: string): { name: string; expr: string } | null {
@@ -269,6 +273,12 @@ interface State {
   startDax: (kind: DaxEdit['kind'], table?: string, original?: string) => void;
   saveDax: () => Promise<boolean>;
   deleteMeasure: (name: string) => void;
+  deleteFunction: (name: string) => void;
+  /** Vista query DAX › Aggiorna il modello: saves the DEFINE MEASURE / DEFINE FUNCTION of a query. Returns an error or a summary. */
+  updateModelFromQuery: (text: string) => { error?: string; done?: string };
+  /** Opzioni calendario: the table whose calendars the dialog edits. */
+  calendarDialog: string | null;
+  setCalendars: (table: string, calendars: import('./types').CalendarDef[]) => void;
   deleteCalcColumn: (table: string, name: string) => Promise<void>;
   finalizeModel: () => Promise<void>;
   setTheme: (t: Theme | undefined) => void;
@@ -704,6 +714,9 @@ export const useStore = create<State>((set, get) => {
         if (mx?.calcGroups.length) extrasReport.calcGroups = mx.calcGroups.map((g) => ({ table: g.table, column: g.column, precedence: g.precedence, items: g.items.map((i) => ({ name: i.name, expression: i.expression, ...(i.formatString ? { formatString: i.formatString } : {}) })) }));
         const roles = (mx?.roles ?? []).map((r) => ({ name: r.name, filters: r.filters.filter((f) => known(f.table)) }));
         if (roles.length) extrasReport.roles = roles;
+        if (mx?.functions?.length) extrasReport.functions = mx.functions;
+        const cals = (mx?.calendars ?? []).filter((c) => known(c.table));
+        if (cals.length) extrasReport.calendars = cals;
         if (extrasReport.calcGroups) {
           set({ report: { ...get().report, calcGroups: extrasReport.calcGroups } });
           await get().syncCalcTables();
@@ -718,7 +731,7 @@ export const useStore = create<State>((set, get) => {
         const report: Report = { pages, reportFilters: parsed?.reportFilters ?? [], relationships, modelLayout: {}, measures, ...(theme ? { theme } : {}), ...(parsed?.bookmarks.length ? { bookmarks: parsed.bookmarks } : {}), ...(model.customVisuals?.length ? { customVisuals: model.customVisuals } : {}), ...(pqParams.length ? { pqParams } : {}), ...(model.sensitivity ? { sensitivity: model.sensitivity } : {}), ...(parsed?.filterByDefault ? { options: { filterByDefault: true } } : {}), ...extrasReport };
         set({ report, activePageId: pages[0].id, past: [], future: [], dirty: false, filePath: null, sourceName: path.split('/').pop()!, view: 'report', dataVersion: get().dataVersion + 1 });
 
-        const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures }, m)).length;
+        const unsupportedDax = measures.filter((m) => checkMeasure({ tables, rels: relationships, measures, functions: extrasReport.functions, calendars: extrasReport.calendars, calcGroups: extrasReport.calcGroups }, m)).length;
         const notes = [
           `Importati: ${tables.length} tabelle, ${relationships.length} relazioni, ${measures.length} misure, ${pages.length} pagine.`,
           ...model.warnings,
@@ -989,7 +1002,12 @@ export const useStore = create<State>((set, get) => {
       const home = table ?? dataViewTable ?? tables[0]?.name ?? '';
       if (!home && kind !== 'table') { get().notify('Caricare prima dei dati.'); return; }
       let text: string, formatString: string | undefined;
-      if (original && kind === 'measure') {
+      if (kind === 'function') {
+        const f = original ? report.functions?.find((x) => x.name === original) : undefined;
+        let name = 'Funzione', i = 2;
+        while (!f && report.functions?.some((x) => x.name.toLowerCase() === name.toLowerCase())) name = `Funzione${i++}`;
+        text = f ? `${f.name} = ${f.expression}` : `${name} = ( valore : NUMERIC ) =>\n    valore`;
+      } else if (original && kind === 'measure') {
         const m = report.measures.find((x) => x.name === original)!;
         text = `${m.name} = ${m.expression}`;
         formatString = m.formatString;
@@ -1040,6 +1058,27 @@ export const useStore = create<State>((set, get) => {
                 Object.values(o).forEach(walk);
               };
               walk(r.pages);
+            }
+          });
+        } else if (ed.kind === 'function') {
+          const others = (get().report.functions ?? []).filter((f) => f.name !== ed.original);
+          if (others.some((f) => f.name.toLowerCase() === name.toLowerCase())) return fail(`Esiste già una funzione denominata "${name}".`);
+          const prev = get().report.functions?.find((f) => f.name === ed.original);
+          const f = { name, expression: expr, ...(prev?.description ? { description: prev.description } : {}) };
+          const err = checkFunction({ ...get().model(), functions: [...others, f] }, f);
+          if (err) return fail(err);
+          const old = ed.original;
+          get().mut((r) => {
+            const list = (r.functions ??= []);
+            const i = list.findIndex((x) => x.name === old);
+            if (i >= 0) list[i] = f; else list.push(f);
+            // Calls of a renamed function follow it (measures, calculation items, other functions).
+            if (old && old !== name) {
+              const re = new RegExp(`(^|[^\\w.'\\]])${reEscape(old)}(\\s*\\()`, 'gi');
+              const fix = (e: string) => e.replace(re, (_m, a, b) => `${a}${name}${b}`);
+              for (const m of r.measures) m.expression = fix(m.expression);
+              for (const x of list) if (x !== f) x.expression = fix(x.expression);
+              for (const g of r.calcGroups ?? []) for (const it of g.items) it.expression = fix(it.expression);
             }
           });
         } else if (ed.kind === 'calcItem') {
@@ -1100,6 +1139,43 @@ export const useStore = create<State>((set, get) => {
       set((s) => ({ daxEdit: null, dataVersion: s.dataVersion + 1 }));
       return true;
     },
+    deleteFunction: (name) => get().mut((r) => {
+      r.functions = r.functions?.filter((f) => f.name !== name);
+      if (!r.functions?.length) delete r.functions;
+    }),
+    updateModelFromQuery: (text) => {
+      let defs;
+      try { defs = parseQuery(text).defines.filter((d) => d.kind === 'measure' || d.kind === 'function'); }
+      catch (e: any) { return { error: e.message }; }
+      if (!defs.length) return { error: 'La query non contiene DEFINE MEASURE o DEFINE FUNCTION da salvare nel modello.' };
+      const { report, tables } = get();
+      const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+      let measures = [...report.measures], functions = [...(report.functions ?? [])];
+      for (const d of defs) {
+        if (d.kind === 'function') {
+          const prev = functions.find((f) => same(f.name, d.name));
+          const f = { name: d.name, expression: d.text, ...(d.description ?? prev?.description ? { description: d.description ?? prev!.description } : {}) };
+          functions = [...functions.filter((x) => x !== prev), f];
+        } else {
+          const prev = measures.find((m) => same(m.name, d.name));
+          const m = { table: d.table ?? prev?.table ?? tables[0]?.name ?? '', name: d.name, expression: d.text, ...(prev?.formatString ? { formatString: prev.formatString } : {}) };
+          measures = prev ? measures.map((x) => (x === prev ? m : x)) : [...measures, m];
+        }
+      }
+      const model = { ...get().model(), measures, functions };
+      for (const d of defs) {
+        const err = d.kind === 'function' ? checkFunction(model, functions.find((f) => same(f.name, d.name))!) : checkMeasure(model, measures.find((m) => same(m.name, d.name))!);
+        if (err) return { error: `${d.kind === 'function' ? 'Funzione' : 'Misura'} ${d.name}: ${err}` };
+      }
+      get().mut((r) => { r.measures = measures; if (functions.length) r.functions = functions; else delete r.functions; });
+      const nf = defs.filter((d) => d.kind === 'function').length, nm = defs.length - nf;
+      return { done: [nm ? `${nm} ${nm === 1 ? 'misura' : 'misure'}` : '', nf ? `${nf} ${nf === 1 ? 'funzione' : 'funzioni'}` : ''].filter(Boolean).join(' e ') + ' salvate nel modello.' };
+    },
+    calendarDialog: null,
+    setCalendars: (table, calendars) => get().mut((r) => {
+      r.calendars = [...(r.calendars ?? []).filter((c) => c.table !== table), ...calendars];
+      if (!r.calendars.length) delete r.calendars;
+    }),
     deleteMeasure: (name) => get().mut((r) => {
       r.measures = r.measures.filter((m) => m.name !== name);
       for (const p of r.pages) for (const v of p.visuals) for (const k of Object.keys(v.fields)) v.fields[k] = v.fields[k].filter((f) => !(f.agg === 'measure' && f.column === name));
@@ -1687,6 +1763,7 @@ export const useStore = create<State>((set, get) => {
         if (r.hierarchies) r.hierarchies = r.hierarchies.filter((h) => h.table !== name);
         if (r.calcGroups) r.calcGroups = r.calcGroups.filter((g) => g.table !== name);
         if (r.dateTables) delete r.dateTables[name];
+        if (r.calendars) r.calendars = r.calendars.filter((c) => c.table !== name);
         for (const k of Object.keys(r.displayFolders ?? {})) if (k.startsWith(name + '\u0001')) delete r.displayFolders![k];
         for (const role of r.roles ?? []) role.filters = role.filters.filter((f) => f.table !== name);
       });

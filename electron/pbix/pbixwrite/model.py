@@ -21,6 +21,18 @@ from . import vertipaq as V
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TPL = json.load(open(os.path.join(HERE, 'templates.json')))
+# Rows not captured from a real file (compatibility level 1701/1702): user-defined functions and calendars.
+TPL.update({
+    'Function': {'ID': 0, 'ModelID': 1, 'Name': '', 'Description': None, 'Expression': '', 'IsHidden': 0, 'State': 1, 'ErrorMessage': None,
+                 'ModifiedTime': 0, 'StructureModifiedTime': 0, 'LineageTag': None, 'SourceLineageTag': None},
+    'Calendar': {'ID': 0, 'TableID': 0, 'Name': '', 'Description': None, 'LineageTag': None, 'SourceLineageTag': None, 'ModifiedTime': 0},
+    'CalendarColumnGroup': {'ID': 0, 'CalendarID': 0, 'TimeUnit': 0, 'ModifiedTime': 0},
+    'CalendarColumnReference': {'ID': 0, 'CalendarColumnGroupID': 0, 'ColumnID': 0, 'IsPrimaryColumn': 0, 'ModifiedTime': 0},
+})
+# TOM TimeUnit values.
+TIME_UNIT = {n: i for i, n in enumerate(['unknown', 'year', 'semester', 'semesterOfYear', 'quarter', 'quarterOfYear', 'quarterOfSemester', 'month',
+                                         'monthOfYear', 'monthOfSemester', 'monthOfQuarter', 'week', 'weekOfYear', 'weekOfSemester', 'weekOfQuarter',
+                                         'weekOfMonth', 'date', 'dayOfYear', 'dayOfSemester', 'dayOfQuarter', 'dayOfMonth', 'dayOfWeek'])}
 RN_NAME = 'RowNumber-2662979B-1795-4F74-8F37-6A1BA8059B61'
 NEVER = 31240512000000000  # engine's "not refreshed" timestamp
 OLE_EPOCH = datetime.datetime(1899, 12, 30)
@@ -579,6 +591,30 @@ class Builder:
                 db.ins('TablePermission', 'TablePermission', ID=db.id(), RoleID=rid, TableID=self.tables[tp['name']]['id'],
                        FilterExpression=_text(tp.get('filterExpression')), ModifiedTime=now)
 
+    def functions(self):
+        db, now = self.db, self.db.now
+        for f in self.model.get('functions', []):
+            db.ins('Function', 'Function', ID=db.id(), Name=f['name'], Description=_text(f.get('description')), Expression=_text(f.get('expression')),
+                   ModifiedTime=now, StructureModifiedTime=now, LineageTag=f.get('lineageTag', ''))
+
+    def calendars(self):
+        db, now = self.db, self.db.now
+        for t in self.model.get('tables', []):
+            info = self.tables.get(t['name'])
+            for c in t.get('calendars', []) if info else []:
+                cid = db.id()
+                db.ins('Calendar', 'Calendar', ID=cid, TableID=info['id'], Name=c['name'], Description=_text(c.get('description')),
+                       LineageTag=c.get('lineageTag', ''), ModifiedTime=now)
+                for g in c.get('calendarColumnGroups', []):
+                    gid = db.id()
+                    db.ins('CalendarColumnGroup', 'CalendarColumnGroup', ID=gid, CalendarID=cid, TimeUnit=TIME_UNIT.get(g.get('timeUnit', 'unknown'), 0), ModifiedTime=now)
+                    refs = [(g['primaryColumn'], 1)] if g.get('primaryColumn') else []
+                    refs += [(x, 0) for x in g.get('associatedColumns', []) + g.get('columns', [])]
+                    for col, primary in refs:
+                        if col in info['cols']:
+                            db.ins('CalendarColumnReference', 'CalendarColumnReference', ID=db.id(), CalendarColumnGroupID=gid,
+                                   ColumnID=info['cols'][col], IsPrimaryColumn=primary, ModifiedTime=now)
+
     def build(self):
         db, now = self.db, self.db.now
         m = self.model
@@ -599,6 +635,8 @@ class Builder:
         self.variations()
         self.expressions()
         self.roles()
+        self.functions()
+        self.calendars()
         db.con.execute("update DBPROPERTIES set VALUE=? where NAME='MAXID'", (db.next,))
         for k in ('LASTCUBEDATACHANGE', 'LASTCUBESCHEMACHANGE', 'LASTCOMMITTED', 'LASTMETADATACHANGEFORSYNCCOMMITTED'):
             db.con.execute('update DBPROPERTIES set VALUE=? where NAME=?', (now, k))

@@ -13,16 +13,20 @@
  * table also filters the dimensions it points to. Iterators (SUMX, FILTER, RANKX…) become
  * subqueries with a row alias; measures referenced inside them trigger context transition.
  */
-import type { CalcGroup, Measure, Relationship, TableMeta } from '../types';
+import type { CalcGroup, CalendarDef, DaxFunction, Measure, Relationship, TableMeta, TimeUnit } from '../types';
 import { edgesFrom, filterSql, type Edge } from '../query';
 import { dayNames, isDate, isNumeric, monthNames } from '../format';
-import { DaxError, parse, parseQuery, type Node } from './parse';
+import { DaxError, parse, parseFunction, parseQuery, type Node, type UdfDef } from './parse';
+import { DAX_FUNCTIONS } from './functions';
+
+const DAX_FUNCTION_NAMES = new Set(DAX_FUNCTIONS.map((f) => f.name));
 
 export { DaxError };
 
 /** `dateTables`: tables marked as date table (table → date column); `calcGroups`: calculation groups;
  *  `user`: USERPRINCIPALNAME() (Visualizza come › Altro utente). */
-export interface Model { tables: TableMeta[]; rels: Relationship[]; measures: Measure[]; dateTables?: Record<string, string>; calcGroups?: CalcGroup[]; user?: string; }
+export interface Model { tables: TableMeta[]; rels: Relationship[]; measures: Measure[]; dateTables?: Record<string, string>; calcGroups?: CalcGroup[]; user?: string;
+  functions?: DaxFunction[]; calendars?: CalendarDef[]; }
 
 const qi = (s: string) => '"' + s.replace(/"/g, '""') + '"';
 const ql = (s: string) => "'" + s.replace(/'/g, "''") + "'";
@@ -40,6 +44,9 @@ interface RowCtx { alias: string; t: TV; rowid?: string; }
 type Val = { s: string } | { t: TV };
 interface Env { fc: FCtx; rows: RowCtx[]; vars: Map<string, Val>; home: string; }
 
+/** A time-intelligence result as a filter: `pred` on rows of `table`; `cols` = the calendar columns it replaces (calendars). */
+interface TiFilter { table: string; col?: string; cols?: string[]; pred: Pred; overrides: (f: Filt) => boolean; }
+
 type Mod =
   | { kind: 'remove'; match: (f: Filt) => boolean }
   | { kind: 'set'; filters: Filt[]; overrides: (f: Filt) => boolean; keep?: boolean }
@@ -50,11 +57,35 @@ const TABLE_FNS = new Set([
   'ADDCOLUMNS', 'SELECTCOLUMNS', 'SUMMARIZE', 'SUMMARIZECOLUMNS', 'CALENDAR', 'CALENDARAUTO', 'GENERATESERIES', 'UNION', 'CROSSJOIN',
   'EXCEPT', 'INTERSECT', 'ROW', 'TREATAS', 'DATESYTD', 'DATESQTD', 'DATESMTD', 'SAMEPERIODLASTYEAR', 'DATEADD', 'PARALLELPERIOD',
   'PREVIOUSDAY', 'PREVIOUSMONTH', 'PREVIOUSQUARTER', 'PREVIOUSYEAR', 'NEXTDAY', 'NEXTMONTH', 'NEXTQUARTER', 'NEXTYEAR', 'DATESBETWEEN', 'DATESINPERIOD',
+  'DATESWTD', 'PREVIOUSWEEK', 'NEXTWEEK', 'TABLEOF',
 ]);
 /** Time-intelligence functions that return a set of dates (usable as CALCULATE filters). */
 const TI_FNS = new Set(['DATESYTD', 'DATESQTD', 'DATESMTD', 'SAMEPERIODLASTYEAR', 'DATEADD', 'PARALLELPERIOD', 'PREVIOUSDAY', 'PREVIOUSMONTH',
   'PREVIOUSQUARTER', 'PREVIOUSYEAR', 'NEXTDAY', 'NEXTMONTH', 'NEXTQUARTER', 'NEXTYEAR', 'DATESBETWEEN', 'DATESINPERIOD',
-  'FIRSTDATE', 'LASTDATE', 'STARTOFMONTH', 'STARTOFQUARTER', 'STARTOFYEAR', 'ENDOFMONTH', 'ENDOFQUARTER', 'ENDOFYEAR']);
+  'FIRSTDATE', 'LASTDATE', 'STARTOFMONTH', 'STARTOFQUARTER', 'STARTOFYEAR', 'ENDOFMONTH', 'ENDOFQUARTER', 'ENDOFYEAR',
+  'DATESWTD', 'PREVIOUSWEEK', 'NEXTWEEK', 'STARTOFWEEK', 'ENDOFWEEK']);
+/** Week-based functions: only with a calendar. */
+const WEEK_FNS = new Set(['DATESWTD', 'PREVIOUSWEEK', 'NEXTWEEK', 'STARTOFWEEK', 'ENDOFWEEK']);
+/** UDF scalar subtypes converted on the way in (CONVERT type names). */
+const CAST_SUB: Record<string, string> = { INT64: 'INTEGER', DOUBLE: 'DOUBLE', DECIMAL: 'CURRENCY', STRING: 'STRING', BOOLEAN: 'BOOLEAN', DATETIME: 'DATETIME' };
+/** Complete calendar categories and the category sets that identify them (Power BI "period uniqueness"); `*` = another complete category. */
+const CAL_KEYS: Record<string, string[][]> = {
+  year: [['year']],
+  semester: [['semester'], ['year', 'semesterOfYear']],
+  quarter: [['quarter'], ['year', 'quarterOfYear'], ['semester*', 'quarterOfSemester']],
+  month: [['month'], ['year', 'monthOfYear'], ['quarter*', 'monthOfQuarter'], ['semester*', 'monthOfSemester']],
+  week: [['week'], ['year', 'weekOfYear'], ['month*', 'weekOfMonth'], ['quarter*', 'weekOfQuarter'], ['semester*', 'weekOfSemester']],
+  date: [['date'], ['year', 'dayOfYear'], ['month*', 'dayOfMonth'], ['week*', 'dayOfWeek'], ['quarter*', 'dayOfQuarter'], ['semester*', 'dayOfSemester']],
+};
+const CAL_UNIT_IT: Record<string, string> = { year: 'Anno', semester: 'Semestre', quarter: 'Trimestre', month: 'Mese', week: 'Settimana', date: 'Data' };
+const TYPES: Record<string, string[]> = {
+  string: ['VARCHAR'],
+  int: ['TINYINT', 'SMALLINT', 'INTEGER', 'BIGINT', 'HUGEINT', 'UTINYINT', 'USMALLINT', 'UINTEGER', 'UBIGINT'],
+  double: ['FLOAT', 'DOUBLE'],
+  decimal: ['DECIMAL'],
+  bool: ['BOOLEAN'],
+  date: ['DATE', 'TIMESTAMP', 'TIMESTAMP WITH TIME ZONE', 'TIMESTAMP_NS', 'TIMESTAMP_MS', 'TIMESTAMP_S'],
+};
 const CMP: Record<string, string> = { '=': '=', '==': '=', '<>': '<>', '<': '<', '>': '>', '<=': '<=', '>=': '>=' };
 const sqlList = (xs: string[]) => `[${xs.map(ql).join(', ')}]`;
 const blank = (n?: Node) => !n || (n.k === 'call' && n.fn === 'BLANK' && !n.args.length);
@@ -71,8 +102,21 @@ class Compiler {
   private applying = new Set<string>();
   /** SELECTEDMEASURE() of the calculation items being compiled (innermost last). */
   private selected: { name: string; sql: (env: Env) => string }[] = [];
+  /** User-defined functions by upper-case name: the model's, then DEFINE FUNCTION of a DAX query. */
+  udfs = new Map<string, { name: string; def: () => UdfDef; checked?: boolean }>();
 
-  constructor(public m: Model) {}
+  constructor(public m: Model) {
+    for (const f of m.functions ?? []) {
+      let d: UdfDef | undefined;
+      this.udfs.set(f.name.toUpperCase(), {
+        name: f.name,
+        def: () => {
+          try { return d ??= parseFunction(f.expression); }
+          catch (e) { throw e instanceof DaxError ? new DaxError(`Funzione ${f.name}: ${e.message}`) : e; }
+        },
+      });
+    }
+  }
 
   A(p = 'a') { return `${p}${++this.n}`; }
 
@@ -134,6 +178,79 @@ class Compiler {
         return p;
       },
     };
+  }
+
+  /* --------------------------- user-defined functions --------------------------- */
+
+  /**
+   * A call of a user-defined function rewritten as the function body: EXPR parameters (references,
+   * `expr`) become the argument expressions, evaluated where the body uses them; VAL parameters are
+   * bound once, in the caller's context, like VARs. Local VARs get unique names (no capture).
+   */
+  expandUdf(n: Extract<Node, { k: 'call' }>): Node | null {
+    const u = this.udfs.get(n.fn);
+    if (!u) return null;
+    const def = u.def();
+    if (!u.checked) { this.noRecursion(n.fn, []); u.checked = true; }
+    if (n.args.length > def.params.length) throw new DaxError(`${u.name}: troppi argomenti (al massimo ${def.params.length})`);
+    const pre = `__F${++this.n}_`;
+    const subst = new Map<string, Node>();
+    const vals: [string, Node][] = [];
+    def.params.forEach((p, i) => {
+      let a: Node | undefined = n.args[i];
+      if ((!a || blank(a)) && p.def) a = p.def;
+      if (!a) throw new DaxError(`${u.name}: manca l'argomento ${p.name}`);
+      if (p.mode === 'expr') { subst.set(p.name, a); return; }
+      const conv = p.subtype && CAST_SUB[p.subtype];
+      vals.push([pre + p.name, conv ? { k: 'call', fn: 'CONVERT', args: [a, { k: 'tbl', name: conv }] } : a]);
+      subst.set(p.name, { k: 'var', name: pre + p.name });
+    });
+    const locals = new Set<string>();
+    const collect = (x: Node) => {
+      if (x.k === 'let') { x.vars.forEach(([nm, v]) => { locals.add(nm.toUpperCase()); collect(v); }); collect(x.body); }
+      else if (x.k === 'call') x.args.forEach(collect);
+      else if (x.k === 'bin') { collect(x.a); collect(x.b); }
+      else if (x.k === 'neg') collect(x.a);
+      else if (x.k === 'list') x.rows.forEach((r) => r.forEach(collect));
+    };
+    collect(def.body);
+    const go = (x: Node): Node => {
+      switch (x.k) {
+        case 'var': return subst.get(x.name) ?? (locals.has(x.name) ? { k: 'var', name: pre + x.name } : x);
+        case 'let': return { k: 'let', vars: x.vars.map(([nm, v]) => [pre + nm.toUpperCase(), go(v)] as [string, Node]), body: go(x.body) };
+        case 'call': return { ...x, args: x.args.map(go) };
+        case 'bin': return { ...x, a: go(x.a), b: go(x.b) };
+        case 'neg': return { ...x, a: go(x.a) };
+        case 'list': return { ...x, rows: x.rows.map((r) => r.map(go)) };
+        default: return x;
+      }
+    };
+    const body = go(def.body);
+    return vals.length ? { k: 'let', vars: vals, body } : body;
+  }
+
+  /** Power BI rejects recursion and mutual recursion between user-defined functions. */
+  private noRecursion(name: string, path: string[]) {
+    const label = (x: string) => this.udfs.get(x)?.name ?? x;
+    if (path.includes(name)) throw new DaxError(`La ricorsione tra funzioni non è supportata: ${[...path, name].map(label).join(' → ')}`);
+    const d = this.udfs.get(name)?.def();
+    if (!d) return;
+    const calls = new Set<string>();
+    const walk = (x: Node) => {
+      if (x.k === 'call') { if (this.udfs.has(x.fn)) calls.add(x.fn); x.args.forEach(walk); }
+      else if (x.k === 'bin') { walk(x.a); walk(x.b); }
+      else if (x.k === 'neg') walk(x.a);
+      else if (x.k === 'let') { x.vars.forEach(([, v]) => walk(v)); walk(x.body); }
+      else if (x.k === 'list') x.rows.forEach((r) => r.forEach(walk));
+    };
+    walk(d.body);
+    d.params.forEach((p) => p.def && walk(p.def));
+    for (const c of calls) this.noRecursion(c, [...path, name]);
+  }
+
+  /** TRUE when the (non-blank) value has one of the DuckDB types of `kind` (ISSTRING, ISINT64…). */
+  private typeIs(x: string, ...kinds: (keyof typeof TYPES)[]): string {
+    return this.once([x], ([v]) => `(${v} IS NOT NULL AND regexp_replace(typeof(${v}), '\\(.*$', '') IN (${kinds.flatMap((k) => TYPES[k]).map(ql).join(', ')}))`);
   }
 
   /* --------------------------- relationships/graph --------------------------- */
@@ -272,6 +389,7 @@ class Compiler {
 
   /** A CALCULATE / CALCULATETABLE filter argument. */
   filterMod(n: Node, env: Env): Mod {
+    if (n.k === 'call' && this.udfs.has(n.fn)) return this.filterMod(this.expandUdf(n)!, env);
     if (n.k === 'call') {
       const A = n.args;
       switch (n.fn) {
@@ -323,7 +441,7 @@ class Compiler {
       }
       if (TI_FNS.has(n.fn)) {
         const ti = this.ti(n, env);
-        return { kind: 'set', filters: [{ table: ti.table, cols: [ti.col], pred: ti.pred, tag: 'calc' }], overrides: ti.overrides };
+        return { kind: 'set', filters: [{ table: ti.table, cols: ti.cols ?? [ti.col!], pred: ti.pred, tag: 'calc' }], overrides: ti.overrides };
       }
     }
     if (this.isBool(n)) return this.boolMod(n, env);
@@ -332,6 +450,7 @@ class Compiler {
   }
 
   private isBool(n: Node): boolean {
+    if (n.k === 'let') return this.isBool(n.body);
     if (n.k === 'bin') return n.op in CMP || n.op === 'IN' || n.op === '&&' || n.op === '||';
     if (n.k === 'call') return ['NOT', 'AND', 'OR', 'ISBLANK', 'CONTAINSSTRING', 'CONTAINSSTRINGEXACT'].includes(n.fn);
     return n.k === 'bool';
@@ -346,6 +465,7 @@ class Compiler {
       if (x.k === 'call') x.args.forEach(walk);
       if (x.k === 'bin') { walk(x.a); walk(x.b); }
       if (x.k === 'neg') walk(x.a);
+      if (x.k === 'let') { x.vars.forEach(([, v]) => walk(v)); walk(x.body); }
     };
     walk(n);
     const cols = [...used.values()];
@@ -395,8 +515,12 @@ class Compiler {
   }
 
   /** A time-intelligence function as a predicate on the date column (dates of the whole column). */
-  ti(n: Extract<Node, { k: 'call' }>, env: Env): { table: string; col: string; pred: Pred; overrides: (f: Filt) => boolean } {
+  ti(n: Extract<Node, { k: 'call' }>, env: Env): TiFilter {
     const A = n.args;
+    const cal = A[0]?.k === 'tbl' ? this.calendar(A[0].name) : undefined;
+    if (cal) return this.calendarTi(n, cal, env);
+    if (A[0]?.k === 'tbl' && !this.m.tables.some((t) => eqi(t.name, (A[0] as { name: string }).name))) throw new DaxError(`Calendario non trovato: '${A[0].name}'`);
+    if (WEEK_FNS.has(n.fn)) throw new DaxError(`${n.fn} richiede un calendario (Strumenti tabella › Opzioni calendario) con la categoria Settimana`);
     if (A[0]?.k !== 'col') throw new DaxError(`${n.fn}: il primo argomento deve essere una colonna di date`);
     const c = this.col(A[0], env);
     const T = c.table, d = c.col;
@@ -474,6 +598,141 @@ class Compiler {
     return { table: T, col: d, pred, overrides: (f) => f.table === T && (calendar || !!f.cols?.every(dateish)) };
   }
 
+  calendar(name: string): CalendarDef | undefined {
+    return this.m.calendars?.find((c) => eqi(c.name, name));
+  }
+
+  /**
+   * Calendar-based time intelligence. Rows of the calendar's table are indexed per category: `f` orders
+   * the finest category present (Date, else Week, Month…), `o_<u>` numbers the periods of category u in
+   * time order (by their first `f`), `p_<u>` is the position of a row's `f` inside its period, `n_<u>`
+   * the period length. Functions select rows by period number and position, like Power BI, which makes
+   * no assumption on the calendar (fiscal, 4-4-5, 13 months, sparse dates).
+   */
+  private calendarTi(n: Extract<Node, { k: 'call' }>, cal: CalendarDef, env: Env): TiFilter {
+    const A = n.args;
+    const t = this.table(cal.table);
+    const T = t.name;
+    const prim = (u: string) => cal.groups.find((g) => g.unit === u)?.primary;
+    const key = (u: string) => calendarKey(cal, u);
+    const need = (u: string): string[] => {
+      const k = key(u);
+      if (!k) throw new DaxError(`${n.fn}: il calendario '${cal.name}' non ha la categoria ${CAL_UNIT_IT[u]} (o le categorie che la identificano)`);
+      return k;
+    };
+    const fineUnit = ['date', 'week', 'month', 'quarter', 'semester', 'year'].find((u) => key(u));
+    if (!fineUnit) throw new DaxError(`${n.fn}: il calendario '${cal.name}' non ha categorie complete (Anno, Trimestre, Mese, Settimana o Data)`);
+    const dateCol = prim('date');
+    const ord = (c: string) => `a.${qi(t.sortBy?.[c] ?? c)}`;
+    // Columns whose filters the result replaces: every tagged column (time-related too, except for the lateral DATEADD / SAMEPERIODLASTYEAR).
+    const lateral = n.fn === 'DATEADD' || n.fn === 'SAMEPERIODLASTYEAR';
+    const clear = new Set<string>();
+    for (const g of cal.groups) {
+      if (!g.unit && lateral) continue;
+      for (const c of [g.primary, ...(g.associated ?? [])]) if (c) { clear.add(c); if (t.sortBy?.[c]) clear.add(t.sortBy[c]); }
+    }
+    const units = new Set<string>();
+    const idx = () => {
+      const us = [...units];
+      const ks = us.map((u) => need(u));
+      const l1 = `SELECT a.rowid AS __rid${dateCol ? `, CAST(a.${qi(dateCol)} AS DATE) AS __d` : ''}, dense_rank() OVER (ORDER BY ${need(fineUnit).map(ord).join(', ')}) AS f${ks.map((k, i) => `${k.map((c, j) => `, a.${qi(c)} AS k${i}_${j}`).join('')}`).join('')} FROM ${qi(T)} a`;
+      const l2 = `SELECT *${ks.map((k, i) => `, MIN(f) OVER (PARTITION BY ${k.map((_c, j) => `k${i}_${j}`).join(', ')}) AS m${i}`).join('')} FROM (${l1})`;
+      const l3 = `SELECT *${us.map((u, i) => `, dense_rank() OVER (ORDER BY m${i}) AS o_${u}`).join('')} FROM (${l2})`;
+      const l4 = `SELECT *${us.map((u) => `, dense_rank() OVER (PARTITION BY o_${u} ORDER BY f) AS p_${u}`).join('')} FROM (${l3})`;
+      return `SELECT *${us.map((u) => `, MAX(p_${u}) OVER (PARTITION BY o_${u}) AS n_${u}`).join('')} FROM (${l4})`;
+    };
+    const vw = (() => { const a = this.A(); const w = this.preds(T, a, env.fc); return (x: string) => `${x ? `${x}.` : ''}__rid IN (SELECT ${a}.rowid FROM ${qi(T)} ${a}${w ? ` WHERE ${w}` : ''})`; })();
+    const calUnit = (x: Node | undefined): string => {
+      const u = x && (x.k === 'tbl' || x.k === 'var') ? x.name.toUpperCase() : '';
+      const m: Record<string, string> = { YEAR: 'year', SEMESTER: 'semester', QUARTER: 'quarter', MONTH: 'month', WEEK: 'week', DAY: 'date' };
+      if (!m[u]) throw new DaxError('Intervallo non valido: usare YEAR, QUARTER, MONTH, WEEK o DAY');
+      return m[u];
+    };
+    // Rows of the index matching `cond` (alias i) → predicate on the calendar table.
+    const rows = (cond: (i: string, I: string) => string): Pred => {
+      const I = idx();
+      return (a) => { const i = this.A('i'); return `${a}.rowid IN (SELECT ${i}.__rid FROM (${I}) ${i} WHERE ${cond(i, I)})`; };
+    };
+    const visAgg = (I: string, e: (j: string) => string) => { const j = this.A('j'); return `(SELECT ${e(j)} FROM (${I}) ${j} WHERE ${vw(j)})`; };
+    let pred: Pred;
+    const fnUnit = (fn: string) => (/YEAR$|YTD$/.test(fn) ? 'year' : /QUARTER$|QTD$/.test(fn) ? 'quarter' : /MONTH$|MTD$/.test(fn) ? 'month' : /WEEK$|WTD$/.test(fn) ? 'week' : 'date');
+    switch (n.fn) {
+      case 'DATESYTD': case 'DATESQTD': case 'DATESMTD': case 'DATESWTD': {
+        const u = fnUnit(n.fn); units.add(u);
+        pred = rows((i, I) => `${i}.o_${u} = ${visAgg(I, (j) => `arg_max(${j}.o_${u}, ${j}.f)`)} AND ${i}.f <= ${visAgg(I, (j) => `MAX(${j}.f)`)}`);
+        break;
+      }
+      case 'PARALLELPERIOD': {
+        const u = calUnit(A[2]); units.add(u);
+        const k = this.scalar(A[1], env);
+        pred = rows((i, I) => `${i}.o_${u} IN ${visAgg(I, (j) => `${j}.o_${u} + (${k})`).replace(/^\(SELECT /, '(SELECT DISTINCT ')}`);
+        break;
+      }
+      case 'PREVIOUSYEAR': case 'PREVIOUSQUARTER': case 'PREVIOUSMONTH': case 'PREVIOUSWEEK': case 'PREVIOUSDAY':
+      case 'NEXTYEAR': case 'NEXTQUARTER': case 'NEXTMONTH': case 'NEXTWEEK': case 'NEXTDAY': {
+        const u = fnUnit(n.fn.replace(/DAY$/, 'DATE')); units.add(u);
+        const prev = n.fn.startsWith('PREVIOUS');
+        // Like the classic functions: PREVIOUSYEAR starts from the last visible date, NEXTYEAR from the first.
+        const fromLast = prev === (u === 'year');
+        pred = rows((i, I) => `${i}.o_${u} = ${visAgg(I, (j) => `${fromLast ? 'MAX' : 'MIN'}(${j}.o_${u}) ${prev ? '- 1' : '+ 1'}`)}`);
+        break;
+      }
+      case 'FIRSTDATE': case 'LASTDATE':
+        pred = rows((i, I) => `${i}.f = ${visAgg(I, (j) => `${n.fn === 'FIRSTDATE' ? 'MIN' : 'MAX'}(${j}.f)`)}`);
+        break;
+      case 'STARTOFYEAR': case 'STARTOFQUARTER': case 'STARTOFMONTH': case 'STARTOFWEEK': {
+        const u = fnUnit(n.fn); units.add(u);
+        pred = rows((i, I) => `${i}.o_${u} = ${visAgg(I, (j) => `MIN(${j}.o_${u})`)} AND ${i}.p_${u} = 1`);
+        break;
+      }
+      case 'ENDOFYEAR': case 'ENDOFQUARTER': case 'ENDOFMONTH': case 'ENDOFWEEK': {
+        const u = fnUnit(n.fn); units.add(u);
+        pred = rows((i, I) => `${i}.o_${u} = ${visAgg(I, (j) => `MAX(${j}.o_${u})`)} AND ${i}.p_${u} = ${i}.n_${u}`);
+        break;
+      }
+      case 'SAMEPERIODLASTYEAR': case 'DATEADD': {
+        const u = n.fn === 'DATEADD' ? calUnit(A[2]) : 'year'; units.add(u);
+        const k = n.fn === 'DATEADD' ? this.scalar(A[1], env) : '-1';
+        const word = (x: Node | undefined) => (x && (x.k === 'tbl' || x.k === 'var' || x.k === 'str') ? (x.k === 'str' ? x.v : x.name).toUpperCase() : '');
+        const ext = word(A[3]) || 'PRECISE', trunc = word(A[4]) || 'ANCHORED';
+        // A whole source period maps to the whole target period; a partial one keeps the positions (anchored to the end
+        // of a shorter period, or dropped with BLANK). EXTENDED/ENDALIGNED decide what the last position of a period becomes.
+        pred = rows((i, I) => {
+          const v = this.A('v'), j = this.A('j');
+          // Visible rows with their period, position and whether their period is entirely visible.
+          const vr = `SELECT ${j}.o_${u} AS o, ${j}.p_${u} AS p, ${j}.n_${u} AS n, MAX(${j}.r) OVER (PARTITION BY ${j}.o_${u}) = ${j}.n_${u} AS whole FROM (SELECT *, dense_rank() OVER (PARTITION BY o_${u} ORDER BY f) AS r FROM (${I}) WHERE ${vw('')}) ${j}`;
+          const target = trunc === 'BLANK' ? `${i}.p_${u} = ${v}.p` : `${i}.p_${u} = LEAST(${v}.p, ${i}.n_${u})`;
+          const last = `${v}.p = ${v}.n`;
+          const extra = ext === 'EXTENDED' ? ` OR (${last} AND ${i}.p_${u} >= LEAST(${v}.p, ${i}.n_${u}))` : ext === 'ENDALIGNED' ? ` OR (${last} AND ${i}.p_${u} = ${i}.n_${u})` : '';
+          const tgt = ext === 'ENDALIGNED' ? `(NOT (${last}) AND ${target})` : target;
+          return `EXISTS (SELECT 1 FROM (${vr}) ${v} WHERE ${i}.o_${u} = ${v}.o + (${k}) AND (${v}.whole OR ${tgt}${extra}))`;
+        });
+        break;
+      }
+      case 'DATESINPERIOD': {
+        if (!dateCol) throw new DaxError(`${n.fn}: il calendario '${cal.name}' non ha la categoria Data`);
+        const u = calUnit(A[3]); units.add(u);
+        const start = `CAST(${this.scalar(A[1], env)} AS DATE)`, k = this.scalar(A[2], env);
+        pred = rows((i, I) => {
+          const sa = this.A('s'), b = this.A('b');
+          const sf = `(SELECT ${sa}.f FROM (${I}) ${sa} WHERE ${sa}.__d = ${start} LIMIT 1)`;
+          const bound = `(SELECT ${b}.f FROM (${I}) ${b}, (${I}) ${sa} WHERE ${sa}.__d = ${start} AND ${b}.o_${u} = ${sa}.o_${u} + (${k}) AND ${b}.p_${u} = LEAST(${sa}.p_${u}, ${b}.n_${u}) LIMIT 1)`;
+          return `(CASE WHEN (${k}) < 0 THEN ${i}.f > coalesce(${bound}, 0) AND ${i}.f <= ${sf} ELSE ${i}.f >= ${sf} AND ${i}.f < coalesce(${bound}, 9223372036854775807) END)`;
+        });
+        break;
+      }
+      case 'DATESBETWEEN': {
+        if (!dateCol) throw new DaxError(`${n.fn}: il calendario '${cal.name}' non ha la categoria Data`);
+        const lo = blank(A[1]) ? null : `CAST(${this.scalar(A[1], env)} AS DATE)`;
+        const hi = blank(A[2]) ? null : `CAST(${this.scalar(A[2], env)} AS DATE)`;
+        pred = (a) => [lo ? `CAST(${a}.${qi(dateCol)} AS DATE) >= ${lo}` : '', hi ? `CAST(${a}.${qi(dateCol)} AS DATE) <= ${hi}` : ''].filter(Boolean).join(' AND ') || 'TRUE';
+        break;
+      }
+      default: throw new DaxError(`${n.fn} non accetta un calendario`);
+    }
+    return { table: T, col: dateCol, cols: [...clear], pred, overrides: (f) => f.table === T && (!f.cols || f.cols.every((c) => clear.has(c))) };
+  }
+
   /* ------------------------------ table expressions ----------------------------- */
 
   isTable(n: Node, env: Env): boolean {
@@ -481,10 +740,11 @@ class Compiler {
     if (n.k === 'list') return true;
     if (n.k === 'var') return 't' in (env.vars.get(n.name) ?? { s: '' });
     if (n.k === 'let') return this.isTable(n.body, { ...env, vars: new Map([...env.vars, ...n.vars.map(([k, v]) => [k.toUpperCase(), this.isTable(v, env) ? { t: { sql: '', cols: [] } } : { s: '' }] as [string, Val])]) });
+    if (n.k === 'call' && this.udfs.has(n.fn)) return this.isTable(this.expandUdf(n)!, env);
     return n.k === 'call' && TABLE_FNS.has(n.fn);
   }
 
-  private unitName(s: string) { return /^(YEAR|QUARTER|MONTH|DAY|ASC|DESC|INTEGER|DOUBLE|STRING|BOOLEAN|CURRENCY|DATETIME)$/i.test(s) && !this.m.tables.some((t) => eqi(t.name, s)); }
+  private unitName(s: string) { return /^(YEAR|QUARTER|MONTH|WEEK|DAY|ASC|DESC|INTEGER|DOUBLE|STRING|BOOLEAN|CURRENCY|DATETIME)$/i.test(s) && !this.m.tables.some((t) => eqi(t.name, s)); }
 
   private proj(tv: TV, alias: string) { return tv.cols.map((c) => `${alias}.${qi(c.name)}`).join(', '); }
 
@@ -642,11 +902,25 @@ class Compiler {
         if (targets.length !== tv.cols.length) throw new DaxError('TREATAS: il numero di colonne non corrisponde');
         return { sql: tv.sql, cols: tv.cols.map((c, i) => ({ name: c.name, table: targets[i].table, col: targets[i].col })) };
       }
+      case 'TABLEOF': {
+        const a = A[0];
+        if (a?.k === 'tbl') return this.rowsOf(this.calendar(a.name)?.table ?? a.name, env.fc);
+        if (a?.k !== 'col') throw new DaxError('TABLEOF: atteso un riferimento a colonna, misura, tabella o calendario');
+        const m = !a.table ? this.measure(a.col) : undefined;
+        return this.rowsOf(m ? m.table : this.col(a, env).table, env.fc);
+      }
     }
+    const udf = this.expandUdf(n);
+    if (udf) return this.tv(udf, env);
     if (TI_FNS.has(n.fn)) {
       const ti = this.ti(n, env);
       const a = this.A();
-      return { sql: `SELECT DISTINCT ${a}.${qi(ti.col)} FROM ${qi(ti.table)} ${a} WHERE ${ti.pred(a)}`, cols: [{ name: ti.col, table: ti.table, col: ti.col }] };
+      if (ti.cols) {
+        const t = this.table(ti.table);
+        return { sql: `SELECT ${a}.*, ${a}.rowid AS __rowid FROM ${qi(t.name)} ${a} WHERE ${ti.pred(a)}`, cols: t.columns.map((c) => ({ name: c.name, table: t.name, col: c.name })), base: t.name };
+      }
+      const c = ti.col!;
+      return { sql: `SELECT DISTINCT ${a}.${qi(c)} FROM ${qi(ti.table)} ${a} WHERE ${ti.pred(a)}`, cols: [{ name: c, table: ti.table, col: c }] };
     }
     throw new DaxError(`${n.fn} non restituisce una tabella`);
   }
@@ -1111,12 +1385,14 @@ class Compiler {
         const cenv = this.calculate(env, A.slice(1));
         return this.framed(cenv.fc, () => this.scalar(A[0], cenv));
       }
-      case 'TOTALYTD': case 'TOTALQTD': case 'TOTALMTD': {
+      case 'TOTALYTD': case 'TOTALQTD': case 'TOTALMTD': case 'TOTALWTD': {
         const dates: Node = { k: 'call', fn: n.fn.replace('TOTAL', 'DATES'), args: [A[1]] };
         return this.scalar(A[0], this.calculate(env, [dates, ...(A[2] && !blank(A[2]) && A[2].k !== 'str' ? [A[2]] : [])]));
       }
-      case 'FIRSTDATE': case 'LASTDATE': case 'STARTOFMONTH': case 'STARTOFQUARTER': case 'STARTOFYEAR': case 'ENDOFMONTH': case 'ENDOFQUARTER': case 'ENDOFYEAR': {
+      case 'FIRSTDATE': case 'LASTDATE': case 'STARTOFMONTH': case 'STARTOFQUARTER': case 'STARTOFYEAR': case 'ENDOFMONTH': case 'ENDOFQUARTER': case 'ENDOFYEAR':
+      case 'STARTOFWEEK': case 'ENDOFWEEK': {
         const ti = this.ti(n, env);
+        if (!ti.col) throw new DaxError(`${n.fn}: il calendario non ha la categoria Data`);
         const a = this.A();
         return `(SELECT MIN(${a}.${qi(ti.col)}) FROM ${qi(ti.table)} ${a} WHERE ${ti.pred(a)})`;
       }
@@ -1197,6 +1473,7 @@ class Compiler {
       // NAMEOF('Table'[Column]) / NAMEOF([Measure]): the fully qualified name, as text (field parameters).
       case 'NAMEOF': {
         const a = A[0];
+        if (a?.k === 'tbl') { const c = this.calendar(a.name); return ql(c ? `'${c.name}'` : `'${this.table(a.name).name}'`); }
         const name = a?.k !== 'col' ? null : !a.table && this.m.measures.some((m: Measure) => m.name === a.col) ? `[${a.col}]` : `'${a.table ?? env.home}'[${a.col}]`;
         if (!name) throw new DaxError('NAMEOF: atteso un riferimento a colonna o misura');
         return `'${name.replace(/'/g, "''")}'`;
@@ -1270,9 +1547,39 @@ class Compiler {
         return ql((top && this.m.measures.find((x) => eqi(x.name, top.name))?.formatString) ?? '');
       }
     }
+    switch (n.fn) {
+      case 'ISSTRING': case 'ISTEXT': return this.typeIs(s(0), 'string');
+      case 'ISNUMBER': case 'ISNUMERIC': return this.typeIs(s(0), 'int', 'double', 'decimal');
+      case 'ISINT64': case 'ISINTEGER': return this.typeIs(s(0), 'int');
+      case 'ISDOUBLE': return this.typeIs(s(0), 'double');
+      case 'ISDECIMAL': case 'ISCURRENCY': return this.typeIs(s(0), 'decimal');
+      case 'ISBOOLEAN': case 'ISLOGICAL': return this.typeIs(s(0), 'bool');
+      case 'ISDATETIME': return this.typeIs(s(0), 'date');
+      case 'ISNONTEXT': return `(NOT ${this.typeIs(s(0), 'string')})`;
+    }
+    const udf = this.expandUdf(n);
+    if (udf) return this.scalar(udf, env);
     if (TABLE_FNS.has(n.fn)) return this.tableAsScalar(this.tv(n, env));
     throw new DaxError(`Funzione DAX non supportata: ${n.fn}`);
   }
+}
+
+/** Columns that identify the periods of complete category `unit` in a calendar (its primary column, or a
+ *  combination such as Year + Month of Year), or null when the calendar cannot identify them. */
+export function calendarKey(cal: CalendarDef, unit: string, seen: string[] = []): string[] | null {
+  if (seen.includes(unit)) return null;
+  const prim = (u: string) => cal.groups.find((g) => g.unit === u)?.primary;
+  for (const combo of CAL_KEYS[unit] ?? []) {
+    const parts: string[] = [];
+    let ok = true;
+    for (const c of combo) {
+      const sub = c.endsWith('*') ? calendarKey(cal, c.slice(0, -1), [...seen, unit]) : prim(c) ? [prim(c)!] : null;
+      if (!sub) { ok = false; break; }
+      parts.push(...sub.filter((x) => !parts.includes(x)));
+    }
+    if (ok) return parts;
+  }
+  return null;
 }
 
 /* --------------------------------- public API --------------------------------- */
@@ -1359,6 +1666,9 @@ export function daxQuerySql(model: Model, text: string): DaxQueryResult[] {
     if (d.kind === 'measure') {
       const table = d.table ?? model.tables[0]?.name ?? '';
       c.defined.set(d.name.toLowerCase(), { table, name: d.name, node: d.expr });
+    } else if (d.kind === 'function') {
+      const fn = d.fn!;
+      c.udfs.set(d.name.toUpperCase(), { name: d.name, def: () => fn });
     } else if (d.kind === 'var') {
       env.vars.set(d.name, c.isTable(d.expr, env) ? { t: c.tv(d.expr, env) } : { s: c.scalar(d.expr, env) });
     } else throw new DaxError(`DEFINE ${d.kind.toUpperCase()} non è supportato: usare MEASURE o VAR`);
@@ -1401,6 +1711,24 @@ export function rlsWhere(model: Model, filters: { table: string; expression: str
     if (parts.length) out.push({ table: t.name, where: parts.join(' AND ') });
   }
   return out;
+}
+
+/** Error of a user-defined function (syntax, recursion, body that does not compile with blank arguments), or null. */
+export function checkFunction(model: Model, f: DaxFunction): string | null {
+  if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(f.name)) return 'Nome non valido: solo lettere, cifre, _ e punti (es. Vendite.Margine)';
+  if (DAX_FUNCTION_NAMES.has(f.name.toUpperCase())) return `${f.name} è il nome di una funzione DAX predefinita`;
+  try {
+    const c = new Compiler({ ...model, functions: [...(model.functions ?? []).filter((x) => !eqi(x.name, f.name)), f] });
+    const u = c.udfs.get(f.name.toUpperCase())!;
+    const def = u.def();
+    const call: Node = { k: 'call', fn: f.name.toUpperCase(), args: def.params.map((p) => (p.type === 'ref' ? { k: 'call', fn: 'BLANK', args: [] } : p.def ?? { k: 'call', fn: 'BLANK', args: [] })) };
+    // Reference parameters need a real model object: only syntax and recursion are checked for them.
+    if (def.params.some((p) => p.mode === 'expr' && !p.def)) { c.expandUdf(call as Extract<Node, { k: 'call' }>); return null; }
+    const env = emptyEnv(model, model.tables[0]?.name ?? '');
+    const body = c.expandUdf(call as Extract<Node, { k: 'call' }>)!;
+    if (c.isTable(body, env)) c.tv(body, env); else c.scalar(body, env);
+    return null;
+  } catch (e) { return (e as Error).message; }
 }
 
 /** Error of a calculation item expression (SELECTEDMEASURE() = each measure of the model), or null. */

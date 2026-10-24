@@ -182,6 +182,13 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
     name: h.name, lineageTag: crypto.randomUUID(), ...(folderOf(t, h.name) ? { displayFolder: folderOf(t, h.name) } : {}),
     levels: h.levels.map((c, ordinal) => ({ name: levelName(h, c), ordinal, column: c, lineageTag: crypto.randomUUID() })),
   }));
+  /** Calendars (TOM Calendar › CalendarColumnGroup): a time unit with primary/associated columns, or time-related columns. */
+  const calendarsOf = (t: string) => (report.calendars ?? []).filter((c) => c.table === t).map((c) => ({
+    name: c.name, lineageTag: crypto.randomUUID(), ...(c.description ? { description: c.description } : {}),
+    calendarColumnGroups: c.groups.map((g) => (g.unit
+      ? { timeUnit: g.unit, primaryColumn: g.primary, ...(g.associated?.length ? { associatedColumns: g.associated } : {}) }
+      : { columns: g.associated ?? [] })),
+  }));
   const dateOf = (t: string, c: string) => dates.find((d) => d.table === t && d.column === c);
   const daxTable = (n: string) => `'${n.replace(/'/g, "''")}'`, daxCol = (n: string) => `[${n.replace(/]/g, ']]')}]`;
   const numeric = (t: string) => ['int64', 'double', 'decimal'].includes(t);
@@ -208,7 +215,8 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
   });
   return {
     name: crypto.randomUUID(),
-    compatibilityLevel: 1550,
+    // Calendars need compatibility level 1701, user-defined functions 1702.
+    compatibilityLevel: report.functions?.length ? 1702 : report.calendars?.length ? 1701 : 1550,
     model: {
       culture: locale(),
       dataAccessOptions: { legacyRedirects: true, returnErrorValuesAsNull: true },
@@ -244,6 +252,7 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
         }],
         measures: measuresOf(t.name),
         ...(hierarchiesOf(t.name).length ? { hierarchies: hierarchiesOf(t.name) } : {}),
+        ...(calendarsOf(t.name).length ? { calendars: calendarsOf(t.name) } : {}),
         annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
       })).concat(measureOnly.map((name) => ({
         name,
@@ -272,6 +281,10 @@ export function buildModelSchema(report: Report, tables: TableMeta[], autoDates 
         ...(r.cardinality === 'oneToOne' ? { fromCardinality: 'one' } : {}),
         ...(r.cardinality === 'manyToMany' ? { toCardinality: 'many' } : {}),
       })).concat(dates.map((d) => ({ name: d.rel, fromTable: d.table, fromColumn: d.column, toTable: d.local, toColumn: 'Date', joinOnDateBehavior: 'datePartOnly' }) as any)),
+      // Funzioni DAX definite dall'utente.
+      ...(report.functions?.length ? {
+        functions: report.functions.map((f) => ({ name: f.name, expression: f.expression.split('\n'), lineageTag: crypto.randomUUID(), ...(f.description ? { description: f.description } : {}) })),
+      } : {}),
       // Sicurezza a livello di riga.
       ...(report.roles?.length ? {
         roles: report.roles.map((r) => ({

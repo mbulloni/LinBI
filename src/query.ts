@@ -285,7 +285,7 @@ export function underlyingQuery(v: Visual, tables: TableMeta[], rels: Relationsh
 
 /** Model properties the DAX compiler needs besides tables/relationships/measures. */
 export function modelExtras(r: Report, user?: string): Omit<Model, 'tables' | 'rels' | 'measures'> {
-  return { dateTables: r.dateTables, calcGroups: r.calcGroups, ...(user ? { user } : {}) };
+  return { dateTables: r.dateTables, calcGroups: r.calcGroups, functions: r.functions, calendars: r.calendars, ...(user ? { user } : {}) };
 }
 
 /* ------------------------------------------------------------------ */

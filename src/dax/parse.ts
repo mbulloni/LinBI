@@ -2,12 +2,13 @@
 
 export class DaxError extends Error {}
 
-type Tok =
+/** `s`/`e`: position of the token in the source (DEFINE FUNCTION keeps its text). */
+type Tok = { s?: number; e?: number } & (
   | { t: 'num'; v: string } | { t: 'str'; v: string } | { t: 'op'; v: string } | { t: 'kw'; v: string }
-  | { t: 'col'; table?: string; v: string } | { t: 'id'; v: string } | { t: 'tbl'; v: string };
+  | { t: 'col'; table?: string; v: string } | { t: 'id'; v: string } | { t: 'tbl'; v: string });
 
 /** Words with a syntactic role when not used as a function or table[column]. */
-const KEYWORDS = new Set(['VAR', 'RETURN', 'DEFINE', 'EVALUATE', 'MEASURE', 'ORDER', 'BY', 'ASC', 'DESC', 'IN', 'NOT', 'TRUE', 'FALSE', 'TABLE', 'COLUMN']);
+const KEYWORDS = new Set(['VAR', 'RETURN', 'DEFINE', 'EVALUATE', 'MEASURE', 'ORDER', 'BY', 'ASC', 'DESC', 'IN', 'NOT', 'TRUE', 'FALSE', 'TABLE', 'COLUMN', 'FUNCTION']);
 
 function lex(src: string): Tok[] {
   const out: Tok[] = [];
@@ -24,14 +25,14 @@ function lex(src: string): Tok[] {
   };
   // Auto date hierarchy level: 'T'[Date].[Month] → treated as the base column.
   const level = () => { while (src[i] === '.' && src[i + 1] === '[') { i++; bracket(); } };
-  while (i < src.length) {
+  const one = () => {
     const c = src[i];
-    if (/\s/.test(c)) { i++; continue; }
-    if ((c === '/' && src[i + 1] === '/') || (c === '-' && src[i + 1] === '-')) { while (i < src.length && src[i] !== '\n') i++; continue; }
-    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; continue; }
+    if (/\s/.test(c)) { i++; return; }
+    if ((c === '/' && src[i + 1] === '/') || (c === '-' && src[i + 1] === '-')) { while (i < src.length && src[i] !== '\n') i++; return; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? src.length : e + 2; return; }
     if (/[0-9]/.test(c) || (c === '.' && /[0-9]/.test(src[i + 1] ?? ''))) {
       const m = /^(\d*\.?\d+(?:[eE][+-]?\d+)?)/.exec(src.slice(i))!;
-      out.push({ t: 'num', v: m[1] }); i += m[1].length; continue;
+      out.push({ t: 'num', v: m[1] }); i += m[1].length; return;
     }
     if (c === '"') {
       let s = ''; i++;
@@ -40,15 +41,15 @@ function lex(src: string): Tok[] {
         if (src[i] === '"') { if (src[i + 1] === '"') { s += '"'; i += 2; continue; } i++; break; }
         s += src[i++];
       }
-      out.push({ t: 'str', v: s }); continue;
+      out.push({ t: 'str', v: s }); return;
     }
     if (c === "'") {
       let s = ''; i++;
       while (i < src.length) { if (src[i] === "'") { if (src[i + 1] === "'") { s += "'"; i += 2; continue; } i++; break; } s += src[i++]; }
       if (src[i] === '[') { out.push({ t: 'col', table: s, v: bracket() }); level(); } else out.push({ t: 'tbl', v: s });
-      continue;
+      return;
     }
-    if (c === '[') { out.push({ t: 'col', v: bracket() }); level(); continue; }
+    if (c === '[') { out.push({ t: 'col', v: bracket() }); level(); return; }
     if (/[A-Za-z_]/.test(c)) {
       const m = /^[A-Za-z_][\w.]*/.exec(src.slice(i))!;
       i += m[0].length;
@@ -58,12 +59,17 @@ function lex(src: string): Tok[] {
       else if (nx === '(' && !(KEYWORDS.has(up) && up !== 'TRUE' && up !== 'FALSE')) out.push({ t: 'id', v: up });
       else if (KEYWORDS.has(up)) out.push({ t: 'kw', v: up });
       else out.push({ t: 'tbl', v: m[0] });
-      continue;
+      return;
     }
     const two = src.slice(i, i + 2);
-    if (['&&', '||', '<=', '>=', '<>', '=='].includes(two)) { out.push({ t: 'op', v: two }); i += 2; continue; }
-    if ('+-*/^&=<>(),{}'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue; }
+    if (['&&', '||', '<=', '>=', '<>', '==', '=>'].includes(two)) { out.push({ t: 'op', v: two }); i += 2; return; }
+    if ('+-*/^&=<>(),{}:'.includes(c)) { out.push({ t: 'op', v: c }); i++; return; }
     throw new DaxError(`Carattere non valido: ${c}`);
+  };
+  while (i < src.length) {
+    const n0 = out.length, st = i;
+    one();
+    for (let k = n0; k < out.length; k++) { out[k].s = st; out[k].e = i; }
   }
   return out;
 }
@@ -75,7 +81,10 @@ export type Node =
   | { k: 'neg'; a: Node } | { k: 'list'; rows: Node[][] }
   | { k: 'let'; vars: [string, Node][]; body: Node };
 
-export interface QueryDefine { kind: 'measure' | 'var' | 'table' | 'column'; table?: string; name: string; expr: Node; text: string; }
+/** Parameter of a user-defined function: `expr` = passed unevaluated (references, EXPR), else evaluated once (VAL). */
+export interface UdfParam { name: string; mode: 'val' | 'expr'; type: 'any' | 'scalar' | 'table' | 'ref'; subtype?: string; def?: Node; }
+export interface UdfDef { params: UdfParam[]; body: Node; }
+export interface QueryDefine { kind: 'measure' | 'var' | 'table' | 'column' | 'function'; table?: string; name: string; expr: Node; text: string; fn?: UdfDef; description?: string; }
 export interface DaxQuery { defines: QueryDefine[]; evaluates: { expr: Node; order: { expr: Node; desc: boolean }[] }[]; }
 
 class Parser {
@@ -190,6 +199,45 @@ class Parser {
   }
 
   done() { return this.p >= this.toks.length; }
+
+  /** ( name [: type subtype mode] [= default], … ) => body */
+  fnDef(): UdfDef {
+    this.expect('(');
+    const params: UdfParam[] = [];
+    const REF = new Set(['ANYREF', 'COLUMNREF', 'MEASUREREF', 'TABLEREF', 'CALENDARREF']);
+    const SUB = new Set(['VARIANT', 'INT64', 'DECIMAL', 'DOUBLE', 'STRING', 'DATETIME', 'BOOLEAN', 'NUMERIC']);
+    while (!this.isOp(')')) {
+      const t = this.toks[this.p++];
+      if (!t || (t.t !== 'tbl' && t.t !== 'kw') || !/^[A-Za-z_]\w*$/.test(t.v)) throw new DaxError('Nome di parametro non valido');
+      const p: UdfParam = { name: t.v.toUpperCase(), mode: 'val', type: 'any' };
+      if (params.some((x) => x.name === p.name)) throw new DaxError(`Parametro duplicato: ${t.v}`);
+      let explicit: string | undefined;
+      if (this.isOp(':')) {
+        this.p++;
+        for (let h = this.peek(); h && (h.t === 'tbl' || h.t === 'kw'); h = this.peek()) {
+          const w = h.v.toUpperCase();
+          this.p++;
+          if (w === 'VAL' || w === 'EXPR') explicit = w;
+          else if (w === 'ANYVAL') p.type = 'any';
+          else if (w === 'SCALAR') p.type = 'scalar';
+          else if (w === 'TABLE') p.type = 'table';
+          else if (REF.has(w)) p.type = 'ref';
+          else if (SUB.has(w)) { p.type = 'scalar'; p.subtype = w; }
+          else throw new DaxError(`Tipo di parametro sconosciuto: ${h.v}`);
+        }
+      }
+      if (p.type === 'ref' && explicit === 'VAL') throw new DaxError(`Il parametro ${t.v} è un riferimento: VAL non è consentito`);
+      p.mode = p.type === 'ref' || explicit === 'EXPR' ? 'expr' : 'val';
+      if (this.isOp('=')) { this.p++; p.def = this.expr(); }
+      params.push(p);
+      if (this.isOp(',')) this.p++;
+      else if (!this.isOp(')')) throw new DaxError('Atteso "," o ")" nei parametri della funzione');
+    }
+    this.p++;
+    this.expect('=>');
+    this.scopes.push(new Set(params.map((x) => x.name)));
+    try { return { params, body: this.expr() }; } finally { this.scopes.pop(); }
+  }
 }
 
 export function parse(src: string): Node {
@@ -203,6 +251,23 @@ export function parse(src: string): Node {
   return e;
 }
 
+/** Expression of a user-defined function: "( params ) => body". */
+export function parseFunction(src: string): UdfDef {
+  const ps = new Parser(lex(src), src);
+  const f = ps.fnDef();
+  if (!ps.done()) { const t = ps.peek(); throw new DaxError(`Testo inatteso dopo il corpo della funzione: "${'v' in t ? t.v : ''}"`); }
+  return f;
+}
+
+/** `///` lines just above position `at` (UDF description). */
+function docComment(src: string, at: number): string | undefined {
+  const lines = src.slice(0, at).split('\n');
+  lines.pop();
+  const doc: string[] = [];
+  while (lines.length && /^\s*\/\/\//.test(lines[lines.length - 1])) doc.unshift(lines.pop()!.replace(/^\s*\/\/\/\s?/, ''));
+  return doc.length ? doc.join('\n') : undefined;
+}
+
 /** DAX query: [DEFINE (MEASURE t[m] = e | VAR v = e | TABLE t = e | COLUMN t[c] = e)*] (EVALUATE e [ORDER BY e [ASC|DESC], …])+ */
 export function parseQuery(src: string): DaxQuery {
   const toks = lex(src);
@@ -210,7 +275,18 @@ export function parseQuery(src: string): DaxQuery {
   const q: DaxQuery = { defines: [], evaluates: [] };
   if (ps.isKw('DEFINE')) {
     ps.p++;
-    while (ps.isKw('MEASURE') || ps.isKw('VAR') || ps.isKw('TABLE') || ps.isKw('COLUMN')) {
+    while (ps.isKw('MEASURE') || ps.isKw('VAR') || ps.isKw('TABLE') || ps.isKw('COLUMN') || ps.isKw('FUNCTION')) {
+      if (ps.isKw('FUNCTION')) {
+        const at = ps.toks[ps.p++].s ?? 0;
+        const t = ps.toks[ps.p++];
+        if (!t || t.t !== 'tbl' || !/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(t.v)) throw new DaxError('Sintassi: FUNCTION Nome = ( parametri ) => espressione');
+        ps.expect('=');
+        const start = ps.peek()?.s ?? 0;
+        const fn = ps.fnDef();
+        const text = src.slice(start, ps.toks[ps.p - 1].e).trim();
+        q.defines.push({ kind: 'function', name: t.v, expr: fn.body, text, fn, description: docComment(src, at) });
+        continue;
+      }
       const kind = (ps.toks[ps.p++] as { v: string }).v.toLowerCase() as QueryDefine['kind'];
       const t = ps.toks[ps.p++];
       let table: string | undefined, name: string;
@@ -218,9 +294,11 @@ export function parseQuery(src: string): DaxQuery {
       else if ((kind === 'var' || kind === 'table') && t && (t.t === 'tbl' || t.t === 'kw')) name = t.v;
       else throw new DaxError(kind === 'measure' ? "Sintassi: MEASURE 'Tabella'[Nome] = espressione" : `Nome non valido dopo ${kind.toUpperCase()}`);
       ps.expect('=');
+      const start = ps.peek()?.s ?? 0;
       const expr = ps.expr();
+      const text = src.slice(start, ps.toks[ps.p - 1].e).trim();
       if (kind === 'var') ps.scopes[0].add(name.toUpperCase());
-      q.defines.push({ kind, table, name: kind === 'var' ? name.toUpperCase() : name, expr, text: '' });
+      q.defines.push({ kind, table, name: kind === 'var' ? name.toUpperCase() : name, expr, text });
     }
   }
   while (ps.isKw('EVALUATE')) {

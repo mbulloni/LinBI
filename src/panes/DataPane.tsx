@@ -6,10 +6,11 @@ import { Icon } from '../components/icons';
 import { Menu } from '../components/Menu';
 import { FIELD_MIME } from '../components/VisualContainer';
 import { insertDax } from '../components/DaxQueryView';
+import { daxShow } from '../dax/separators';
 
 /** A Data pane entry of a table: measure, column or user hierarchy, with its display folder. */
 interface Item { kind: 'measure' | 'column' | 'hierarchy'; name: string; folder: string; }
-type MenuState = { x: number; y: number; table: string; column?: string; measure?: string; hierarchy?: string; level?: string; item?: string };
+type MenuState = { x: number; y: number; table: string; column?: string; measure?: string; hierarchy?: string; level?: string; item?: string; fn?: string; functions?: boolean };
 
 export function DataPane() {
   const s = useStore();
@@ -164,6 +165,13 @@ export function DataPane() {
               {isOpen(tk, s.tables.length === 1) && (
                 <div className="cols">
                   {folderTree(t, items, 0, '')}
+                  {!report && (s.report.calendars ?? []).filter((c) => c.table === t.name && match(c.name)).map((c) => (
+                    <div key={'cal:' + c.name} className="tnode field" onClick={() => (s.view === 'dax' ? insertDax(`'${c.name.replace(/'/g, "''")}'`) : s.set({ calendarDialog: t.name }))}
+                      onDoubleClick={() => s.set({ calendarDialog: t.name })} onContextMenu={ctx({ table: t.name })}>
+                      <span className="ty"><Icon name="calendar" size={13} /></span>
+                      <span className="nm" title={`Calendario ${c.name}: ${c.groups.filter((x) => x.primary).map((x) => x.primary).join(', ')}`}><i>{c.name}</i></span>
+                    </div>
+                  ))}
                   {g && (
                     <div>
                       <div className="tnode field folder" onClick={() => toggle('ci\u0002' + t.name, true)}>
@@ -185,6 +193,30 @@ export function DataPane() {
             </div>
           );
         })}
+        {!report && s.tables.length > 0 && (!q || (s.report.functions ?? []).some((f) => f.name.toLowerCase().includes(q.toLowerCase()))) && (
+          <div>
+            <div className="tnode table" onClick={() => toggle('fns', true)} onContextMenu={ctx({ table: '', functions: true })}>
+              <span><Icon name={isOpen('fns', true) ? 'chevronDown' : 'chevronRight'} size={12} /></span>
+              <i className="fx-ico" title="Funzioni DAX definite dall'utente">ƒ</i>
+              <span className="nm">Funzioni</span>
+              <button className="more" onClick={ctx({ table: '', functions: true })}><Icon name="more" size={14} /></button>
+            </div>
+            {isOpen('fns', true) && (
+              <div className="cols">
+                {(s.report.functions ?? []).filter((f) => !q || f.name.toLowerCase().includes(q.toLowerCase())).map((f) => (
+                  <div key={'fn:' + f.name} className="tnode field" style={{ paddingLeft: 4 }}
+                    onClick={() => (s.view === 'dax' ? insertDax(`${f.name}(`) : s.startDax('function', undefined, f.name))}
+                    onDoubleClick={() => s.startDax('function', undefined, f.name)}
+                    onContextMenu={ctx({ table: '', fn: f.name })}>
+                    <span className="ty"><i className="fx-ico">ƒ</i></span>
+                    <span className="nm" title={`${f.description ? f.description + '\n' : ''}${f.name} = ${f.expression}`}>{f.name}</span>
+                  </div>
+                ))}
+                {!s.report.functions?.length && <div className="tnode field" style={{ paddingLeft: 18, color: 'var(--text2)' }} onClick={() => s.startDax('function')}><i>Nuova funzione…</i></div>}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {menu && <DataMenu menu={menu} close={() => setMenu(null)} report={report} toggleOpen={(k) => { toggle(k); }} isOpen={isOpen} />}
     </div>
@@ -199,7 +231,29 @@ function DataMenu({ menu, close, report, toggleOpen, isOpen }: { menu: MenuState
   const run = (fn: () => void) => () => { fn(); close(); };
   const props = (p: Omit<NonNullable<typeof s.propsTarget>, 'table'>) => run(() => s.set({ propsTarget: { table: menu.table, ...p } }));
   let body: ReactNode;
-  if (menu.item) {
+  const fnQuery = (fn: string, define: boolean) => {
+    const f = s.report.functions?.find((x) => x.name === fn);
+    if (!f) return;
+    const args = /^\s*\(([^)]*)\)/.exec(f.expression)?.[1].split(',').map((p) => p.trim()).filter((p) => p && !p.includes('=')).map((p) => /^\w+/.exec(p)?.[0] ?? p) ?? [];
+    const head = define ? `DEFINE\n${f.description ? f.description.split('\n').map((l) => `    /// ${l}\n`).join('') : ''}    FUNCTION ${f.name} = ${f.expression}\n\n` : '';
+    useStore.setState({ daxQueryText: daxShow(`${head}EVALUATE\n    { ${f.name}(${args.join(', ')}) }`) });
+  };
+  if (menu.functions) {
+    body = <>
+      <button onClick={run(() => s.startDax('function'))}><Icon name="calc" />Nuova funzione</button>
+      {s.view === 'dax' && <button disabled={!s.report.functions?.length} onClick={run(() => useStore.setState({ daxQueryText: daxShow(`DEFINE\n${(s.report.functions ?? []).map((f) => `    FUNCTION ${f.name} = ${f.expression}`).join('\n\n')}\n\nEVALUATE\n    { 1 }`) }))}>Query rapide › Definisci tutte le funzioni del modello</button>}
+    </>;
+  } else if (menu.fn) {
+    body = <>
+      <button onClick={run(() => s.startDax('function', undefined, menu.fn))}><Icon name="calc" />Modifica funzione</button>
+      {s.view === 'dax' && <>
+        <button onClick={run(() => fnQuery(menu.fn!, false))}>Query rapide › Valuta</button>
+        <button onClick={run(() => fnQuery(menu.fn!, true))}>Query rapide › Definisci e valuta</button>
+      </>}
+      <hr />
+      <button onClick={run(() => s.deleteFunction(menu.fn!))}><Icon name="trash" />Elimina dal modello</button>
+    </>;
+  } else if (menu.item) {
     const i = g?.items.findIndex((x) => x.name === menu.item) ?? -1;
     body = <>
       <button onClick={run(() => s.startDax('calcItem', menu.table, menu.item))}><Icon name="calc" />Modifica elemento di calcolo</button>
@@ -251,6 +305,7 @@ function DataMenu({ menu, close, report, toggleOpen, isOpen }: { menu: MenuState
       {t?.source.dax && <button onClick={run(() => s.startDax('table', menu.table, menu.table))}><Icon name="calc" />Modifica tabella calcolata</button>}
       <hr />
       {t && !g && <button onClick={props({})}><Icon name="calendar" />{s.report.dateTables?.[menu.table] ? 'Tabella delle date…' : 'Contrassegna come tabella delle date'}</button>}
+      {t && !g && <button onClick={run(() => s.set({ calendarDialog: menu.table }))}><Icon name="calendar" />Opzioni calendario</button>}
       <button disabled={!t} onClick={props({})}><Icon name="gear" />Proprietà</button>
       <button onClick={run(() => s.set({ view: 'data', dataViewTable: menu.table }))}>Visualizza in vista tabella</button>
       <button onClick={run(() => toggleOpen(tk))}>{isOpen(tk) ? 'Comprimi' : 'Espandi'}</button>

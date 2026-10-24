@@ -4,7 +4,7 @@ import { Icon } from './icons';
 import { DaxInput } from './DaxInput';
 
 const FORMATS: [string, string][] = [['', 'Generale'], ['0', 'Numero intero'], ['#,0.00', 'Numero decimale'], ['0.00%', 'Percentuale'], ['€ #,0.00', 'Valuta (€)']];
-const KIND_LABEL = { measure: 'Strumenti misura', column: 'Strumenti colonna', table: 'Strumenti tabella', calcItem: 'Elemento di calcolo' } as const;
+const KIND_LABEL = { measure: 'Strumenti misura', column: 'Strumenti colonna', table: 'Strumenti tabella', calcItem: 'Elemento di calcolo', function: 'Funzione definita dall\'utente' } as const;
 
 /** Power BI's formula bar for DAX: "Nome = espressione", ✓ to commit, ✗ (or Esc) to cancel. */
 export function DaxBar() {
@@ -32,6 +32,7 @@ export function DaxBar() {
           </>
         )}
         {ed.kind === 'column' && <span>Tabella: {ed.table}</span>}
+        {ed.kind === 'function' && <span>Nome = ( parametro : tipo, … ) =&gt; espressione · tipi: NUMERIC, STRING, TABLE, COLUMNREF, MEASUREREF… · EXPR = valutato nella funzione</span>}
         {ed.kind === 'calcItem' && <span>Gruppo di calcolo: {ed.table} · usare SELECTEDMEASURE() per la misura nel contesto</span>}
         <span className="hint">Invio per confermare · Maiusc+Invio per andare a capo · Ctrl+Spazio suggerimenti · Esc per annullare</span>
       </div>

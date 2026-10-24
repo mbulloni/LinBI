@@ -33,6 +33,9 @@ function examples(s: ReturnType<typeof useStore.getState>): [string, string][] {
     const [dt, dc] = [date.slice(0, date.indexOf('[')), date];
     out.push(['Time intelligence (YTD, anno precedente)', `DEFINE\n    MEASURE ${q(t.name)}[Totale] = ${total}\n    MEASURE ${q(t.name)}[Totale YTD] = TOTALYTD([Totale], ${dc})\n    MEASURE ${q(t.name)}[Anno precedente] = CALCULATE([Totale], SAMEPERIODLASTYEAR(${dc}))\n\nEVALUATE\n    SUMMARIZECOLUMNS(\n        ${dt}[${dc.slice(dc.indexOf('[') + 1, -1)}],\n        "Totale", [Totale], "YTD", [Totale YTD], "Anno prec.", [Anno precedente]\n    )\nORDER BY ${dc}`]);
   }
+  out.push(['Funzione definita dall\'utente', `DEFINE\n    /// Applica l'IVA a un importo\n    FUNCTION ConIVA = ( importo : NUMERIC, aliquota : NUMERIC = 0.22 ) =>\n        importo * ( 1 + aliquota )\n\n    MEASURE ${q(t.name)}[Totale con IVA] = ConIVA ( ${total} )\n\nEVALUATE\n    SUMMARIZECOLUMNS(${q(t.name)}[${dim.name}], "Totale", ${total}, "Con IVA", [Totale con IVA])`]);
+  const cal = s.report.calendars?.[0];
+  if (cal) out.push(['Time intelligence con un calendario', `DEFINE\n    MEASURE ${q(t.name)}[Totale] = ${total}\n    MEASURE ${q(t.name)}[YTD] = TOTALYTD([Totale], ${q(cal.name)})\n    MEASURE ${q(t.name)}[Anno precedente] = CALCULATE([Totale], SAMEPERIODLASTYEAR(${q(cal.name)}))\n    MEASURE ${q(t.name)}[Mese precedente] = CALCULATE([Totale], DATEADD(${q(cal.name)}, -1, MONTH))\n\nEVALUATE\n    SUMMARIZECOLUMNS(${q(cal.table)}[${cal.groups.find((g) => g.unit === 'month')?.primary ?? cal.groups.find((g) => g.primary)?.primary}], "Totale", [Totale], "YTD", [YTD], "Anno prec.", [Anno precedente], "Mese prec.", [Mese precedente])`]);
   out.push(['Tabella calendario', 'EVALUATE\n    ADDCOLUMNS(\n        CALENDAR(DATE(2024, 1, 1), DATE(2024, 12, 31)),\n        "Anno", YEAR([Date]),\n        "Mese", FORMAT([Date], "mmmm"),\n        "Trimestre", "T" & QUARTER([Date])\n    )']);
   return out;
 }
@@ -90,6 +93,9 @@ export function DaxQueryView() {
     <div className="daxview">
       <div className="daxview-bar">
         <button className="btn primary" onClick={run} disabled={running || !text.trim()}><Icon name="refresh" size={14} box={32} />Esegui</button>
+        <button className="btn" disabled={!/\bDEFINE\b/i.test(text)} title="Salva nel modello le misure e le funzioni definite nella query (DEFINE MEASURE / DEFINE FUNCTION)"
+          onClick={() => { const r = s.updateModelFromQuery(daxStore(text)); if (r.error) setError(r.error); else { setError(null); s.notify(r.done!); } }}>
+          <Icon name="save" size={14} box={32} />Aggiorna il modello</button>
         <button className="btn" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 2 }); }}>Esempi<Icon name="chevronDown" size={10} /></button>
         <label className="rcheck"><input type="checkbox" checked={showSql} onChange={(e) => setShowSql(e.target.checked)} />Mostra SQL generato (DuckDB)</label>
         <span className="hint">Ctrl+Invio per eseguire · clic su un campo nel riquadro Dati per inserirlo</span>

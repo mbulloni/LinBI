@@ -977,3 +977,20 @@ thead .pq-rn { z-index: 2; }
 .about-ver { color: var(--text2); margin-bottom: 8px; }
 .about-body p { margin: 6px 0; color: var(--text2); user-select: text; }
 .about-body a { color: var(--link); }
+
+/* Opzioni calendario */
+.cal-dlg { width: 860px; max-height: 86vh; }
+.cal-dlg .hint { color: var(--text2); font-size: 11px; }
+.cal-edit { flex-direction: column; gap: 10px; overflow: auto; padding: 8px 24px 12px; }
+.cal-name { display: flex; flex-direction: column; gap: 4px; font-weight: 600; width: 320px; }
+.cal-grid { border: 1px solid var(--line); }
+.cal-row { display: grid; grid-template-columns: 170px 200px 1fr 32px; gap: 8px; align-items: center; padding: 5px 10px; border-top: 1px solid var(--line); }
+.cal-row.list { grid-template-columns: 200px 1fr auto; }
+.cal-row.head { background: var(--bg2); font-weight: 600; border-top: 0; }
+.cal-row .cat { font-weight: 600; }
+.cal-row .chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.cal-row .chip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px 1px 8px; border-radius: 10px; background: var(--sel-bg); }
+.cal-row .chip button { border: 0; background: none; color: var(--text2); cursor: pointer; }
+.cal-row .actions { display: flex; gap: 6px; }
+.cal-add { display: flex; gap: 8px; align-items: center; }
+.cal-warn { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; background: var(--warn-bg); border-radius: 2px; }

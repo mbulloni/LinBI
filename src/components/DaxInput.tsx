@@ -12,7 +12,7 @@ const FN = new Map(DAX_FUNCTIONS.map((f) => [f.name, f]));
 const tableRef = (n: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n) ? n : `'${n.replace(/'/g, "''")}'`);
 
 /** Token being typed at `pos` and what fits there. */
-function context(text: string, pos: number, model: { tables: { name: string; columns: { name: string }[] }[]; measures: { name: string; table: string }[] }, home: string): Ctx | null {
+function context(text: string, pos: number, model: { tables: { name: string; columns: { name: string }[] }[]; measures: { name: string; table: string }[]; udfs: DaxFn[] }, home: string): Ctx | null {
   const before = text.slice(0, pos);
   // Inside [ … : columns/measures (of the table written before the bracket, else measures + home table).
   const br = /(?:'((?:[^']|'')+)'|([A-Za-z_][\w]*))?\[([^\]\[]*)$/.exec(before);
@@ -51,6 +51,7 @@ function context(text: string, pos: number, model: { tables: { name: string; col
   const items: Suggestion[] = [
     ...vars.filter((v) => v.toUpperCase().startsWith(prefix) && v.toUpperCase() !== prefix).map((v): Suggestion => ({ label: v, kind: 'var', insert: v, detail: 'variabile' })),
     ...DAX_FUNCTIONS.filter((f) => f.name.startsWith(prefix)).map((f): Suggestion => ({ label: f.name, kind: 'fn', insert: f.name + '(', detail: f.desc })),
+    ...model.udfs.filter((f) => f.name.toUpperCase().startsWith(prefix)).map((f): Suggestion => ({ label: f.name, kind: 'fn', insert: f.name + '(', detail: f.desc })),
     ...model.tables.filter((t) => t.name.toUpperCase().startsWith(prefix)).map((t): Suggestion => ({ label: t.name, kind: 'table', insert: tableRef(t.name) })),
     ...DAX_KEYWORDS.filter((k) => k.startsWith(prefix) && k !== prefix).map((k): Suggestion => ({ label: k, kind: 'kw', insert: k + ' ' })),
   ];
@@ -58,8 +59,20 @@ function context(text: string, pos: number, model: { tables: { name: string; col
   return items.length ? { from: pos - w[1].length, to: pos, items: items.slice(0, 60) } : null;
 }
 
+/** User-defined functions as IntelliSense entries: parameters read from "( a : NUMERIC, b = 1 ) => …". */
+export function udfSignatures(fns: import('../types').DaxFunction[] | undefined): DaxFn[] {
+  return (fns ?? []).map((f) => {
+    const head = /^\s*\(([^)]*)\)/.exec(f.expression)?.[1] ?? '';
+    const params = head.split(',').map((p) => p.trim()).filter(Boolean).map((p) => {
+      const name = /^\w+/.exec(p)?.[0] ?? p;
+      return /=/.test(p) ? `[${name}]` : name;
+    });
+    return { name: f.name, params, desc: f.description ?? "Funzione definita dall'utente." };
+  });
+}
+
 /** Innermost function call around `pos` and the index of the argument being typed. */
-function signatureAt(text: string, pos: number): { fn: DaxFn; arg: number } | null {
+function signatureAt(text: string, pos: number, udfs: DaxFn[] = []): { fn: DaxFn; arg: number } | null {
   let depth = 0, arg = 0, inStr = false;
   for (let i = pos - 1; i >= 0; i--) {
     const c = text[i];
@@ -70,7 +83,7 @@ function signatureAt(text: string, pos: number): { fn: DaxFn; arg: number } | nu
     else if (c === '(') {
       if (depth > 0) { depth--; continue; }
       const m = /([A-Za-z_][\w.]*)\s*$/.exec(text.slice(0, i));
-      const fn = m && FN.get(m[1].toUpperCase());
+      const fn = m && (FN.get(m[1].toUpperCase()) ?? udfs.find((f) => f.name.toUpperCase() === m[1].toUpperCase()));
       return fn ? { fn, arg } : null;
     } else if (c === (daxLocal() ? ';' : ',') && depth === 0) arg++;
   }
@@ -114,9 +127,9 @@ export const DaxInput = forwardRef<HTMLTextAreaElement | null, DaxInputProps>(fu
   const [caret, setCaret] = useState<number | null>(null);
   const [sel, setSel] = useState(0);
   const [hidden, setHidden] = useState(false);
-  const model = useMemo(() => ({ tables: s.tables, measures: s.report.measures }), [s.tables, s.report.measures]);
+  const model = useMemo(() => ({ tables: s.tables, measures: s.report.measures, udfs: udfSignatures(s.report.functions) }), [s.tables, s.report.measures, s.report.functions]);
   const ctx = caret !== null && !hidden ? context(value, caret, model, home) : null;
-  const sig = caret !== null ? signatureAt(value, caret) : null;
+  const sig = caret !== null ? signatureAt(value, caret, model.udfs) : null;
   const pos = caret !== null && ta.current && (ctx || sig) ? caretXY(ta.current, ctx ? ctx.from : caret) : null;
 
   const accept = (it: Suggestion) => {
