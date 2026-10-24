@@ -71,7 +71,7 @@ interface Api {
   sampleData(): Promise<{ financials: string; products: string; countries: string }>;
   openDataDialog(kind: string): Promise<string | null>;
   saveFile(content: string, path?: string | null, embed?: { table: string; file: string }[]): Promise<string | null>;
-  openFile(kind?: 'report' | 'lbix' | 'powerbi'): Promise<{ path: string; content?: string; powerbi?: boolean; dataDir?: string } | null>;
+  openFile(kind?: 'report' | 'mibx' | 'powerbi'): Promise<{ path: string; content?: string; powerbi?: boolean; dataDir?: string } | null>;
   readPowerBI(file: string): Promise<PowerBIModel>;
   openAt(file: string): Promise<{ path: string; content?: string; powerbi?: boolean; dataDir?: string } | null>;
   onOpenArg(cb: (file: string) => void): void;

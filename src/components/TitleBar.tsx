@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
 import { Icon } from './icons';
+import logo from '../assets/logo.png';
 import { Menu } from './Menu';
 import { CommandSearch } from './CommandSearch';
 import type { PbiStatus } from '../api';
@@ -25,19 +26,14 @@ export function TitleBar() {
     setMenu({ x: r.right - 260, y: r.bottom + 2 });
   };
   useEffect(() => api.win.onState(setMax), []);
-  const name = filePath ? filePath.split('/').pop()!.replace(/\.(mibx|lbix)$/, '') : sourceName ?? 'Senza titolo';
+  const name = filePath ? filePath.split('/').pop()!.replace(/\.mibx$/, '') : sourceName ?? 'Senza titolo';
   const title = `${name}${dirty ? ' *' : ''} - MiB-BI`;
   useEffect(() => api.win.setTitle(title), [title]);
 
   return (
     <div className="titlebar" onDoubleClick={(e) => e.target === e.currentTarget && api.win.maximize()}>
       <div className="appicon">
-        <svg width="20" height="20" viewBox="0 0 20 20">
-          <rect x="2" y="2" width="16" height="16" rx="3" fill="#252423" />
-          <rect x="5" y="10" width="2.4" height="5" rx=".6" fill="#F2C811" />
-          <rect x="8.8" y="6" width="2.4" height="9" rx=".6" fill="#F2C811" />
-          <rect x="12.6" y="8" width="2.4" height="7" rx=".6" fill="#F2C811" />
-        </svg>
+        <img src={logo} width={20} height={20} alt="MiB-BI" draggable={false} />
       </div>
       <div className="qa">
         <button title="Salva (Ctrl+S)" onClick={() => save()}><Icon name="save" /></button>

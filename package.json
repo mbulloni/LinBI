@@ -75,8 +75,7 @@
       "synopsis": "Clone educativo di Power BI Desktop per Linux",
       "description": "Report e analisi dati con Power Query, DAX, modello a stella; apre file Power BI (.pbix, .pbit, .pbip).",
       "mimeTypes": [
-        "application/x-mib-bi",
-        "application/x-linbi"
+        "application/x-mib-bi"
       ],
       "desktop": {
         "entry": {
@@ -94,11 +93,6 @@
         "ext": "mibx",
         "name": "Report MiB-BI",
         "mimeType": "application/x-mib-bi"
-      },
-      {
-        "ext": "lbix",
-        "name": "Report MiB-BI (formato precedente LinBI)",
-        "mimeType": "application/x-linbi"
       },
       {
         "ext": "pbix",

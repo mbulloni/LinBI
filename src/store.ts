@@ -733,7 +733,7 @@ export const useStore = create<State>((set, get) => {
     exportPbit: async () => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|pbix|pbit)$/i, '');
       try {
         await prepareCfExport();
         const out = await api.savePbit(buildPbitParts(report, tables), base + '.pbit');
@@ -745,7 +745,7 @@ export const useStore = create<State>((set, get) => {
     exportPbix: async (target) => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|pbix|pbit|pbip)$/i, '');
       set({ busy: 'Salvataggio del file Power BI…' });
       try {
         await prepareCfExport();
@@ -764,7 +764,7 @@ export const useStore = create<State>((set, get) => {
     exportPbip: async () => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|pbix|pbit|pbip)$/i, '');
       try {
         await prepareCfExport();
         const out = await api.savePbip(buildPbipParts(report, tables), base + '.pbip');
@@ -783,7 +783,7 @@ export const useStore = create<State>((set, get) => {
     printing: false,
     exportPdf: async () => {
       const { filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|pbix|pbit|pbip)$/i, '');
       set({ fileMenu: false, crossFilter: null, printing: true, busy: 'Esportazione in PDF…' });
       try {
         const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -1736,7 +1736,7 @@ export const useStore = create<State>((set, get) => {
       if (f.powerbi) return get().importPowerBI(f.path);
       try {
         const doc = JSON.parse(f.content!);
-        if (doc.format !== 'mibx' && doc.format !== 'lbix') throw new Error('file non valido');
+        if (doc.format !== 'mibx') throw new Error('file non valido');
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];

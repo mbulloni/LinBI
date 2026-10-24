@@ -1,11 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 app.commandLine.appendSwitch('no-sandbox');
-const migrate = require('./migrate.cjs');
-// Child started by the LinBI → MiB-BI migration: it only decrypts the old secrets (under the old name).
-if (migrate.childMode()) return;
 // Fixed name: settings folder ~/.config/mib-bi and the safeStorage key, the same for the AppImage and `npm start`.
 app.setName('mib-bi');
-migrate.moveOldConfig();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -42,8 +38,8 @@ function createWindow() {
   if (process.env.VITE_DEV) win.loadURL('http://localhost:5173');
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   if (process.env.MIBBI_SHOT) screenshotMode(process.env.MIBBI_SHOT, process.env.MIBBI_SCRIPT);
-  // `mib-bi report.mibx` / double click on a report file: open it once the UI is ready (old .lbix files too).
-  const arg = process.argv.slice(1).find((a) => /\.(mibx|lbix|pbix|pbit|pbip)$/i.test(a) && fs.existsSync(a));
+  // `mib-bi report.mibx` / double click on a report file: open it once the UI is ready.
+  const arg = process.argv.slice(1).find((a) => /\.(mibx|pbix|pbit|pbip)$/i.test(a) && fs.existsSync(a));
   if (arg) win.webContents.once('did-finish-load', () => setTimeout(() => win.webContents.send('file:openArg', path.resolve(arg)), 300));
   win.on('maximize', () => win.webContents.send('win:state', true));
   win.on('unmaximize', () => win.webContents.send('win:state', false));
@@ -157,8 +153,8 @@ const FILTERS = {
   access: [{ name: 'Database di Access', extensions: ['accdb', 'mdb'] }],
   key: [{ name: 'Chiave (JSON, PEM, P8)', extensions: ['json', 'pem', 'p8', 'key'] }],
   any: [{ name: 'Tutti i file di dati', extensions: ['csv', 'txt', 'tsv', 'xlsx', 'json', 'ndjson', 'jsonl', 'parquet'] }],
-  lbix: [{ name: 'File MiB-BI', extensions: ['mibx'] }],
-  report: [{ name: 'Report (MiB-BI, Power BI)', extensions: ['mibx', 'lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File MiB-BI', extensions: ['mibx', 'lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
+  mibx: [{ name: 'File MiB-BI', extensions: ['mibx'] }],
+  report: [{ name: 'Report (MiB-BI, Power BI)', extensions: ['mibx', 'pbix', 'pbit', 'pbip'] }, { name: 'File MiB-BI', extensions: ['mibx'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
   powerbi: [{ name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
   pbip: [{ name: 'Progetto di Power BI', extensions: ['pbip'] }],
   pbit: [{ name: 'Modello di Power BI', extensions: ['pbit'] }],
@@ -188,14 +184,14 @@ handle('dialog:openData', async (kind) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
-// .mibx (.lbix before the rename to MiB-BI): a zip with report.json and one Parquet file per table (data embedded like a .pbix).
+// .mibx: a zip with report.json and one Parquet file per table (data embedded like a .pbix).
 // `embed` lists the tables to export; plain JSON files (older versions) still open.
 handle('file:save', async (content, existingPath, embed) => {
   let target = existingPath;
   if (!target) {
-    const r = await dialog.showSaveDialog(win, { defaultPath: 'Report.mibx', filters: FILTERS.lbix });
+    const r = await dialog.showSaveDialog(win, { defaultPath: 'Report.mibx', filters: FILTERS.mibx });
     if (r.canceled) return null;
-    target = /\.(mibx|lbix)$/i.test(r.filePath) ? r.filePath : r.filePath + '.mibx';
+    target = r.filePath.endsWith('.mibx') ? r.filePath : r.filePath + '.mibx';
   }
   if (!embed) { fs.writeFileSync(target, content); return target; }
   const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'mib-bi-'));
@@ -417,5 +413,5 @@ function screenshotMode(out, scriptFile) {
   });
 }
 
-app.whenReady().then(() => { migrate.reencrypt(); createWindow(); });
+app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());

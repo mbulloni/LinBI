@@ -6,8 +6,6 @@ stesso flusso di lavoro (Ottieni dati → Strumento di navigazione → trascina 
 
 Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 
-> Prima si chiamava **LinBI**. Al primo avvio MiB-BI sposta le impostazioni da `~/.config/linbi` a `~/.config/mib-bi`
-> (credenziali comprese) e apre ancora i report `.lbix`; i nuovi report si salvano come `.mibx`.
 
 ## Screenshot
 

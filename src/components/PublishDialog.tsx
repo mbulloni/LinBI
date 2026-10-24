@@ -37,7 +37,7 @@ export function PublishDialog() {
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
 
-  const base = (s.filePath?.split('/').pop() ?? s.sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
+  const base = (s.filePath?.split('/').pop() ?? s.sourceName ?? 'Report').replace(/\.(mibx|pbix|pbit|pbip)$/i, '');
   const hasDb = s.tables.some((t) => t.source.db && t.source.db.kind !== 'sqlite');
 
   useEffect(() => {
