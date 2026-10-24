@@ -23,8 +23,8 @@ db = {"createOrReplace":{"object":{"database":"o4"},"database":{"name":"o4","com
 json.dump(db, open('o4.json','w'))
 json.dump({"refresh":{"type":"full","objects":[{"database":"o4"}]}}, open('o4r.json','w'))
 E='xmlns="http://schemas.microsoft.com/analysisservices/2003/engine"'
-open('o4b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o4</DatabaseID></Object><File>C:\\LinBIAS\\Data\\o4.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
-open('_c4.ps1','w').write('Copy-Item C:\\LinBIAS\\Data\\o4.abf $PSScriptRoot\\o4.abf -Force\n')
+open('o4b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o4</DatabaseID></Object><File>C:\\MiBBIAS\\Data\\o4.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
+open('_c4.ps1','w').write('Copy-Item C:\\MiBBIAS\\Data\\o4.abf $PSScriptRoot\\o4.abf -Force\n')
 open('uo4.txt','w').write('o4')
 open('qo4.txt','w').write('EVALUATE SUMMARIZECOLUMNS(D[Cat], "Tot", [Tot], "Cnt", [Cnt], "Q2", SUM(F[Q2]))')
 open('qo4b.txt','w').write('EVALUATE CT')

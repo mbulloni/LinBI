@@ -1,5 +1,5 @@
 projects:
-- id: linbi-test
+- id: mib-bi-test
   datasets:
   - id: vendite
     tables:

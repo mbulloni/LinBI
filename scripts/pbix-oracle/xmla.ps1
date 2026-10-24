@@ -2,7 +2,7 @@ $asm = [Reflection.Assembly]::LoadFrom('C:\Program Files\Microsoft Power BI Desk
 $type = $asm.GetTypes() | ? { $_.Name -eq 'AdomdConnection' } | Select -First 1
 $port = Get-NetTCPConnection -State Listen | ? { (Get-Process -Id $_.OwningProcess).Name -eq 'msmdsrv' } | Select -First 1 -Expand LocalPort
 if (Test-Path "$PSScriptRoot\_port") { $port = (Get-Content "$PSScriptRoot\_port").Trim() }
-Get-ChildItem "$PSScriptRoot\stage" -File -ErrorAction SilentlyContinue | % { Copy-Item $_.FullName C:\LinBIAS\Data\ -Force }
+Get-ChildItem "$PSScriptRoot\stage" -File -ErrorAction SilentlyContinue | % { Copy-Item $_.FullName C:\MiBBIAS\Data\ -Force }
 $c = [Activator]::CreateInstance($type, @("Data Source=localhost:$port" + $(if (Test-Path "$PSScriptRoot\_db") { ";Initial Catalog=" + (Get-Content "$PSScriptRoot\_db").Trim() } else { "" })))
 $c.Open()
 "port $port"

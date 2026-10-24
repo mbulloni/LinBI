@@ -23,7 +23,7 @@ def _pad(n):
     return (-n) % PAGE
 
 
-def write_abf(db_id, db_files, db_xml, root='\\\\?\\C:\\LinBI\\Data', language=1033, ts=134057844561561494):
+def write_abf(db_id, db_files, db_xml, root='\\\\?\\C:\\MiB-BI\\Data', language=1033, ts=134057844561561494):
     """db_files: list of (relative path inside <db>.0.db, bytes); db_xml: bytes of <db>.0.db.xml."""
     db_dir = f'{root}\\{db_id}.0.db'
     entries = []  # (vd path, bytes, full path or None, filegroup)

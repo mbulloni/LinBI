@@ -6,5 +6,5 @@ db = {"createOrReplace":{"object":{"database":"o8"},"database":{"name":"o8","com
 json.dump(db, open('o8.json','w'))
 json.dump({"refresh":{"type":"full","objects":[{"database":"o8"}]}}, open('o8r.json','w'))
 E='xmlns="http://schemas.microsoft.com/analysisservices/2003/engine"'
-open('o8b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o8</DatabaseID></Object><File>C:\\LinBIAS\\Data\\o8.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
-open('_c8.ps1','w').write('Copy-Item C:\\LinBIAS\\Data\\o8.abf $PSScriptRoot\\o8.abf -Force\n')
+open('o8b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o8</DatabaseID></Object><File>C:\\MiBBIAS\\Data\\o8.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
+open('_c8.ps1','w').write('Copy-Item C:\\MiBBIAS\\Data\\o8.abf $PSScriptRoot\\o8.abf -Force\n')

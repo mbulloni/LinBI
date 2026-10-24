@@ -34,8 +34,8 @@ db = {"createOrReplace":{"object":{"database":"o7"},"database":{"name":"o7","com
 json.dump(db, open('o7.json','w'))
 json.dump({"refresh":{"type":"full","objects":[{"database":"o7"}]}}, open('o7r.json','w'))
 E='xmlns="http://schemas.microsoft.com/analysisservices/2003/engine"'
-open('o7b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o7</DatabaseID></Object><File>C:\\LinBIAS\\Data\\o7.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
-open('_c7.ps1','w').write('Copy-Item C:\\LinBIAS\\Data\\o7.abf $PSScriptRoot\\o7.abf -Force\n')
+open('o7b.xml','w').write(f'<Backup {E}><Object><DatabaseID>o7</DatabaseID></Object><File>C:\\MiBBIAS\\Data\\o7.abf</File><AllowOverwrite>true</AllowOverwrite><ApplyCompression>false</ApplyCompression></Backup>')
+open('_c7.ps1','w').write('Copy-Item C:\\MiBBIAS\\Data\\o7.abf $PSScriptRoot\\o7.abf -Force\n')
 open('uo7.txt','w').write('o7')
 open('qo7.txt','w').write('EVALUATE SUMMARIZECOLUMNS(Dm[Name], CG[Voce], "Tot", [Tot])')
 open('qo7b.txt','w').write('EVALUATE SUMMARIZECOLUMNS(T[Tag], "Tot", [Tot])')
