@@ -1,5 +1,5 @@
 /**
- * Power BI report layout (Report/Layout JSON, legacy format) ↔ LinBI report.
+ * Power BI report layout (Report/Layout JSON, legacy format) ↔ MiB-BI report.
  * Reference: sections[] → visualContainers[] whose `config` is a JSON string holding
  * singleVisual { visualType, projections, prototypeQuery, objects, vcObjects }.
  */
@@ -61,7 +61,7 @@ const TYPE_OUT: Partial<Record<VisualType, string>> = {
   pageNavigator: 'pageNavigator', bookmarkNavigator: 'bookmarkNavigator',
 };
 
-/** Power BI projection role → LinBI well, per LinBI visual type. */
+/** Power BI projection role → MiB-BI well, per MiB-BI visual type. */
 function roleMap(t: VisualType): Record<string, string> {
   switch (t) {
     case 'pie': case 'donut': case 'funnel': return { Category: 'category', Y: 'values', Values: 'values' };
@@ -128,7 +128,7 @@ export function setHierarchyLevels(hs: { table: string; name: string; levels: { 
   levelColumns = new Map(hs.flatMap((h) => h.levels.map((l) => [`${h.table}\u0001${h.name}\u0001${l.name}`, l.column] as [string, string])));
 }
 
-/** Literal from a filter ("'abc'", "12L", "1.5D", "datetime'…'", "null") → LinBI filter value. */
+/** Literal from a filter ("'abc'", "12L", "1.5D", "datetime'…'", "null") → MiB-BI filter value. */
 function literalValue(v: string, dateOnly: boolean): string {
   if (v === 'null') return NULL_KEY;
   let m = /^'(.*)'$/s.exec(v);
@@ -280,7 +280,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       const axisType = litText(prop(sv.objects, 'categoryAxis').axisType);
       if (axisType === 'Scalar') format.axisType = 'continuous'; else if (axisType === 'Categorical') format.axisType = 'categorical';
 
-      // Explicit sort (OrderBy) → index into LinBI's item order (wells in catalog order).
+      // Explicit sort (OrderBy) → index into MiB-BI's item order (wells in catalog order).
       const ob = sv.prototypeQuery?.OrderBy?.[0];
       if (ob) {
         const f = exprToField(ob.Expression, from);
@@ -391,7 +391,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
   };
 }
 
-/** Bookmarks of Report/Layout config (with bookmark groups) → LinBI bookmarks. */
+/** Bookmarks of Report/Layout config (with bookmark groups) → MiB-BI bookmarks. */
 function parseBookmarks(list: unknown, pages: Page[], tables: TableMeta[]): Bookmark[] {
   if (!Array.isArray(list)) return [];
   const out: Bookmark[] = [];
@@ -464,7 +464,7 @@ function filterJson(f: Filter, name: string) {
 
 const hex = () => Array.from({ length: 20 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 
-/** LinBI report → Report/Layout JSON + image resources to package. */
+/** MiB-BI report → Report/Layout JSON + image resources to package. */
 /** Custom theme referenced by a Report/Layout (themeCollection.customTheme → RegisteredResources). */
 export function themeFromLayout(layoutJson: string, resources: Record<string, string>): Theme | undefined {
   try {
@@ -486,7 +486,7 @@ export const sname = (p: Page) => p.pbiName ?? 'ReportSection' + p.id;
 export const bname = (b: { id: string; pbiName?: string }) => b.pbiName ?? 'Bookmark' + b.id;
 const gname = (g: VisualGroup) => g.pbiName ?? ('g' + g.id + '0000000000000000000').slice(0, 20);
 
-/** LinBI bookmarks → Report/Layout config.bookmarks (explorationState). */
+/** MiB-BI bookmarks → Report/Layout config.bookmarks (explorationState). */
 function bookmarksJson(bookmarks: Bookmark[], pages: Page[]) {
   const one = (b: Bookmark) => {
     const page = pages.find((p) => p.id === b.page) ?? pages[0];
@@ -542,7 +542,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
   const sections = pages.map((p, i) => {
     const containers = p.visuals.filter((v) => v.type !== 'unsupported' || v.style?.raw).map((v, vi) => {
       if (v.type === 'unsupported') {
-        // Not rendered by LinBI (custom visuals, Q&A…): written back unchanged at its current position.
+        // Not rendered by MiB-BI (custom visuals, Q&A…): written back unchanged at its current position.
         const config = { name: vname(v), layouts: [{ id: 0, position: { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, tabOrder: vi * 1000 } }, ...mobileLayout(p, v)], singleVisual: v.hidden ? { ...(v.style!.raw as object), display: { mode: 'hidden' } } : v.style!.raw, ...(v.group ? { parentGroupName: gname(p.groups!.find((g) => g.id === v.group)!) } : {}) };
         return { x: v.x, y: v.y, z: v.z * 1000, width: v.w, height: v.h, config: JSON.stringify(config), filters: '[]' };
       }
@@ -585,7 +585,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           (projections[role] ??= []).push({ queryRef: name, ...((role === 'Category' || role === 'Rows') && active ? { active: true } : {}) });
         }
       }
-      // Imported formatting is kept; LinBI's own settings overwrite their properties.
+      // Imported formatting is kept; MiB-BI's own settings overwrite their properties.
       const objects: any = structuredClone(v.style?.objects ?? {});
       const vcObjects: any = structuredClone(v.style?.vcObjects ?? {});
       const put = (objs: any, obj: string, props: Record<string, unknown>) => {
@@ -644,7 +644,7 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         ...(parent ? { parentGroupName: gname(parent) } : {}),
         singleVisual: {
           ...(v.hidden ? { display: { mode: 'hidden' } } : {}),
-          // Same Power BI type as imported when it maps to this LinBI type (cardVisual, advancedSlicerVisual, shape…).
+          // Same Power BI type as imported when it maps to this MiB-BI type (cardVisual, advancedSlicerVisual, shape…).
           visualType: v.type === 'custom' ? v.custom : v.type === 'slicer' ? slicerType(v) : v.style?.pbiType && TYPE_IN[v.style.pbiType] === v.type ? v.style.pbiType : TYPE_OUT[v.type],
           projections,
           prototypeQuery: {

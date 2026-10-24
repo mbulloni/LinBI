@@ -155,7 +155,7 @@ function stripCf(e: any): any {
   return Object.keys(p).length ? { ...e, properties: p } : null;
 }
 
-/** Writes LinBI's conditional formatting into `objects` (previous rule entries replaced).
+/** Writes MiB-BI's conditional formatting into `objects` (previous rule entries replaced).
  *  nameOf: field → queryRef in the visual's Select; ranges: visible range per field key (default icons). */
 export function exportCondFormat(v: Visual, objects: any, nameOf: (f: FieldRef) => string | undefined, aggFn: (a: FieldRef['agg']) => number | undefined,
   chart: boolean, ranges?: Map<string, { min: number; max: number }>) {

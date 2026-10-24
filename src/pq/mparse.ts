@@ -1,5 +1,5 @@
 // M code → applied steps: what the Advanced editor and the formula bar write back.
-// Reads `let … in` documents and the Table.* functions LinBI generates (pq/m.ts), plus common
+// Reads `let … in` documents and the Table.* functions MiB-BI generates (pq/m.ts), plus common
 // hand-written variants; `each` bodies stay text (translated to SQL by mexpr). Anything else is
 // reported precisely instead of being dropped.
 import type { FilterOp, GroupOp, JoinKind, NewStep, PQType, TransformFn, ValueType } from '../types';
@@ -313,7 +313,7 @@ export function exprToStep(expr: string, pending?: { table: string; left: string
       return { kind: 'append', tables: a[0].items.slice(1).map((x) => (x.k === 'id' ? x.v : str(x, 'la tabella'))) };
     }
     case 'Table.PromoteHeaders': return { kind: 'promoteHeaders', renames: [] };
-    default: throw new MParseError(`Funzione M non supportata dall'editor di LinBI: ${v.fn}`);
+    default: throw new MParseError(`Funzione M non supportata dall'editor di MiB-BI: ${v.fn}`);
   }
 }
 
@@ -333,7 +333,7 @@ function splitLiterals(expr: string): { code: string[]; lits: string[] } {
 }
 
 type Source = import('../types').TableMeta['source'];
-/** Source edited in M: the source steps keep LinBI's shape and only their text literals change
+/** Source edited in M: the source steps keep MiB-BI's shape and only their text literals change
  *  (path, sheet, URL, server, database, schema, table…); each changed literal updates the source field that held it. */
 function editedSource(docSteps: [string, string][], baseSteps: [string, string][], source: Source): Source {
   const fail = () => { throw new MParseError(`L'origine si modifica cambiando solo i valori tra virgolette dei passaggi "${baseSteps.map((b) => b[0]).join('", "')}" (o dal passaggio Origine).`); };
@@ -361,7 +361,7 @@ function editedSource(docSteps: [string, string][], baseSteps: [string, string][
   return next;
 }
 
-/** Data typed in the M of a table ("Immetti dati"): LinBI's #table({cols}, {{…}}) or Power BI's
+/** Data typed in the M of a table ("Immetti dati"): MiB-BI's #table({cols}, {{…}}) or Power BI's
  *  Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("…", BinaryEncoding.Base64), Compression.Deflate)), … type table [A = _t, …]). */
 export async function inlineFromM(m: string): Promise<{ columns: string[]; rows: (string | null)[][] } | null> {
   let doc: ReturnType<typeof parseLet>;

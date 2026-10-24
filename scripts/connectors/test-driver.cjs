@@ -16,7 +16,7 @@ const db = require('../../electron/db.cjs');
   console.log(`open+list ${Date.now() - t} ms:`, tables.map((x) => `${x.schema}.${x.table}${x.view ? ' (vista)' : ''}`).join(', '));
   for (const spec of process.argv.slice(4)) {
     const sql = /^(select|with)\s/i.test(spec) ? spec : (() => { const [s, ...r] = spec.split('.'); return a.select(s, r.join('.')); })();
-    const file = path.join(os.tmpdir(), `linbi-drv-${Date.now()}.parquet`);
+    const file = path.join(os.tmpdir(), `mib-bi-drv-${Date.now()}.parquet`);
     t = Date.now();
     const r = await fetchToParquet(a, h, sql, file, db);
     const q = await db.query(`SELECT COUNT(*)::BIGINT AS n FROM read_parquet('${file}')`);

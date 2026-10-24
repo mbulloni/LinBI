@@ -31,13 +31,13 @@ export const CONNECTORS: Connector[] = [
 ];
 
 const AUTHS: Record<string, [string, string][]> = {
-  sqlserver: [['sql', 'Database (nome utente e password)'], ['windows', 'Windows (dominio, NTLM)'], ['token', 'Account Microsoft (accesso di LinBI)'], ['entra', 'Microsoft Entra ID (utente e password)']],
+  sqlserver: [['sql', 'Database (nome utente e password)'], ['windows', 'Windows (dominio, NTLM)'], ['token', 'Account Microsoft (accesso di MiB-BI)'], ['entra', 'Microsoft Entra ID (utente e password)']],
   snowflake: [['sql', 'Snowflake (nome utente e password)'], ['keypair', 'Coppia di chiavi (chiave privata)'], ['browser', 'Microsoft Entra ID / SSO (browser)']],
   bigquery: [['key', 'Chiave dell\'account di servizio (JSON)'], ['adc', 'Credenziali predefinite dell\'applicazione (gcloud)']],
 };
 
 const qi = (s: string) => '"' + s.replace(/"/g, '""') + '"';
-const TOKEN_HINT = 'Usa l\'account Microsoft con cui si accede in LinBI (Pubblica / Accedi): l\'app registrata deve avere l\'autorizzazione delegata Azure SQL Database › user_impersonation.';
+const TOKEN_HINT = 'Usa l\'account Microsoft con cui si accede in MiB-BI (Pubblica / Accedi): l\'app registrata deve avere l\'autorizzazione delegata Azure SQL Database › user_impersonation.';
 
 /** Ottieni dati › Database: connector form (with Opzioni avanzate › Istruzione SQL), then a navigator over the tables. */
 export function DatabaseDialog() {

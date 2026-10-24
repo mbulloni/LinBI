@@ -1,4 +1,4 @@
-"""Extract a Power BI .pbix/.pbit into a folder LinBI can load.
+"""Extract a Power BI .pbix/.pbit into a folder MiB-BI can load.
 
 Usage: read_pbix.py <file> <outdir>
 Writes <outdir>/model.json and one Parquet file per imported table.
@@ -43,7 +43,7 @@ def card(c):
 
 
 def support_idfx():
-    """Recent Analysis Services engines (Power BI Desktop 2026, LinBI's own .pbix writer) store each column segment
+    """Recent Analysis Services engines (Power BI Desktop 2026, MiB-BI's own .pbix writer) store each column segment
     as one `.idfx` file = idf + idfmeta + u64 length of the idfmeta. pbixray asks for `X.idfx` / `X.idfxmeta`:
     serve both halves from the single file."""
     import struct

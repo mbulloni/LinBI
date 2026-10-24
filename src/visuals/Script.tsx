@@ -27,7 +27,7 @@ plot(dataset)
 `,
 };
 
-/** Script of the visual: edited in LinBI, else imported from Power BI (objects.script.source). */
+/** Script of the visual: edited in MiB-BI, else imported from Power BI (objects.script.source). */
 export const scriptOf = (v: Visual): string => v.script ?? (typeof sp(v, 'script', 'source') === 'string' ? sp(v, 'script', 'source') : '');
 
 const csvCell = (x: unknown) => {

@@ -41,7 +41,7 @@ export interface QnaSpec {
   restatement: string;
 }
 export interface PbiProfile { id: string; name: string; tenant: string; account: string | null; }
-export interface PbiStatus { /** LinBI ships an app registration: sign-in works without configuring one. */ builtin?: boolean; profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
+export interface PbiStatus { /** MiB-BI ships an app registration: sign-in works without configuring one. */ builtin?: boolean; profileId: string | null; profileName: string; clientId: string; tenant: string; account: string | null; lastWorkspace: string | null; persistent: boolean; profiles: PbiProfile[]; }
 export interface PbiWorkspace { id: string; name: string; dedicated: boolean; readOnly?: boolean; }
 export interface PbiResult { datasetId: string; reportId: string | null; webUrl: string | null; warnings: string[]; }
 type TableInfo = { name: string; rowCount: number; columns: ColumnMeta[] };

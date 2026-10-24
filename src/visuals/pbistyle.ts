@@ -6,7 +6,7 @@ import { PALETTE, locale } from '../format';
 
 type Entry = { properties?: Record<string, any>; selector?: any };
 export type Objects = Record<string, Entry[]>;
-export interface PbiStyle { pbiType?: string; objects?: Objects; vcObjects?: Objects; /** whole singleVisual of visuals LinBI cannot render (written back as is) */ raw?: unknown; }
+export interface PbiStyle { pbiType?: string; objects?: Objects; vcObjects?: Objects; /** whole singleVisual of visuals MiB-BI cannot render (written back as is) */ raw?: unknown; }
 
 /** Theme in use (set by applyTheme): data colors, background/foreground, visualStyles. */
 export const STYLE_THEME: { theme?: Theme } = {};
@@ -115,7 +115,7 @@ export function withAlpha(hex: string, transparency: unknown): string {
 /** Display units: 0/1 auto/none, 1e3 K, 1e6 Mln, 1e9 Mrd, 1e12 Bln. */
 export function units(n: number, unit: unknown, precision: unknown): string | undefined {
   if (typeof unit !== 'number' || unit === 0) {
-    // Automatic units: only when a precision is set (otherwise LinBI's own automatic format applies).
+    // Automatic units: only when a precision is set (otherwise MiB-BI's own automatic format applies).
     if (typeof precision !== 'number') return undefined;
     const a = Math.abs(n);
     unit = a >= 1e12 ? 1e12 : a >= 1e9 ? 1e9 : a >= 1e6 ? 1e6 : a >= 1e3 ? 1e3 : 1;

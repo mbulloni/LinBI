@@ -51,7 +51,7 @@ export function ruleValue(rules: CfRule[] | undefined, x: number | null): string
   return undefined;
 }
 
-/** Built-in Power BI icon names LinBI draws (directional and shape sets). */
+/** Built-in Power BI icon names MiB-BI draws (directional and shape sets). */
 export const ICON_SET: Record<string, { ch: string; color: string }> = {
   TriangleLow: { ch: '▼', color: '#D64554' }, TriangleMedium: { ch: '▬', color: '#F2C80F' }, TriangleHigh: { ch: '▲', color: '#1AAB40' },
   ArrowDown: { ch: '↓', color: '#D64554' }, ArrowRightDown: { ch: '↘', color: '#F2C80F' }, ArrowRight: { ch: '→', color: '#F2C80F' }, ArrowRightUp: { ch: '↗', color: '#F2C80F' }, ArrowUp: { ch: '↑', color: '#1AAB40' },

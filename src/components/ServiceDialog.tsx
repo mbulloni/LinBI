@@ -11,7 +11,7 @@ export function ServiceDialog() {
   const s = useStore();
   const open = s.serviceDialog;
   const [st, setSt] = useState<PbiStatus | null>(null);
-  const [email, setEmail] = useState(() => { try { return localStorage.getItem('linbi.pbiEmail') ?? ''; } catch { return ''; } });
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('mib-bi.pbiEmail') ?? ''; } catch { return ''; } });
   const [browser, setBrowser] = useState(false);
   const [spaces, setSpaces] = useState<PbiWorkspace[] | null>(null);
   const [ws, setWs] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function ServiceDialog() {
   const close = () => { if (browser) api.pbi.loginBrowserCancel(); s.set({ serviceDialog: false }); };
   const wrap = async (fn: () => Promise<void>) => { setBusy(true); setError(null); try { await fn(); } catch (e: any) { setError(e.message); } finally { setBusy(false); } };
   const signIn = () => wrap(async () => {
-    try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ }
+    try { localStorage.setItem('mib-bi.pbiEmail', email.trim()); } catch { /* not kept */ }
     setBrowser(true);
     try { setSt(await api.pbi.loginBrowser(email.trim() || undefined)); } finally { setBrowser(false); }
   });
@@ -73,7 +73,7 @@ export function ServiceDialog() {
               <span className="txt" style={{ flex: 1 }}>
                 {browser ? <><b>Completare l'accesso nel browser</b><span>Scegliere l'account aziendale nella pagina Microsoft che si è aperta.</span></> : <>
                   <b>Accedere con l'account aziendale</b>
-                  <span>LinBI mostra le aree di lavoro, i report e i modelli semantici a cui l'account ha accesso nel servizio Power BI.</span>
+                  <span>MiB-BI mostra le aree di lavoro, i report e i modelli semantici a cui l'account ha accesso nel servizio Power BI.</span>
                   <label className="pq-field" style={{ marginTop: 8 }}>Indirizzo e-mail aziendale
                     <input type="email" value={email} placeholder="nome.cognome@azienda.it" onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') signIn(); }} /></label>
                 </>}
@@ -82,7 +82,7 @@ export function ServiceDialog() {
                 : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <button className="btn primary" disabled={busy} onClick={() => {
                       // No app registered yet: the Pubblica sign-in asks for the application ID given by the IT department.
-                      if (!st.clientId && !st.builtin) { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } s.set({ serviceDialog: false, publishDialog: true }); } else signIn();
+                      if (!st.clientId && !st.builtin) { try { localStorage.setItem('mib-bi.pbiEmail', email.trim()); } catch { /* not kept */ } s.set({ serviceDialog: false, publishDialog: true }); } else signIn();
                     }}>Accedi</button>
                     <button className="btn" disabled={busy} title="Apre app.powerbi.com in una finestra, con le credenziali Microsoft" onClick={() => void api.openPbiPortal()}>Vai a Power BI</button>
                   </div>}

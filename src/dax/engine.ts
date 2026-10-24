@@ -1249,7 +1249,7 @@ class Compiler {
       case 'EOMONTH': return `last_day(CAST(${s(0)} AS DATE) + to_months(CAST(${s(1)} AS INTEGER)))`;
       case 'EDATE': return `CAST(CAST(${s(0)} AS DATE) + to_months(CAST(${s(1)} AS INTEGER)) AS DATE)`;
       case 'DATEDIFF': return `date_diff('${this.unit(A[2])}', CAST(${s(0)} AS TIMESTAMP), CAST(${s(1)} AS TIMESTAMP))`;
-      case 'USERNAME': case 'USERPRINCIPALNAME': return ql(this.m.user ?? 'utente@linbi');
+      case 'USERNAME': case 'USERPRINCIPALNAME': return ql(this.m.user ?? 'utente@mib-bi');
       case 'SELECTEDMEASURE': {
         const top = this.selected[this.selected.length - 1];
         if (!top) throw new DaxError('SELECTEDMEASURE si può usare solo negli elementi di calcolo');

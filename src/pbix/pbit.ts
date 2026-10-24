@@ -152,7 +152,7 @@ function dateTable(name: string, expression: string, local: boolean) {
       calc('MonthNo', 'MONTH([Date])', 'int64', 'MonthOfYear', 'MonthNumber'),
       calc('Month', 'FORMAT([Date], "MMMM")', 'string', 'Months', 'Month', { sortByColumn: 'MonthNo' }),
       calc('QuarterNo', 'INT(([MonthNo] + 2) / 3)', 'int64', 'QuarterOfYear', 'QuarterNumber'),
-      // Labels as LinBI shows them (filters on levels compare these values): "Trim 1", month names of the model culture.
+      // Labels as MiB-BI shows them (filters on levels compare these values): "Trim 1", month names of the model culture.
       calc('Quarter', `"${quarterPrefix()}" & [QuarterNo]`, 'string', 'Quarters', 'Quarter', { sortByColumn: 'QuarterNo' }),
       calc('Day', 'DAY([Date])', 'int64', 'DayOfMonth', 'Day'),
     ],

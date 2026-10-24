@@ -437,10 +437,10 @@ const odbc = {
   close: (conn) => conn.close(),
 };
 
-// ---------- Azure Data Explorer (Kusto) and Dataverse: REST with the Microsoft account of LinBI ----------
+// ---------- Azure Data Explorer (Kusto) and Dataverse: REST with the Microsoft account of MiB-BI ----------
 
-// LINBI_MS_TOKEN (tests against mock servers) replaces the Entra token.
-const msToken = (resource) => process.env.LINBI_MS_TOKEN || require('./powerbi.cjs').token(`${resource.replace(/\/$/, '')}/.default`);
+// MIBBI_MS_TOKEN (tests against mock servers) replaces the Entra token.
+const msToken = (resource) => process.env.MIBBI_MS_TOKEN || require('./powerbi.cjs').token(`${resource.replace(/\/$/, '')}/.default`);
 const httpsUrl = (h) => (/^https?:\/\//.test(h) ? h : `https://${h}`).replace(/\/$/, '');
 
 function kustoType(t) {

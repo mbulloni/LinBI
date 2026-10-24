@@ -1,7 +1,7 @@
 {
-  "name": "linbi",
+  "name": "mib-bi",
   "version": "1.4.0",
-  "description": "LinBI - clone educativo di Power BI Desktop per Linux",
+  "description": "MiB-BI - clone educativo di Power BI Desktop per Linux",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV=1 electron . --no-sandbox\"",
@@ -54,8 +54,8 @@
     "world-atlas": "^2.0.2"
   },
   "build": {
-    "appId": "it.michele.linbi",
-    "productName": "LinBI",
+    "appId": "it.michele.mib-bi",
+    "productName": "MiB-BI",
     "files": [
       "dist/**",
       "electron/**",
@@ -71,15 +71,16 @@
         "AppImage"
       ],
       "icon": "build/icons",
-      "executableName": "linbi",
+      "executableName": "mib-bi",
       "synopsis": "Clone educativo di Power BI Desktop per Linux",
       "description": "Report e analisi dati con Power Query, DAX, modello a stella; apre file Power BI (.pbix, .pbit, .pbip).",
       "mimeTypes": [
+        "application/x-mib-bi",
         "application/x-linbi"
       ],
       "desktop": {
         "entry": {
-          "StartupWMClass": "LinBI"
+          "StartupWMClass": "MiB-BI"
         }
       },
       "syncDesktopName": true
@@ -90,8 +91,13 @@
     },
     "fileAssociations": [
       {
+        "ext": "mibx",
+        "name": "Report MiB-BI",
+        "mimeType": "application/x-mib-bi"
+      },
+      {
         "ext": "lbix",
-        "name": "Report LinBI",
+        "name": "Report MiB-BI (formato precedente LinBI)",
         "mimeType": "application/x-linbi"
       },
       {
@@ -124,11 +130,11 @@
     "name": "Michele",
     "email": "m.bulloni@gmail.com"
   },
-  "desktopName": "linbi.desktop",
-  "homepage": "https://github.com/mbulloni/LinBI",
+  "desktopName": "mib-bi.desktop",
+  "homepage": "https://github.com/mbulloni/MiB-BI",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mbulloni/LinBI.git"
+    "url": "https://github.com/mbulloni/MiB-BI.git"
   },
   "license": "MIT",
   "allowScripts": {

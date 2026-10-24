@@ -6,7 +6,7 @@
 //    Local data is embedded in the M of each table (like "Immetti dati"), so no gateway is needed.
 // Sign-in: OAuth 2.0 authorization code + PKCE in the system browser (loopback redirect http://localhost),
 // or device code, against an Entra ID app registration (public client): the organization's own, or the
-// one LinBI is distributed with (LINBI_PBI_CLIENT_ID / electron/pbi-app.json, multi-tenant).
+// one MiB-BI is distributed with (MIBBI_PBI_CLIENT_ID / electron/pbi-app.json, multi-tenant).
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -16,10 +16,10 @@ const http = require('http');
 const { app, safeStorage, shell } = require('electron');
 const db = require('./db.cjs');
 
-// Endpoints can be redirected for tests (LINBI_PBI_* = local mock server).
-const LOGIN = process.env.LINBI_PBI_LOGIN || 'https://login.microsoftonline.com';
-const PBI = process.env.LINBI_PBI_API || 'https://api.powerbi.com/v1.0/myorg';
-const FABRIC = process.env.LINBI_PBI_FABRIC || 'https://api.fabric.microsoft.com/v1';
+// Endpoints can be redirected for tests (MIBBI_PBI_* = local mock server).
+const LOGIN = process.env.MIBBI_PBI_LOGIN || 'https://login.microsoftonline.com';
+const PBI = process.env.MIBBI_PBI_API || 'https://api.powerbi.com/v1.0/myorg';
+const FABRIC = process.env.MIBBI_PBI_FABRIC || 'https://api.fabric.microsoft.com/v1';
 const SCOPES = {
   pbi: 'https://analysis.windows.net/powerbi/api/.default',
   fabric: 'https://api.fabric.microsoft.com/.default',
@@ -95,9 +95,9 @@ function resetSession() {
   pending = null;
 }
 
-/** App registration LinBI ships with (multi-tenant public client), used when no profile is configured. */
+/** App registration MiB-BI ships with (multi-tenant public client), used when no profile is configured. */
 function builtinApp() {
-  if (process.env.LINBI_PBI_CLIENT_ID) return process.env.LINBI_PBI_CLIENT_ID.trim();
+  if (process.env.MIBBI_PBI_CLIENT_ID) return process.env.MIBBI_PBI_CLIENT_ID.trim();
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'pbi-app.json'), 'utf8')).clientId?.trim() || null; } catch { return null; }
 }
 
@@ -112,15 +112,15 @@ function aadError(j) {
   const d = String(j.error_description ?? j.error ?? 'Accesso non riuscito').split('\r\n')[0];
   const code = /AADSTS(\d+)/.exec(d)?.[1];
   const hint = {
-    '65001': "L'app LinBI non ha ancora il consenso nel tenant: accettare la richiesta di autorizzazioni, oppure chiedere all'amministratore IT di concederlo (Microsoft Entra › Applicazioni aziendali).",
-    '90094': "Il tenant richiede l'approvazione dell'amministratore per le app esterne: chiedere all'IT di approvare LinBI (Applicazioni aziendali › Consenso amministratore) o di registrare un'app aziendale (Impostazioni app).",
+    '65001': "L'app MiB-BI non ha ancora il consenso nel tenant: accettare la richiesta di autorizzazioni, oppure chiedere all'amministratore IT di concederlo (Microsoft Entra › Applicazioni aziendali).",
+    '90094': "Il tenant richiede l'approvazione dell'amministratore per le app esterne: chiedere all'IT di approvare MiB-BI (Applicazioni aziendali › Consenso amministratore) o di registrare un'app aziendale (Impostazioni app).",
     '90095': "Il tenant richiede l'approvazione dell'amministratore per le app esterne: inviare la richiesta di approvazione proposta da Microsoft.",
     '700016': "L'app non esiste in questo tenant: con un'app registrata solo in un'altra organizzazione serve un'app multi-tenant, o un'app registrata dall'IT del proprio tenant (Impostazioni app).",
     '7000218': "L'app deve consentire i flussi client pubblici (Autenticazione › Consenti flussi client pubblici: Sì).",
     '50011': "Manca l'URI di reindirizzamento: in Autenticazione aggiungere la piattaforma «App per dispositivi mobili e desktop» con http://localhost.",
     '500113': "Manca l'URI di reindirizzamento: in Autenticazione aggiungere la piattaforma «App per dispositivi mobili e desktop» con http://localhost.",
     '53003': "Bloccato da un criterio di accesso condizionale dell'organizzazione (es. solo dispositivi gestiti): chiedere all'IT.",
-    '50105': "L'account non è assegnato all'app LinBI nel tenant: chiedere all'IT di assegnarlo.",
+    '50105': "L'account non è assegnato all'app MiB-BI nel tenant: chiedere all'IT di assegnarlo.",
   }[code];
   return new Error(hint ? `${hint} (${d})` : d);
 }
@@ -148,7 +148,7 @@ let browserLogin = null;
 
 /**
  * Sign-in in the system browser like Power BI Desktop: the user picks the work account (SSO when already
- * signed in), Entra redirects to a loopback port of LinBI with the code (PKCE, no secret, no code to type).
+ * signed in), Entra redirects to a loopback port of MiB-BI with the code (PKCE, no secret, no code to type).
  */
 async function loginBrowser(email) {
   const cfg = ensureProfile();
@@ -165,7 +165,7 @@ async function loginBrowser(email) {
     if (u.pathname !== '/') { res.writeHead(404); res.end(); return; }
     const ok = u.searchParams.get('state') === state && u.searchParams.get('code');
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(`<!doctype html><meta charset="utf-8"><title>LinBI</title><body style="font-family:sans-serif;padding:40px">${ok ? '<h2>Accesso completato</h2><p>Tornare a LinBI: questa scheda si può chiudere.</p>' : `<h2>Accesso non riuscito</h2><p>${String(u.searchParams.get('error_description') ?? 'Risposta non valida').replace(/[<>&]/g, '')}</p>`}</body>`);
+    res.end(`<!doctype html><meta charset="utf-8"><title>MiB-BI</title><body style="font-family:sans-serif;padding:40px">${ok ? '<h2>Accesso completato</h2><p>Tornare a MiB-BI: questa scheda si può chiudere.</p>' : `<h2>Accesso non riuscito</h2><p>${String(u.searchParams.get('error_description') ?? 'Risposta non valida').replace(/[<>&]/g, '')}</p>`}</body>`);
     if (u.searchParams.get('state') !== state) return;
     if (ok) done.res(u.searchParams.get('code'));
     else done.rej(aadError({ error: u.searchParams.get('error'), error_description: u.searchParams.get('error_description') }));
@@ -178,7 +178,7 @@ async function loginBrowser(email) {
   try {
     const url = `${LOGIN}/${tenant}/oauth2/v2.0/authorize?${q}`;
     // Tests (mock server): follow the redirect with fetch instead of opening a browser.
-    if (process.env.LINBI_PBI_BROWSER_FETCH) fetch(url).catch((e) => done.rej(e)); else await shell.openExternal(url);
+    if (process.env.MIBBI_PBI_BROWSER_FETCH) fetch(url).catch((e) => done.rej(e)); else await shell.openExternal(url);
     const code = await result;
     const { ok, j } = await form(`${LOGIN}/${tenant}/oauth2/v2.0/token`, { grant_type: 'authorization_code', client_id: cfg.clientId, code, redirect_uri: redirect, code_verifier: verifier, scope });
     if (!ok) throw aadError(j);
@@ -605,7 +605,7 @@ async function zipParts(parts, substitutions) {
 /** Thin report: .pbix with the layout and a live connection; imported, then bound to the dataset. */
 async function publishThinReport(spec, base, datasetId, progress) {
   const pbix = await zipParts(spec.thinParts, { __DATASET_ID__: datasetId, __REPORT_ID__: crypto.randomUUID(), __WORKSPACE_ID__: spec.workspace || '' });
-  if (process.env.LINBI_PBI_THIN_OUT) fs.writeFileSync(process.env.LINBI_PBI_THIN_OUT, pbix);
+  if (process.env.MIBBI_PBI_THIN_OUT) fs.writeFileSync(process.env.MIBBI_PBI_THIN_OUT, pbix);
   try {
     const fd = new FormData();
     fd.append('file', new Blob([pbix]), `${spec.name}.pbix`);
@@ -751,7 +751,7 @@ async function publishFabric(spec, progress) {
 
 /** Sensitivity labels available to the signed-in user (Microsoft Purview, Graph InformationProtectionPolicy.Read). */
 async function labels() {
-  const graph = process.env.LINBI_GRAPH || 'https://graph.microsoft.com/v1.0';
+  const graph = process.env.MIBBI_GRAPH || 'https://graph.microsoft.com/v1.0';
   const t = await token('graph');
   const tenant = claims(t).tid ?? '';
   for (const url of [`${graph}/me/security/informationProtection/sensitivityLabels`, `${graph.replace('/v1.0', '/beta')}/me/security/informationProtection/sensitivityLabels`]) {

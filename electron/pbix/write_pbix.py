@@ -1,9 +1,9 @@
-"""Write the DataModel part of a .pbix for LinBI (run by electron/main.cjs with the pbixray venv python).
+"""Write the DataModel part of a .pbix for MiB-BI (run by electron/main.cjs with the pbixray venv python).
 
 usage: write_pbix.py job.json
 job = {"schema": <TMSL database from pbit.ts#buildModelSchema>, "tables": {name: parquet path}, "out": DataModel path,
        "monthNames": [12 names], "quarterPrefix": "Trim "}
-Tables without data: LinBI's auto date tables (computed here from their Calendar expression) and measure-only tables.
+Tables without data: MiB-BI's auto date tables (computed here from their Calendar expression) and measure-only tables.
 """
 import datetime
 import json

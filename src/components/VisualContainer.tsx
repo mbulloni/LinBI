@@ -25,7 +25,7 @@ import { CustomVisual } from '../visuals/custom/CustomVisual';
 import { interactionChoices, interactionOf, isSource, isTarget } from '../visuals/interactions';
 import type { Interaction } from '../types';
 
-export const FIELD_MIME = 'application/x-linbi-field';
+export const FIELD_MIME = 'application/x-mib-bi-field';
 
 /** Container look: background (with transparency), border. */
 export function boxStyle(v: Visual): CSSProperties {
@@ -254,15 +254,15 @@ export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: 
         if (s.multiSel.length) s.set({ multiSel: [] });
         if (!selected) s.selectVisual(v.id);
       }}
-      onDragStart={() => document.body.classList.add('linbi-dragging')}
-      onResizeStart={() => document.body.classList.add('linbi-dragging')}
+      onDragStart={() => document.body.classList.add('mib-bi-dragging')}
+      onResizeStart={() => document.body.classList.add('mib-bi-dragging')}
       onDragStop={(_e, d) => {
-        document.body.classList.remove('linbi-dragging');
+        document.body.classList.remove('mib-bi-dragging');
         if (onGeom && geom) { if (d.x !== geom.x || d.y !== geom.y) onGeom({ ...geom, x: Math.round(d.x), y: Math.round(d.y) }); return; }
         if (d.x !== v.x || d.y !== v.y) s.updateVisual(v.id, { x: Math.round(d.x), y: Math.round(d.y) });
       }}
       onResizeStop={(_e, _dir, ref, _delta, pos) => {
-        document.body.classList.remove('linbi-dragging');
+        document.body.classList.remove('mib-bi-dragging');
         const g = { w: Math.round(ref.offsetWidth), h: Math.round(ref.offsetHeight), x: Math.round(pos.x), y: Math.round(pos.y) };
         if (onGeom) onGeom(g); else s.updateVisual(v.id, g);
       }}

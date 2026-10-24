@@ -69,7 +69,7 @@ export function OptionsDialog() {
             </>}
             {sec === 'python' && <>
               <h3>Opzioni script Python</h3>
-              <p>Interprete usato dagli oggetti visivi Python (serve pandas e matplotlib). Vuoto = rilevamento automatico (.venv-pbix, ambiente di LinBI, python3).</p>
+              <p>Interprete usato dagli oggetti visivi Python (serve pandas e matplotlib). Vuoto = rilevamento automatico (.venv-pbix, ambiente di MiB-BI, python3).</p>
               <label className="pq-field">Directory home di Python rilevata / eseguibile
                 <input type="text" value={paths.python ?? ''} placeholder="/usr/bin/python3" onChange={(e) => setPaths({ ...paths, python: e.target.value })} /></label>
               <div className="qna-row"><button className="btn primary" onClick={savePaths}>Salva</button></div>

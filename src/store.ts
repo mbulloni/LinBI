@@ -367,7 +367,7 @@ interface State {
   /** Ottieni dati › Power BI (servizio) dialog. */
   serviceDialog: boolean;
   exportPbit: () => Promise<void>;
-  /** `target` = write there without asking (Ctrl+S on a .pbix saved by LinBI). */
+  /** `target` = write there without asking (Ctrl+S on a .pbix saved by MiB-BI). */
   exportPbix: (target?: string) => Promise<void>;
   exportPbip: () => Promise<void>;
   sourceName: string | null;
@@ -733,7 +733,7 @@ export const useStore = create<State>((set, get) => {
     exportPbit: async () => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit)$/i, '');
       try {
         await prepareCfExport();
         const out = await api.savePbit(buildPbitParts(report, tables), base + '.pbit');
@@ -745,7 +745,7 @@ export const useStore = create<State>((set, get) => {
     exportPbix: async (target) => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
       set({ busy: 'Salvataggio del file Power BI…' });
       try {
         await prepareCfExport();
@@ -764,7 +764,7 @@ export const useStore = create<State>((set, get) => {
     exportPbip: async () => {
       set({ fileMenu: false });
       const { report, tables, filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
       try {
         await prepareCfExport();
         const out = await api.savePbip(buildPbipParts(report, tables), base + '.pbip');
@@ -783,7 +783,7 @@ export const useStore = create<State>((set, get) => {
     printing: false,
     exportPdf: async () => {
       const { filePath, sourceName } = get();
-      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+      const base = (filePath?.split('/').pop() ?? sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
       set({ fileMenu: false, crossFilter: null, printing: true, busy: 'Esportazione in PDF…' });
       try {
         const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -1710,13 +1710,13 @@ export const useStore = create<State>((set, get) => {
     },
     save: async (as = false) => {
       const { tables, report, filePath, sourceName } = get();
-      // Power BI files stay Power BI files: a .pbix saved by LinBI is rewritten in place, an imported .pbix is
+      // Power BI files stay Power BI files: a .pbix saved by MiB-BI is rewritten in place, an imported .pbix is
       // saved through the dialog (same name suggested) so the original is never replaced without asking.
       if (/\.pbix$/i.test(filePath ?? '')) return get().exportPbix(as ? undefined : filePath!);
       if (!filePath && /\.pbix$/i.test(sourceName ?? '')) return get().exportPbix();
       // Version 2: data embedded as Parquet (like a .pbix), sources and steps kept for refresh.
       const content = JSON.stringify({
-        format: 'lbix', version: 2,
+        format: 'mibx', version: 2,
         tables: tables.map((t, i) => ({ name: t.name, source: t.source, steps: t.steps, sourceColumns: t.sourceColumns, sortBy: t.sortBy, ...(t.dataCategory ? { dataCategory: t.dataCategory } : {}), calcColumns: t.calcColumns, ...(t.fieldParam ? { fieldParam: t.fieldParam } : {}), data: `data/${i}.parquet` })),
         report,
       }, (k, v) => (k === 'pendingSlicer' ? undefined : v), 2); // unapplied slicer selections are not saved
@@ -1736,7 +1736,7 @@ export const useStore = create<State>((set, get) => {
       if (f.powerbi) return get().importPowerBI(f.path);
       try {
         const doc = JSON.parse(f.content!);
-        if (doc.format !== 'lbix') throw new Error('file non valido');
+        if (doc.format !== 'mibx' && doc.format !== 'lbix') throw new Error('file non valido');
         await get().newReport();
         set({ busy: 'Apertura del report…' });
         const failed: string[] = [];

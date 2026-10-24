@@ -16,7 +16,7 @@ export interface TableMeta {
     /** SharePoint Online (Microsoft Graph, Microsoft account): files of a site (SharePoint.Files, combined like a folder,
      *  optionally under `folder` and with extension `ext`) or the items of a list (SharePoint.Tables › `list`). */
     sharepoint?: { site: string; folder?: string; ext?: string; list?: string };
-    /** Home › Immetti dati: values typed in LinBI (text; typed by a changeType step), saved in the report. */
+    /** Home › Immetti dati: values typed in MiB-BI (text; typed by a changeType step), saved in the report. */
     inline?: { columns: string[]; rows: (string | null)[][] };
   };
   /** Power Query applied steps, compiled to a SQL pipeline by pq/compile.ts. */
@@ -39,7 +39,7 @@ export interface ParamField { label: string; table: string; column: string; meas
 export type DbKind = 'mysql' | 'postgres' | 'sqlite' | 'sqlserver' | 'oracle' | 'snowflake' | 'bigquery' | 'databricks' | 'clickhouse' | 'mongodb' | 'access' | 'odbc' | 'kusto' | 'dataverse';
 /** Database source. `variant` = the connector chosen in Ottieni dati (azuresql, synapse, fabric, redshift…) when it shares
  *  a driver; `query` = native SQL statement (Opzioni avanzate › Istruzione SQL) instead of schema/table.
- *  `auth`: sql | windows (NTLM, `domain`) | entra (user + password) | token (LinBI's Microsoft account) | keypair | browser | adc. */
+ *  `auth`: sql | windows (NTLM, `domain`) | entra (user + password) | token (MiB-BI's Microsoft account) | keypair | browser | adc. */
 export interface DbSource {
   kind: DbKind; variant?: string; host?: string; port?: string; database?: string; user?: string; file?: string;
   auth?: string; domain?: string; encrypt?: boolean; trustCert?: boolean; warehouse?: string; role?: string; httpPath?: string; authDb?: string;

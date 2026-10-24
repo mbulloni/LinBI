@@ -2,19 +2,19 @@
 // SharePoint.Tables), read through Microsoft Graph with the Microsoft account of Home › Pubblica (same Entra
 // app: it needs the delegated Graph permissions Sites.Read.All and Files.Read.All). Files are downloaded into
 // userData/remote-cache/sp-<hash>/ and combined like a local folder; list items become a JSON file.
-// LINBI_GRAPH redirects Graph to a mock server and LINBI_GRAPH_TOKEN skips sign-in (tests only).
+// MIBBI_GRAPH redirects Graph to a mock server and MIBBI_GRAPH_TOKEN skips sign-in (tests only).
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
 
-const GRAPH = process.env.LINBI_GRAPH || 'https://graph.microsoft.com/v1.0';
+const GRAPH = process.env.MIBBI_GRAPH || 'https://graph.microsoft.com/v1.0';
 const TTL = 10 * 60 * 1000;
 const hash = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 16);
 const cacheDir = (key) => { const d = path.join(app.getPath('userData'), 'remote-cache', 'sp-' + hash(key)); fs.mkdirSync(d, { recursive: true }); return d; };
 
 async function token() {
-  if (process.env.LINBI_GRAPH_TOKEN) return process.env.LINBI_GRAPH_TOKEN;
+  if (process.env.MIBBI_GRAPH_TOKEN) return process.env.MIBBI_GRAPH_TOKEN;
   try { return await require('./powerbi.cjs').token('graph'); } catch (e) {
     throw new Error(`SharePoint: accedere con l'account Microsoft (Home › Pubblica › Accedi) con un'app Entra che abbia i permessi Microsoft Graph Sites.Read.All e Files.Read.All. ${e.message}`);
   }

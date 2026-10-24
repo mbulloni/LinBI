@@ -1,4 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+app.commandLine.appendSwitch('no-sandbox');
+const migrate = require('./migrate.cjs');
+// Child started by the LinBI → MiB-BI migration: it only decrypts the old secrets (under the old name).
+if (migrate.childMode()) return;
+// Fixed name: settings folder ~/.config/mib-bi and the safeStorage key, the same for the AppImage and `npm start`.
+app.setName('mib-bi');
+migrate.moveOldConfig();
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -13,7 +20,6 @@ const scripts = require('./scripts.cjs');
 const remote = require('./remote.cjs');
 const { ensureSample, ensureDims } = require('./sample.cjs');
 
-app.commandLine.appendSwitch('no-sandbox');
 
 let win;
 
@@ -25,7 +31,7 @@ function createWindow() {
     minHeight: 650,
     frame: false,
     backgroundColor: '#ffffff',
-    title: 'LinBI',
+    title: 'MiB-BI',
     icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -35,9 +41,9 @@ function createWindow() {
   });
   if (process.env.VITE_DEV) win.loadURL('http://localhost:5173');
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
-  if (process.env.LINBI_SHOT) screenshotMode(process.env.LINBI_SHOT, process.env.LINBI_SCRIPT);
-  // `linbi report.lbix` / double click on a report file: open it once the UI is ready.
-  const arg = process.argv.slice(1).find((a) => /\.(lbix|pbix|pbit|pbip)$/i.test(a) && fs.existsSync(a));
+  if (process.env.MIBBI_SHOT) screenshotMode(process.env.MIBBI_SHOT, process.env.MIBBI_SCRIPT);
+  // `mib-bi report.mibx` / double click on a report file: open it once the UI is ready (old .lbix files too).
+  const arg = process.argv.slice(1).find((a) => /\.(mibx|lbix|pbix|pbit|pbip)$/i.test(a) && fs.existsSync(a));
   if (arg) win.webContents.once('did-finish-load', () => setTimeout(() => win.webContents.send('file:openArg', path.resolve(arg)), 300));
   win.on('maximize', () => win.webContents.send('win:state', true));
   win.on('unmaximize', () => win.webContents.send('win:state', false));
@@ -116,8 +122,8 @@ handle('shell:open', (url) => {
 
 // "Vai a Power BI": the Power BI service (app.powerbi.com) in a plain child window with its own
 // persistent session, so the user signs in with the Microsoft portal and browses the service as in a
-// browser. It is an isolated web view (no preload, no node, no LinBI bridge): LinBI neither reads its
-// cookies nor reuses its token — publishing goes through LinBI's own registered Entra app, not this session.
+// browser. It is an isolated web view (no preload, no node, no MiB-BI bridge): MiB-BI neither reads its
+// cookies nor reuses its token — publishing goes through MiB-BI's own registered Entra app, not this session.
 let portalWin;
 handle('pbi:openPortal', (url) => {
   const target = typeof url === 'string' && /^https:\/\/(app|msit)\.powerbi\.com\//.test(url) ? url : 'https://app.powerbi.com/home?experience=power-bi';
@@ -151,8 +157,8 @@ const FILTERS = {
   access: [{ name: 'Database di Access', extensions: ['accdb', 'mdb'] }],
   key: [{ name: 'Chiave (JSON, PEM, P8)', extensions: ['json', 'pem', 'p8', 'key'] }],
   any: [{ name: 'Tutti i file di dati', extensions: ['csv', 'txt', 'tsv', 'xlsx', 'json', 'ndjson', 'jsonl', 'parquet'] }],
-  lbix: [{ name: 'File LinBI', extensions: ['lbix'] }],
-  report: [{ name: 'Report (LinBI, Power BI)', extensions: ['lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File LinBI', extensions: ['lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
+  lbix: [{ name: 'File MiB-BI', extensions: ['mibx'] }],
+  report: [{ name: 'Report (MiB-BI, Power BI)', extensions: ['mibx', 'lbix', 'pbix', 'pbit', 'pbip'] }, { name: 'File MiB-BI', extensions: ['mibx', 'lbix'] }, { name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
   powerbi: [{ name: 'File Power BI', extensions: ['pbix', 'pbit', 'pbip'] }],
   pbip: [{ name: 'Progetto di Power BI', extensions: ['pbip'] }],
   pbit: [{ name: 'Modello di Power BI', extensions: ['pbit'] }],
@@ -162,9 +168,9 @@ const FILTERS = {
   pbiviz: [{ name: 'Oggetto visivo di Power BI', extensions: ['pbiviz'] }],
 };
 
-// Custom visual (.pbiviz = zip with package.json + resources/<guid>.pbiviz.json). LINBI_PBIVIZ_PATH skips the dialog.
+// Custom visual (.pbiviz = zip with package.json + resources/<guid>.pbiviz.json). MIBBI_PBIVIZ_PATH skips the dialog.
 handle('cv:import', async () => {
-  const file = process.env.LINBI_PBIVIZ_PATH
+  const file = process.env.MIBBI_PBIVIZ_PATH
     || await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS.pbiviz }).then((r) => (r.canceled ? null : r.filePaths[0]));
   if (!file) return null;
   const zip = await JSZip.loadAsync(fs.readFileSync(file));
@@ -182,17 +188,17 @@ handle('dialog:openData', async (kind) => {
   return r.canceled ? null : r.filePaths[0];
 });
 
-// .lbix: a zip with report.json and one Parquet file per table (data embedded like a .pbix).
-// `embed` lists the tables to export; plain JSON .lbix files (older versions) still open.
+// .mibx (.lbix before the rename to MiB-BI): a zip with report.json and one Parquet file per table (data embedded like a .pbix).
+// `embed` lists the tables to export; plain JSON files (older versions) still open.
 handle('file:save', async (content, existingPath, embed) => {
   let target = existingPath;
   if (!target) {
-    const r = await dialog.showSaveDialog(win, { defaultPath: 'Report.lbix', filters: FILTERS.lbix });
+    const r = await dialog.showSaveDialog(win, { defaultPath: 'Report.mibx', filters: FILTERS.lbix });
     if (r.canceled) return null;
-    target = r.filePath.endsWith('.lbix') ? r.filePath : r.filePath + '.lbix';
+    target = /\.(mibx|lbix)$/i.test(r.filePath) ? r.filePath : r.filePath + '.mibx';
   }
   if (!embed) { fs.writeFileSync(target, content); return target; }
-  const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'linbi-'));
+  const tmp = fs.mkdtempSync(path.join(app.getPath('temp'), 'mib-bi-'));
   try {
     const zip = new JSZip();
     zip.file('report.json', content);
@@ -212,13 +218,13 @@ handle('file:save', async (content, existingPath, embed) => {
 
 // Small text files (themes): open/save with a dialog.
 handle('file:readText', async (kind) => {
-  const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }
+  const r = process.env.MIBBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.MIBBI_OPEN_PATH] }
     : await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.any });
   if (r.canceled) return null;
   return { path: r.filePaths[0], content: fs.readFileSync(r.filePaths[0], 'utf8') };
 });
 handle('file:saveText', async (content, defaultPath, kind) => {
-  const r = process.env.LINBI_SAVE_PATH ? { canceled: false, filePath: process.env.LINBI_SAVE_PATH }
+  const r = process.env.MIBBI_SAVE_PATH ? { canceled: false, filePath: process.env.MIBBI_SAVE_PATH }
     : await dialog.showSaveDialog(win, { defaultPath, filters: FILTERS[kind] || FILTERS.any });
   if (r.canceled) return null;
   fs.writeFileSync(r.filePath, content);
@@ -229,7 +235,7 @@ handle('file:saveText', async (content, defaultPath, kind) => {
 handle('file:exportData', async (name, columns, rows, format) => {
   const { buildXlsx, buildCsv } = require('./xlsx.cjs');
   const ext = format === 'csv' ? 'csv' : 'xlsx';
-  const r = process.env.LINBI_SAVE_PATH ? { canceled: false, filePath: process.env.LINBI_SAVE_PATH }
+  const r = process.env.MIBBI_SAVE_PATH ? { canceled: false, filePath: process.env.MIBBI_SAVE_PATH }
     : await dialog.showSaveDialog(win, { defaultPath: `${String(name || 'data').replace(/[\\/:*?"<>|]/g, '_')}.${ext}`, filters: ext === 'csv' ? [{ name: 'File CSV', extensions: ['csv'] }] : FILTERS.excel });
   if (r.canceled) return null;
   fs.writeFileSync(r.filePath, ext === 'csv' ? buildCsv(columns, rows) : await buildXlsx(name, columns, rows));
@@ -237,8 +243,8 @@ handle('file:exportData', async (name, columns, rows, format) => {
 });
 
 handle('file:open', async (kind) => {
-  // LINBI_OPEN_PATH (scripted tests) skips the dialog.
-  const r = process.env.LINBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.LINBI_OPEN_PATH] }
+  // MIBBI_OPEN_PATH (scripted tests) skips the dialog.
+  const r = process.env.MIBBI_OPEN_PATH ? { canceled: false, filePaths: [process.env.MIBBI_OPEN_PATH] }
     : await dialog.showOpenDialog(win, { properties: ['openFile'], filters: FILTERS[kind] || FILTERS.report });
   if (r.canceled) return null;
   return readReport(r.filePaths[0]);
@@ -252,7 +258,7 @@ async function readReport(file) {
   // Embedded data: unpack the Parquet files next to each other in the user cache.
   const stat = fs.statSync(file);
   const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).digest('hex').slice(0, 16);
-  const dir = path.join(app.getPath('userData'), 'lbix-data', key);
+  const dir = path.join(app.getPath('userData'), 'mibx-data', key);
   const zip = await JSZip.loadAsync(buf);
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, entry] of Object.entries(zip.files)) {
@@ -266,16 +272,16 @@ async function readReport(file) {
 
 // ---- Power BI files -------------------------------------------------------
 
-/** Python with pbixray: LINBI_PYTHON, the project's .venv-pbix, ~/.config/linbi/pbix-venv (installed app), or python3. */
+/** Python with pbixray: MIBBI_PYTHON, the project's .venv-pbix, ~/.config/mib-bi/pbix-venv (installed app), or python3. */
 function pythonBin() {
-  if (process.env.LINBI_PYTHON) return process.env.LINBI_PYTHON;
+  if (process.env.MIBBI_PYTHON) return process.env.MIBBI_PYTHON;
   for (const venv of [path.join(__dirname, '..', '.venv-pbix', 'bin', 'python'), path.join(app.getPath('userData'), 'pbix-venv', 'bin', 'python')]) {
     if (fs.existsSync(venv)) return venv;
   }
   return 'python3';
 }
 const SETUP_PBIX = app.isPackaged
-  ? 'python3 -m venv ~/.config/linbi/pbix-venv && ~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow'
+  ? 'python3 -m venv ~/.config/mib-bi/pbix-venv && ~/.config/mib-bi/pbix-venv/bin/pip install pbixray pyarrow'
   : 'npm run setup:pbix (nella cartella del progetto)';
 
 handle('pbix:read', (file) => new Promise((resolve, reject) => {
@@ -283,7 +289,7 @@ handle('pbix:read', (file) => new Promise((resolve, reject) => {
   const stat = fs.statSync(file);
   // Packaged app: Python cannot read inside app.asar (electron/pbix is unpacked by electron-builder).
   const script = path.join(__dirname, 'pbix', 'read_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
-  // The reader's own content is part of the key: a newer LinBI re-reads files it extracted before.
+  // The reader's own content is part of the key: a newer MiB-BI re-reads files it extracted before.
   const key = crypto.createHash('sha1').update(file + stat.mtimeMs + stat.size).update(fs.readFileSync(script)).digest('hex').slice(0, 16);
   const outdir = path.join(app.getPath('userData'), 'pbix-cache', key);
   const cached = path.join(outdir, 'model.json');
@@ -294,7 +300,7 @@ handle('pbix:read', (file) => new Promise((resolve, reject) => {
       if (msg.includes('PBIXRAY_MISSING')) {
         return reject(new Error(`Per leggere i file .pbix serve la libreria Python "pbixray". Eseguire in un terminale: ${SETUP_PBIX}`));
       }
-      if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare LINBI_PYTHON.'));
+      if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare MIBBI_PYTHON.'));
       return reject(new Error('Lettura del file Power BI non riuscita: ' + msg.trim().split('\n').slice(-3).join(' ')));
     }
     resolve(JSON.parse(fs.readFileSync(cached, 'utf8')));
@@ -317,8 +323,8 @@ async function zipParts(parts) {
 }
 
 handle('pbit:save', async (parts, suggested) => {
-  // LINBI_PBIT_OUT (scripted tests) skips the save dialog.
-  const r = process.env.LINBI_PBIT_OUT ? { canceled: false, filePath: process.env.LINBI_PBIT_OUT }
+  // MIBBI_PBIT_OUT (scripted tests) skips the save dialog.
+  const r = process.env.MIBBI_PBIT_OUT ? { canceled: false, filePath: process.env.MIBBI_PBIT_OUT }
     : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbit', filters: FILTERS.pbit });
   if (r.canceled) return null;
   const target = r.filePath.toLowerCase().endsWith('.pbit') ? r.filePath : r.filePath + '.pbit';
@@ -329,11 +335,11 @@ handle('pbit:save', async (parts, suggested) => {
 // .pbix with data: every model table is exported from DuckDB to Parquet, electron/pbix/write_pbix.py writes the
 // DataModel (Analysis Services backup with VertiPaq storage) and it is zipped with the report parts.
 handle('pbix:save', async (parts, schema, extra, suggested, target0) => {
-  const r = target0 ? { canceled: false, filePath: target0 } : process.env.LINBI_PBIX_OUT ? { canceled: false, filePath: process.env.LINBI_PBIX_OUT }
+  const r = target0 ? { canceled: false, filePath: target0 } : process.env.MIBBI_PBIX_OUT ? { canceled: false, filePath: process.env.MIBBI_PBIX_OUT }
     : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbix', filters: FILTERS.pbix });
   if (r.canceled) return null;
   const target = r.filePath.toLowerCase().endsWith('.pbix') ? r.filePath : r.filePath + '.pbix';
-  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'linbi-pbix-'));
+  const dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'mib-bi-pbix-'));
   try {
     const existing = new Set((await db.query("SELECT table_name AS n FROM information_schema.tables WHERE table_schema = 'main'")).rows.map((x) => x.n));
     const tables = {};
@@ -350,13 +356,13 @@ handle('pbix:save', async (parts, schema, extra, suggested, target0) => {
     const script = path.join(__dirname, 'pbix', 'write_pbix.py').replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
     await new Promise((resolve, reject) => execFile(pythonBin(), [script, job], { maxBuffer: 1 << 26, timeout: 30 * 60 * 1000 }, (err, stdout, stderr) => {
       if (!err) return resolve();
-      if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare LINBI_PYTHON.'));
+      if (err.code === 'ENOENT') return reject(new Error('Python 3 non trovato. Installare python3 oppure impostare MIBBI_PYTHON.'));
       const msg = String(stderr || err.message);
-      if (/No module named '?(pyarrow|pbixray)/.test(msg)) return reject(new Error(`Per salvare in .pbix serve l'ambiente Python di LinBI. Eseguire in un terminale: ${SETUP_PBIX}`));
+      if (/No module named '?(pyarrow|pbixray)/.test(msg)) return reject(new Error(`Per salvare in .pbix serve l'ambiente Python di MiB-BI. Eseguire in un terminale: ${SETUP_PBIX}`));
       reject(new Error((msg.match(/ERRORE: (.*)/) || [null, msg.trim().split('\n').slice(-1)[0]])[1]));
     }));
     // Write next to the target and rename: an error never leaves a half-written .pbix in place of the old one.
-    const partial = target + '.linbi-tmp';
+    const partial = target + '.mib-bi-tmp';
     fs.writeFileSync(partial, await zipParts([...parts, { path: 'DataModel', buffer: fs.readFileSync(out), stored: true }]));
     fs.renameSync(partial, target);
     return target;
@@ -367,7 +373,7 @@ handle('pbix:save', async (parts, schema, extra, suggested, target0) => {
 
 // Power BI project: parts use __BASE__ for the project name chosen in the dialog.
 handle('pbip:save', async (parts, suggested) => {
-  const r = process.env.LINBI_PBIP_OUT ? { canceled: false, filePath: process.env.LINBI_PBIP_OUT }
+  const r = process.env.MIBBI_PBIP_OUT ? { canceled: false, filePath: process.env.MIBBI_PBIP_OUT }
     : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pbip', filters: FILTERS.pbip });
   if (r.canceled) return null;
   const target = r.filePath.toLowerCase().endsWith('.pbip') ? r.filePath : r.filePath + '.pbip';
@@ -378,7 +384,7 @@ handle('pbip:save', async (parts, suggested) => {
 
 // PDF export: the renderer lays out every page (print CSS, 1280×720 each) and Chromium prints it.
 handle('pdf:print', async (suggested) => {
-  const r = process.env.LINBI_PDF_OUT ? { canceled: false, filePath: process.env.LINBI_PDF_OUT }
+  const r = process.env.MIBBI_PDF_OUT ? { canceled: false, filePath: process.env.MIBBI_PDF_OUT }
     : await dialog.showSaveDialog(win, { defaultPath: suggested || 'Report.pdf', filters: FILTERS.pdf });
   if (r.canceled) return null;
   const target = r.filePath.toLowerCase().endsWith('.pdf') ? r.filePath : r.filePath + '.pdf';
@@ -392,7 +398,7 @@ ipcMain.on('win:maximize', () => (win.isMaximized() ? win.unmaximize() : win.max
 ipcMain.on('win:close', () => win.close());
 ipcMain.on('win:title', (_e, title) => win.setTitle(title));
 
-// Dev aid: LINBI_SHOT=out.png [LINBI_SCRIPT=steps.js] runs a script in the page, captures it, exits.
+// Dev aid: MIBBI_SHOT=out.png [MIBBI_SCRIPT=steps.js] runs a script in the page, captures it, exits.
 function screenshotMode(out, scriptFile) {
   win.webContents.once('did-finish-load', async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -411,5 +417,5 @@ function screenshotMode(out, scriptFile) {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => { migrate.reencrypt(); createWindow(); });
 app.on('window-all-closed', () => app.quit());

@@ -36,7 +36,7 @@ export function MobileLayoutView() {
         <div className="pq-note">Fare clic su un oggetto visivo per aggiungerlo al layout per dispositivi mobili.</div>
         {page.visuals.filter((v) => !isHiddenVisual(page, v)).map((v) => (
           <div key={v.id} className={'mobile-item' + (layout[v.id] ? ' on' : '')} onClick={() => (layout[v.id] ? s.selectVisual(v.id) : add(v.id))}
-            draggable onDragStart={(e) => e.dataTransfer.setData('application/x-linbi-mobile', v.id)}>
+            draggable onDragStart={(e) => e.dataTransfer.setData('application/x-mib-bi-mobile', v.id)}>
             <VisualIcon type={v.type} size={18} />
             <span>{v.format.titleText || autoTitle(v) || visualDef(v.type, v.custom).name}</span>
             {layout[v.id] ? <button title="Rimuovi dal layout" onClick={(e) => { e.stopPropagation(); set(v.id, null); }}>×</button> : <b>+</b>}
@@ -45,9 +45,9 @@ export function MobileLayoutView() {
         <button className="btn" style={{ marginTop: 12 }} onClick={() => s.set({ mobileLayout: false })}>Torna al layout del report</button>
       </div>
       <div className="mobile-stage">
-        <div className="phone" onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-linbi-mobile')) e.preventDefault(); }}
+        <div className="phone" onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-mib-bi-mobile')) e.preventDefault(); }}
           onDrop={(e) => {
-            const id = e.dataTransfer.getData('application/x-linbi-mobile');
+            const id = e.dataTransfer.getData('application/x-mib-bi-mobile');
             if (!id || layout[id]) return;
             const v = page.visuals.find((x) => x.id === id)!;
             const r = (e.currentTarget.querySelector('.page') as HTMLElement).getBoundingClientRect();

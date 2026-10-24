@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// PreToolUse hook (Bash): blocks destructive shell commands and reads of LinBI's stored secrets.
+// PreToolUse hook (Bash): blocks destructive shell commands and reads of MiB-BI's stored secrets.
 // Adapted from claude-assisted-project-boilerplate. Exit 2 = block, stderr = feedback to Claude.
-// Overrides: CLAUDE_LINBI_DISABLE_DANGEROUS_GATE=1 (session) | touch <tmp>/linbi-dangerous-unlock (10 min).
+// Overrides: CLAUDE_MIBBI_DISABLE_DANGEROUS_GATE=1 (session) | touch <tmp>/mib-bi-dangerous-unlock (10 min).
 import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const UNLOCK = join(tmpdir(), "linbi-dangerous-unlock");
-if (process.env.CLAUDE_LINBI_DISABLE_DANGEROUS_GATE === "1") process.exit(0);
+const UNLOCK = join(tmpdir(), "mib-bi-dangerous-unlock");
+if (process.env.CLAUDE_MIBBI_DISABLE_DANGEROUS_GATE === "1") process.exit(0);
 if (existsSync(UNLOCK) && (Date.now() - statSync(UNLOCK).mtimeMs) / 1000 < 600) process.exit(0);
 
 const BLOCKED = [
@@ -18,8 +18,8 @@ const BLOCKED = [
   [/git\s+filter-(branch|repo)|git\s+update-ref\s+-d/i, "history rewrite on a public repo"],
   [/gh\s+repo\s+(delete|edit\s+.*--visibility)/i, "repo deletion or visibility change"],
   [/\bdd\s+if=.*of=\/dev\/(sd|nvme|disk)/i, "disk overwrite"],
-  // LinBI userData secrets (Power BI refresh tokens, Claude key, Web credentials) — encrypted, but never dump them.
-  [/\b(cat|less|more|head|tail|strings|xxd|base64|cp|scp|curl)\b.*\.config\/(linbi|LinBI)\/(powerbi|claude|web-credentials|credentials)[^/\s]*\.json/i, "read/copy of LinBI stored credentials"],
+  // MiB-BI userData secrets (Power BI refresh tokens, Claude key, Web credentials) — encrypted, but never dump them.
+  [/\b(cat|less|more|head|tail|strings|xxd|base64|cp|scp|curl)\b.*\.config\/(mib-bi|MiB-BI)\/(powerbi|claude|web-credentials|credentials)[^/\s]*\.json/i, "read/copy of MiB-BI stored credentials"],
   [/\b(cat|less|more|head|tail)\b.*(\.env(?!\.example)\b|id_rsa\b|\.pem\b)/i, "read of a secret file"],
 ];
 
@@ -30,7 +30,7 @@ process.stdin.on("end", () => {
   try { command = JSON.parse(Buffer.concat(chunks).toString())?.tool_input?.command ?? ""; } catch { process.exit(0); }
   for (const [pattern, reason] of BLOCKED) {
     if (pattern.test(command)) {
-      process.stderr.write(`HOOK: command blocked (${reason}).\nOverride: CLAUDE_LINBI_DISABLE_DANGEROUS_GATE=1 | touch ${UNLOCK} (10 min).`);
+      process.stderr.write(`HOOK: command blocked (${reason}).\nOverride: CLAUDE_MIBBI_DISABLE_DANGEROUS_GATE=1 | touch ${UNLOCK} (10 min).`);
       process.exit(2);
     }
   }

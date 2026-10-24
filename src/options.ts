@@ -8,11 +8,12 @@ export interface GlobalOptions {
   locale?: string;
 }
 
-const KEY = 'linbi.options';
+const KEY = 'mib-bi.options';
 const DEFAULTS: GlobalOptions = { autoRelationships: true, locale: 'it-IT' };
 
 export function globalOptions(): GlobalOptions {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') }; } catch { return { ...DEFAULTS }; }
+  // Options saved before the rename to MiB-BI are still read.
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? localStorage.getItem('linbi.options') ?? '{}') }; } catch { return { ...DEFAULTS }; }
 }
 
 export function setGlobalOptions(patch: Partial<GlobalOptions>): GlobalOptions {

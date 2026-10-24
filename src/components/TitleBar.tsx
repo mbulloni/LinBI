@@ -25,8 +25,8 @@ export function TitleBar() {
     setMenu({ x: r.right - 260, y: r.bottom + 2 });
   };
   useEffect(() => api.win.onState(setMax), []);
-  const name = filePath ? filePath.split('/').pop()!.replace(/\.lbix$/, '') : sourceName ?? 'Senza titolo';
-  const title = `${name}${dirty ? ' *' : ''} - LinBI`;
+  const name = filePath ? filePath.split('/').pop()!.replace(/\.(mibx|lbix)$/, '') : sourceName ?? 'Senza titolo';
+  const title = `${name}${dirty ? ' *' : ''} - MiB-BI`;
   useEffect(() => api.win.setTitle(title), [title]);
 
   return (

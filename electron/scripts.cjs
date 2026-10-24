@@ -1,7 +1,7 @@
 // Python and R visuals, like Power BI Desktop: the visual's fields become `dataset`
 // (pandas DataFrame / R data.frame, duplicate rows removed), the script draws with
 // matplotlib / an R graphics device, the image is returned as a PNG data URL.
-// Python: LINBI_PYTHON, the project's .venv-pbix, ~/.config/linbi/pbix-venv, else python3. R: Rscript.
+// Python: MIBBI_PYTHON, the project's .venv-pbix, ~/.config/mib-bi/pbix-venv, else python3. R: Rscript.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -26,7 +26,7 @@ function setPaths(p) {
 let chosen = null;
 /** First interpreter that has pandas and matplotlib (checked once). */
 function python() {
-  if (process.env.LINBI_PYTHON) return process.env.LINBI_PYTHON;
+  if (process.env.MIBBI_PYTHON) return process.env.MIBBI_PYTHON;
   const own = paths().python;
   if (own) return own;
   if (chosen) return chosen;
@@ -35,7 +35,7 @@ function python() {
   for (const p of candidates) {
     try { execFileSync(p, ['-I', '-c', 'import pandas, matplotlib'], { stdio: 'ignore', timeout: 20000 }); chosen = p; return p; } catch { /* next */ }
   }
-  // None ready: point the install hint at LinBI's own environment when there is one.
+  // None ready: point the install hint at MiB-BI's own environment when there is one.
   return candidates.find((p) => p.includes('pbix-venv')) ?? candidates[0] ?? 'python3';
 }
 
@@ -71,7 +71,7 @@ const setup = (lang) => (lang === 'r'
 
 /** Runs a Python or R visual script; resolves to a data:image/png URL. */
 function run(lang, script, csv, width, height) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'linbi-script-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mib-bi-script-'));
   const files = { data: path.join(dir, 'dataset.csv'), script: path.join(dir, lang === 'r' ? 'script.R' : 'script.py'), runner: path.join(dir, lang === 'r' ? 'run.R' : 'run.py'), out: path.join(dir, 'out.png') };
   fs.writeFileSync(files.data, csv);
   fs.writeFileSync(files.script, script);

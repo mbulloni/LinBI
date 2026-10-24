@@ -26,7 +26,7 @@ export function resolveSource(source: TableMeta['source']): TableMeta['source'] 
   };
 }
 
-/** Power BI parameter query (`"x" meta [IsParameterQuery=true, Type="Text", …]`) → LinBI parameter. */
+/** Power BI parameter query (`"x" meta [IsParameterQuery=true, Type="Text", …]`) → MiB-BI parameter. */
 export function paramFromM(name: string, expression: string, description?: string): PQParam {
   const body = expression.replace(/\s+meta\s*\[[\s\S]*\]\s*$/, '').trim();
   const str = /^"((?:[^"]|"")*)"$/.exec(body);

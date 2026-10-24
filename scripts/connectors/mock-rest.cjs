@@ -1,5 +1,5 @@
 // Mock of Azure Data Explorer (Kusto REST v1) and Dataverse Web API (OData v4) for the connector tests.
-// node scripts/connectors/mock-rest.cjs 18090   then  LINBI_MS_TOKEN=x node scripts/connectors/test-driver.cjs ...
+// node scripts/connectors/mock-rest.cjs 18090   then  MIBBI_MS_TOKEN=x node scripts/connectors/test-driver.cjs ...
 const http = require('http');
 const rows = Array.from({ length: 12000 }, (_, i) => [i + 1, `Evento ${i + 1}`, new Date(Date.UTC(2024, 0, 1) + i * 60000).toISOString(), i % 5 ? i * 0.5 : null, i % 2 === 0, { k: i }]);
 http.createServer((req, res) => {

@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 // PreToolUse hook (Edit|Write): blocks edits to secrets and to generated/licensed data.
 // Adapted from claude-assisted-project-boilerplate. Exit 2 = block, stderr = feedback to Claude.
-// Overrides: CLAUDE_LINBI_DISABLE_PATH_GATE=1 (session) | touch <tmp>/linbi-path-unlock (10 min).
+// Overrides: CLAUDE_MIBBI_DISABLE_PATH_GATE=1 (session) | touch <tmp>/mib-bi-path-unlock (10 min).
 import { existsSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const UNLOCK = join(tmpdir(), "linbi-path-unlock");
-if (process.env.CLAUDE_LINBI_DISABLE_PATH_GATE === "1") process.exit(0);
+const UNLOCK = join(tmpdir(), "mib-bi-path-unlock");
+if (process.env.CLAUDE_MIBBI_DISABLE_PATH_GATE === "1") process.exit(0);
 if (existsSync(UNLOCK) && (Date.now() - statSync(UNLOCK).mtimeMs) / 1000 < 600) process.exit(0);
 
 const PROTECTED = [
   [/(^|\/)\.env(\.|$)/i, "environment file (secrets)"],
   [/\.(pem|key|p12)$/i, "key material"],
-  [/\.config\/(linbi|LinBI)\/(powerbi|claude|web-credentials)[^/]*\.json$/i, "LinBI stored credentials (safeStorage)"],
+  [/\.config\/(mib-bi|MiB-BI)\/(powerbi|claude|web-credentials)[^/]*\.json$/i, "MiB-BI stored credentials (safeStorage)"],
   [/(^|\/)src\/geo\/[^/]+\.json$/i, "generated geo data (Natural Earth / US Census / ISTAT / GeoNames): regenerate with scripts/build-geo.mjs"],
   [/(^|\/)LICENSE$/, "license"],
 ];
@@ -26,7 +26,7 @@ process.stdin.on("end", () => {
   const p = file.replace(/\\/g, "/");
   for (const [pattern, reason] of PROTECTED) {
     if (pattern.test(p)) {
-      process.stderr.write(`HOOK: edit blocked.\nPath: ${p}\nReason: ${reason}\nOverride: CLAUDE_LINBI_DISABLE_PATH_GATE=1 | touch ${UNLOCK} (10 min).`);
+      process.stderr.write(`HOOK: edit blocked.\nPath: ${p}\nReason: ${reason}\nOverride: CLAUDE_MIBBI_DISABLE_PATH_GATE=1 | touch ${UNLOCK} (10 min).`);
       process.exit(2);
     }
   }

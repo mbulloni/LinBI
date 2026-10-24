@@ -90,7 +90,7 @@ export function persist(objs: Objects | undefined, changes: any): Objects {
 /* ------------------------------ JSON filters ----------------------------- */
 
 const pad = (n: number) => String(n).padStart(2, '0');
-/** Value from a visual's filter → LinBI filter value (text form of the column, like CAST(... AS VARCHAR)). */
+/** Value from a visual's filter → MiB-BI filter value (text form of the column, like CAST(... AS VARCHAR)). */
 function filterValue(v: unknown, col?: ColumnMeta): string {
   if (v === null || v === undefined) return NULL_KEY;
   const d = v instanceof Date ? v : typeof v === 'string' && col && /^(DATE|TIMESTAMP)/i.test(col.type) && !isNaN(Date.parse(v)) ? new Date(v) : null;
@@ -101,7 +101,7 @@ function filterValue(v: unknown, col?: ColumnMeta): string {
   return String(v);
 }
 
-/** Basic "In" filters of host.applyJsonFilter → LinBI filters on the target columns.
+/** Basic "In" filters of host.applyJsonFilter → MiB-BI filters on the target columns.
  *  Advanced (range) filters on a column become the list of its values in range. */
 export function jsonFilterToFilters(f: any, tables: TableMeta[], distinct?: (t: string, c: string) => string[] | undefined): Filter[] {
   const list = Array.isArray(f) ? f : f ? [f] : [];
@@ -109,7 +109,7 @@ export function jsonFilterToFilters(f: any, tables: TableMeta[], distinct?: (t: 
   for (const x of list) {
     const target = Array.isArray(x?.target) ? x.target : [x?.target];
     if (x?.operator === 'In' && Array.isArray(x.values)) {
-      // Tuple filters (several targets): one LinBI filter per target column.
+      // Tuple filters (several targets): one MiB-BI filter per target column.
       target.forEach((t: any, i: number) => {
         const col = tables.find((tb) => tb.name === t?.table)?.columns.find((c) => c.name === t?.column);
         if (!col) return;
@@ -141,7 +141,7 @@ export function jsonFilterToFilters(f: any, tables: TableMeta[], distinct?: (t: 
   return out;
 }
 
-/** LinBI "In" filter → Power BI basic JSON filter (restores the visual's selection). */
+/** MiB-BI "In" filter → Power BI basic JSON filter (restores the visual's selection). */
 export function basicJsonFilter(f: Filter, col?: ColumnMeta) {
   const num = col && /INT|DOUBLE|DECIMAL|FLOAT|REAL|NUMERIC/i.test(col.type);
   return {

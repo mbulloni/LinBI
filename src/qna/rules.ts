@@ -184,7 +184,7 @@ function arrange(visual: VisualType, dims: QnaSpec['fields'], values: QnaSpec['f
   return [...dims.slice(0, 1), ...(one ? [] : dims.slice(1, 2).map((f) => ({ ...f, well: 'legend' }))), ...(one ? values.slice(0, 1) : values)];
 }
 
-/** A spec (local or from Claude) as a LinBI visual; fields that do not exist in the model are dropped. */
+/** A spec (local or from Claude) as a MiB-BI visual; fields that do not exist in the model are dropped. */
 export function toVisual(spec: QnaSpec, base: Pick<Visual, 'id' | 'x' | 'y' | 'w' | 'h' | 'z'>, tables: TableMeta[], measures: Measure[]): Visual {
   const type = (visualDef(spec.visual as VisualType).wells.length ? spec.visual : 'table') as VisualType;
   const wells = new Set(visualDef(type).wells.map((w) => w.key));

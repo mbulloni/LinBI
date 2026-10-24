@@ -1,10 +1,13 @@
-# LinBI
+# MiB-BI
 
 Clone **educativo** di Power BI Desktop per Linux: stessa struttura dell'interfaccia
 (ribbon, viste Report/Tabella/Modello, riquadri Filtri · Visualizzazioni · Dati) e
 stesso flusso di lavoro (Ottieni dati → Strumento di navigazione → trascina i campi → report).
 
 Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
+
+> Prima si chiamava **LinBI**. Al primo avvio MiB-BI sposta le impostazioni da `~/.config/linbi` a `~/.config/mib-bi`
+> (credenziali comprese) e apre ancora i report `.lbix`; i nuovi report si salvano come `.mibx`.
 
 ## Screenshot
 
@@ -22,8 +25,8 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Analisi** — previsione con intervallo di confidenza, area ombreggiata, barre di errore da campi, formato dinamico di un elemento di calcolo | **Pubblica** — accesso con l'account aziendale, ricerca tra tutte le aree di lavoro, scelta della destinazione |
 | ![Ottieni dati › Power BI](docs/screenshots/service.png) | ![File › Salva come file Power BI (.pbix)](docs/screenshots/salva-pbix.png) |
 | **Ottieni dati › Power BI** — report (.pbix) e modelli semantici delle proprie aree di lavoro | **File › Salva come file Power BI (.pbix)** — report, modello e dati in un vero `.pbix` |
-| ![Report salvato da LinBI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | ![Strumento di navigazione su SQL Server](docs/screenshots/connettori.png) |
-| **Il `.pbix` di LinBI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | **Database SQL Server** — tabelle e viste con anteprima; anche Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB, Access, ODBC |
+| ![Report salvato da MiB-BI aperto in Power BI Desktop](docs/screenshots/pbix-in-power-bi-desktop.png) | ![Strumento di navigazione su SQL Server](docs/screenshots/connettori.png) |
+| **Il `.pbix` di MiB-BI in Power BI Desktop** — misura DAX, colonna calcolata, gerarchia, ruolo e dati caricati senza aggiornare | **Database SQL Server** — tabelle e viste con anteprima; anche Oracle, Snowflake, BigQuery, Databricks, ClickHouse, MongoDB, Access, ODBC |
 | ![Modifica interazioni: evidenziazione incrociata](docs/screenshots/interazioni.png) | ![Nuovi filtri dei dati e Sincronizza filtri dei dati](docs/screenshots/filtri-dati.png) |
 | **Modifica interazioni** — evidenziazione (barre piene/sbiadite), filtro o nessuna, per ogni coppia di oggetti visivi | **Filtri dei dati** — Tra (date e numeri), data relativa, testo, pulsanti; **Sincronizza filtri dei dati** tra le pagine |
 | ![Mostra come tabella ed Esporta dati](docs/screenshots/mostra-tabella.png) | |
@@ -31,25 +34,25 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 
 ## Scaricare e installare
 
-Dalla pagina [Releases](https://github.com/mbulloni/LinBI/releases) (Linux x64):
+Dalla pagina [Releases](https://github.com/mbulloni/MiB-BI/releases) (Linux x64):
 
 ```bash
 # AppImage (qualsiasi distribuzione)
-chmod +x LinBI-1.4.0.AppImage && ./LinBI-1.4.0.AppImage
+chmod +x MiB-BI-<versione>.AppImage && ./MiB-BI-<versione>.AppImage
 
 # oppure pacchetto Debian/Ubuntu (voce di menu e associazioni file incluse)
-sudo apt install ./linbi_1.4.0_amd64.deb
+sudo apt install ./mib-bi_<versione>_amd64.deb
 ```
 
 Per aprire e salvare i file `.pbix` di Power BI serve Python 3 con la libreria `pbixray` (una volta sola):
 
 ```bash
 sudo apt install python3-venv     # se manca il modulo venv
-python3 -m venv ~/.config/linbi/pbix-venv
-~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow
+python3 -m venv ~/.config/mib-bi/pbix-venv
+~/.config/mib-bi/pbix-venv/bin/pip install pbixray pyarrow
 ```
 
-LinBI usa da solo questo ambiente. I file `.pbit`, `.pbip`, `.lbix` e tutte le altre origini non richiedono Python.
+MiB-BI usa da solo questo ambiente. I file `.pbit`, `.pbip`, `.mibx` e tutte le altre origini non richiedono Python.
 La prima volta che si usano Excel o un database, DuckDB scarica la relativa estensione (serve la rete).
 
 ## Sviluppo
@@ -66,23 +69,23 @@ npm run dist     # AppImage in release/ (npm run dist:deb per il .deb)
 ### Installazione (utente, senza root)
 
 ```bash
-install -m 755 release/LinBI-1.4.0.AppImage ~/Applications/LinBI.AppImage
-ln -sf ~/Applications/LinBI.AppImage ~/.local/bin/linbi
-# icone in ~/.local/share/icons/hicolor/*/apps/linbi.png (da build/icons), voce di menu
-# ~/.local/share/applications/linbi.desktop (Exec=…/LinBI.AppImage %f) e tipi MIME .lbix/.pbix/.pbit/.pbip
-python3 -m venv ~/.config/linbi/pbix-venv && ~/.config/linbi/pbix-venv/bin/pip install pbixray pyarrow   # apertura .pbix
+install -m 755 release/MiB-BI-<versione>.AppImage ~/Applications/MiB-BI.AppImage
+ln -sf ~/Applications/MiB-BI.AppImage ~/.local/bin/mib-bi
+# icone in ~/.local/share/icons/hicolor/*/apps/mib-bi.png (da build/icons), voce di menu
+# ~/.local/share/applications/mib-bi.desktop (Exec=…/MiB-BI.AppImage %f) e tipi MIME .mibx/.pbix/.pbit/.pbip
+python3 -m venv ~/.config/mib-bi/pbix-venv && ~/.config/mib-bi/pbix-venv/bin/pip install pbixray pyarrow   # apertura .pbix
 ```
 
-`linbi report.lbix` (o doppio clic su un file associato) apre il report all'avvio.
+`mib-bi report.mibx` (o doppio clic su un file associato) apre il report all'avvio.
 
 ## Architettura
 
-| Power BI          | LinBI                                                         |
+| Power BI          | MiB-BI                                                         |
 |-------------------|---------------------------------------------------------------|
 | VertiPaq          | DuckDB in-memory (`electron/db.cjs`)                           |
 | Query DAX dei visual | SQL generato da `src/query.ts` (GROUP BY + filtri)          |
 | Visual            | Apache ECharts + componenti React (`src/visuals/`)             |
-| File .pbix        | `.lbix`: zip con `report.json` (report, origini, passaggi, DAX) e un Parquet per tabella |
+| File .pbix        | `.mibx`: zip con `report.json` (report, origini, passaggi, DAX) e un Parquet per tabella |
 
 Flusso: `Data pane` → drag/checkbox → `store.addField` (posizionamento automatico nei
 contenitori) → `buildVisualQuery` → IPC `db:query` → render.
@@ -113,7 +116,7 @@ con il codice M del passaggio selezionato, *Impostazioni query* con i **passaggi
 | Aggiungi colonna | Colonna personalizzata (formula M: `[Col]`, aritmetica, `&`, `if … then … else`, `Text.*`, `Number.*`, `Date.*`), Colonna indice |
 | Combina | Unisci query (join esterno sx/dx/completo, interno, anti), Accoda query, Duplica / Riferimento query, Nuova origine |
 
-Ogni passaggio è salvato nella tabella (`steps`, anche nel `.lbix`) e compilato da `src/pq/compile.ts` in una
+Ogni passaggio è salvato nella tabella (`steps`, anche nel `.mibx`) e compilato da `src/pq/compile.ts` in una
 **pipeline SQL**: una CTE per passaggio, con una colonna nascosta `__r` che conserva l'ordine delle righe come fa
 Power Query. Le query referenziate (Riferimento, Unisci, Accoda) vengono incorporate come sottoquery, quindi le bozze
 dell'editor si vedono a vicenda prima di *Chiudi e applica*. Lo stesso elenco di passaggi genera il codice M
@@ -181,7 +184,7 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
   filtro si propaga dal lato uno al lato molti. **Visualizza come**: uno o più ruoli (unione delle righe) e *Altro utente* per
   `USERPRINCIPALNAME()`. Le tabelle filtrate vengono copiate in uno schema DuckDB separato letto da una seconda connessione,
   così nessuna misura (nemmeno con `ALL`) vede righe escluse dal ruolo.
-- Tutto viene salvato nel `.lbix`, importato da `.pbix`/`.pbit`/`.pbip` (TMSL e TMDL) ed esportato nel modello
+- Tutto viene salvato nel `.mibx`, importato da `.pbix`/`.pbit`/`.pbip` (TMSL e TMDL) ed esportato nel modello
   (`hierarchies`, `displayFolder`, `dataCategory: Time` + `isKey`, `calculationGroup`, `roles`).
 
 - Gli elementi di calcolo trasformano anche le misure richiamate dentro altre misure e dentro altri elementi, come in
@@ -199,7 +202,7 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
 
 Limiti noti: i dataset push non supportano ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI); delle barre di
 errore e della previsione i file Power BI conservano solo aspetto e attivazione (tipo, limiti da campi, lunghezza e
-confidenza restano nel `.lbix`), perché i nomi di quelle proprietà non sono documentati nello schema ufficiale.
+confidenza restano nel `.mibx`), perché i nomi di quelle proprietà non sono documentati nello schema ufficiale.
 
 ## File Power BI
 
@@ -212,7 +215,7 @@ confidenza restano nel `.lbix`), perché i nomi di quelle proprietà non sono do
 | **Salvare `.pbip`** | Sì (File › Salva come progetto Power BI): `X.pbip`, `X.Report/report.json`, `X.SemanticModel/model.bim`, risorse e tema; file di testo adatti a git. |
 | **Salvare `.pbit`** | Sì (File › Esporta modello Power BI): modello TOM, query M per ogni tabella, misure, relazioni, layout e immagini. Power BI Desktop ricarica i dati dalle origini, poi si salva come `.pbix`. |
 | **Salvare `.pbix`** | Sì (File › *Salva come file Power BI (.pbix)*; *Salva* su un report aperto da `.pbix`): report, modello e **dati**, apribile in Power BI Desktop senza aggiornare. Vedi *Writer `.pbix`* sotto. |
-| **Aprire `.pbix` recenti** | Sì: i file salvati dalle versioni recenti di Power BI Desktop (colonne in formato `.idfx`) e quelli scritti da LinBI. |
+| **Aprire `.pbix` recenti** | Sì: i file salvati dalle versioni recenti di Power BI Desktop (colonne in formato `.idfx`) e quelli scritti da MiB-BI. |
 
 Limiti dell'import: i tipi di visual sconosciuti (né standard né `.pbiviz` incorporato nel file) diventano segnaposto;
 i report in connessione dinamica (Power BI Service/SSAS) non contengono dati: si aprono da *Ottieni dati › Power BI*.
@@ -221,7 +224,7 @@ Le misure DAX importate passano dal motore della fase 5; una funzione non suppor
 ### Writer `.pbix` (fase 11)
 
 Il `DataModel` di un `.pbix` è il backup di un database Analysis Services (ABF) con `metadata.sqlitedb` (il modello
-TOM) e i file colonna VertiPaq. LinBI lo scrive da zero in `electron/pbix/pbixwrite/` (Python, ambiente `pbix-venv`):
+TOM) e i file colonna VertiPaq. MiB-BI lo scrive da zero in `electron/pbix/pbixwrite/` (Python, ambiente `pbix-venv`):
 
 - **`abf.py`** — contenitore ABF (senza checksum, accettato dal motore) e compressione **XPress9** come Power BI Desktop
   (firma + blocchi da 2 MiB);
@@ -237,19 +240,19 @@ TOM) e i file colonna VertiPaq. LinBI lo scrive da zero in `electron/pbix/pbixwr
 
 *File › Salva come file Power BI (.pbix)*: il main esporta ogni tabella DuckDB in Parquet, `write_pbix.py` scrive il
 DataModel (calcolando le tabelle date automatiche) e lo zip contiene le stesse parti del `.pbit` con `DataModel` al
-posto di `DataModelSchema`. *Salva* riscrive un `.pbix` già salvato da LinBI; un `.pbix` importato passa sempre dalla
+posto di `DataModelSchema`. *Salva* riscrive un `.pbix` già salvato da MiB-BI; un `.pbix` importato passa sempre dalla
 finestra di dialogo (l'originale non viene sostituito senza chiederlo).
 
 Verifica: `scripts/pbix-oracle/` usa una seconda istanza del motore di Power BI Desktop (`msmdsrv.exe` in modalità con
 disco) in una VM Windows: crea modelli di riferimento via TMSL, ne fa il **Backup** e confronta byte per byte gli
 encoder (`test_vs_o3.py`, `test_vs_o4.py`), poi fa il **Restore** dei database generati e confronta le query DAX
 (`test_g4.py`, `test_g7.py`, `test_big.py`: 2,5 milioni di righe, 300.000 testi distinti, nomi speciali; `test_vs_o9.py`:
-segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power BI Desktop 2.159 (ottobre 2026).
+segmenti multipli byte per byte). I `.pbix` di MiB-BI sono stati aperti in Power BI Desktop 2.159 (ottobre 2026).
 
 ### File, temi e PDF (fase 6)
 
-- **Salva** produce un `.lbix` con i **dati incorporati** (Parquet compresso zstd, come i dati dentro un `.pbix`): il
-  report si riapre anche senza le origini; *Aggiorna* ricarica dalle origini originali. I vecchi `.lbix` JSON si aprono ancora.
+- **Salva** produce un `.mibx` con i **dati incorporati** (Parquet compresso zstd, come i dati dentro un `.pbix`): il
+  report si riapre anche senza le origini; *Aggiorna* ricarica dalle origini originali. I vecchi `.mibx` JSON si aprono ancora.
 - **Temi** (Visualizza › Temi): galleria di temi incorporati, *Sfoglia temi…* per importare un file JSON di tema Power BI
   (`name`, `dataColors`, `background`, `foreground`, `tableAccent`), *Salva tema corrente*. Il tema colora grafici e
   sfondi, viene salvato nel report, esportato nel `.pbit`/`.pbip` come tema personalizzato e letto dai file Power BI.
@@ -261,7 +264,7 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 
 | Connettore | Come si collega | Autenticazione |
 |---|---|---|
-| SQL Server, SQL di Azure, Azure Synapse, Microsoft Fabric (endpoint SQL / Warehouse) | driver `mssql` (tedious, JavaScript) | database, Windows (NTLM con dominio), account Microsoft di LinBI (token Entra), Entra ID utente+password; crittografia e certificato |
+| SQL Server, SQL di Azure, Azure Synapse, Microsoft Fabric (endpoint SQL / Warehouse) | driver `mssql` (tedious, JavaScript) | database, Windows (NTLM con dominio), account Microsoft di MiB-BI (token Entra), Entra ID utente+password; crittografia e certificato |
 | Oracle | `oracledb` in modalità thin (senza Instant Client) | utente e password; `host:porta/servizio` o descrittore TNS |
 | MySQL, MariaDB, PostgreSQL, Database di Azure per PostgreSQL/MySQL, Amazon Redshift, SQLite | estensioni DuckDB (`ATTACH … READ_ONLY`) | utente e password |
 | Snowflake | `snowflake-sdk` | password, coppia di chiavi, SSO nel browser |
@@ -271,20 +274,20 @@ segmenti multipli byte per byte). I `.pbix` di LinBI sono stati aperti in Power 
 | MongoDB | driver `mongodb` (collezioni → tabelle, campi annidati `a.b`, array come JSON) | utente e password o stringa di connessione |
 | Access (`.accdb`, `.mdb`) | `mdb-reader` (JavaScript, nessun driver) | — |
 | ODBC (SAP HANA, Db2, Teradata, Informix, Vertica, Exasol…) | modulo `odbc` su unixODBC: DSN o stringa di connessione | quella del driver |
-| Azure Data Explorer (Kusto) | API REST v1 (tabelle e query KQL) | account Microsoft di LinBI |
-| Dataverse (Power Platform, Dynamics 365) | Web API OData v4 con paginazione | account Microsoft di LinBI |
+| Azure Data Explorer (Kusto) | API REST v1 (tabelle e query KQL) | account Microsoft di MiB-BI |
+| Dataverse (Power Platform, Dynamics 365) | Web API OData v4 con paginazione | account Microsoft di MiB-BI |
 
 Lo **Strumento di navigazione** elenca tabelle e viste con anteprima; *Opzioni avanzate › Istruzione SQL* importa il
 risultato di una query nativa (`Query1`), come in Power BI; in Power Query l'ingranaggio del passaggio *Origine* modifica
 server, database e istruzione SQL. Le connessioni usate compaiono in *Origini recenti* (senza password). I driver Node leggono i dati in streaming in un CSV
 tipizzato che DuckDB converte in Parquet (`userData/db-cache`, riletto da *Aggiorna*): tipi conservati (decimali,
 valuta, date/ore, booleani, binari, Unicode). Le password non finiscono mai nel report: sono cifrate con il portachiavi
-di sistema (Electron `safeStorage`) in `~/.config/linbi/credentials.json`, oppure tenute solo per la sessione.
+di sistema (Electron `safeStorage`) in `~/.config/mib-bi/credentials.json`, oppure tenute solo per la sessione.
 Nei file Power BI l'origine diventa la funzione M che usa Power BI Desktop (`Sql.Database`, `Oracle.Database`,
 `Snowflake.Databases`, `GoogleBigQuery.Database`, `Databricks.Catalogs`, `AmazonRedshift.Database`, `Access.Database`,
 `Odbc.DataSource`, `[Query=…]` / `Value.NativeQuery` per le istruzioni SQL).
 
-Verificati con database reali in container Docker (`scripts/connectors/`): SQL Server 2022 (anche dentro LinBI:
+Verificati con database reali in container Docker (`scripts/connectors/`): SQL Server 2022 (anche dentro MiB-BI:
 navigatore, istruzione SQL, Aggiorna, export `.pbit`/`.pbix`), Oracle Database Free 23, ClickHouse 24, MongoDB 7,
 emulatore BigQuery, Access e ODBC (driver SQLite); anche dentro l'AppImage. Azure Data Explorer e Dataverse: provati contro un server che riproduce le loro API
 (`scripts/connectors/mock-rest.cjs`). Snowflake e Databricks non hanno un equivalente locale: implementati sulle API
@@ -296,27 +299,27 @@ ufficiali; questi quattro restano da verificare su un account reale.
 (`electron/powerbi.cjs`). Il flusso è quello di Power BI Desktop: **1.** si inserisce l'e-mail aziendale e si
 accede nella pagina Microsoft della propria organizzazione (browser di sistema, codice di autorizzazione + PKCE con
 reindirizzamento su `http://localhost`; il tenant viene ricavato dal dominio dell'e-mail; in alternativa il codice
-dispositivo); **2.** LinBI cerca **tutte** le aree di lavoro dell'account (con casella di ricerca; quelle in sola
+dispositivo); **2.** MiB-BI cerca **tutte** le aree di lavoro dell'account (con casella di ricerca; quelle in sola
 lettura non sono selezionabili); **3.** si sceglie l'area di lavoro e il nome, poi *Pubblica*.
 
-*Accedi* (barra del titolo, Pubblica, Ottieni dati › Power BI) chiede sempre per prima l'e-mail aziendale. Se LinBI non
+*Accedi* (barra del titolo, Pubblica, Ottieni dati › Power BI) chiede sempre per prima l'e-mail aziendale. Se MiB-BI non
 è ancora autorizzata nell'organizzazione (nessuna app configurata), chiede solo l'**ID applicazione** fornito dall'IT e
 prosegue con l'accesso; *Istruzioni da inviare all'IT* mostra la procedura di registrazione completa.
 
 **Vai a Power BI** (menu account, Pubblica, Ottieni dati › Power BI) apre il servizio Power BI (`app.powerbi.com`) in una
 finestra con sessione propria: si accede con le credenziali Microsoft dell'organizzazione e si naviga il servizio come nel
-browser, senza bisogno dell'ID applicazione. È una vista web isolata: LinBI non ne legge i cookie né ne riusa il token.
-Per *pubblicare* da LinBI serve comunque l'app registrata (sopra): sono due autorizzazioni distinte — la licenza del proprio
+browser, senza bisogno dell'ID applicazione. È una vista web isolata: MiB-BI non ne legge i cookie né ne riusa il token.
+Per *pubblicare* da MiB-BI serve comunque l'app registrata (sopra): sono due autorizzazioni distinte — la licenza del proprio
 account (in genere Pro) e l'app che Microsoft consente di far accedere a Power BI a proprio nome.
 
 Serve un'app registrata in Microsoft Entra ID (client pubblico, piattaforma *App per dispositivi mobili e desktop*
 con `http://localhost`, autorizzazioni delegate *Power BI Service*: Workspace.Read.All, Dataset.ReadWrite.All,
 Report.ReadWrite.All, Content.Create, Item.ReadWrite.All). Può essere quella dell'IT aziendale (*Impostazioni app*)
-oppure un'app **multi-tenant** distribuita con LinBI (`electron/pbi-app.json` = `{ "clientId": "…" }` o
-`LINBI_PBI_CLIENT_ID`): in quel caso non si configura nulla, ma al primo accesso il tenant chiede il consenso
+oppure un'app **multi-tenant** distribuita con MiB-BI (`electron/pbi-app.json` = `{ "clientId": "…" }` o
+`MIBBI_PBI_CLIENT_ID`): in quel caso non si configura nulla, ma al primo accesso il tenant chiede il consenso
 (dell'utente o, se l'organizzazione lo richiede, dell'amministratore). Gli errori di Entra più comuni (consenso
 mancante, approvazione dell'amministratore, accesso condizionale, URI di reindirizzamento) vengono spiegati con
-cosa chiedere all'IT. Il token di aggiornamento è cifrato con `safeStorage` in `~/.config/linbi/powerbi.json`.
+cosa chiedere all'IT. Il token di aggiornamento è cifrato con `safeStorage` in `~/.config/mib-bi/powerbi.json`.
 **Profili**: uno per ogni app/tenant, ciascuno con il proprio accesso salvato.
 
 **Ottieni dati › Power BI (report e modelli semantici)**: con lo stesso accesso, l'elenco delle aree di lavoro e il
@@ -338,9 +341,9 @@ righe per tabella) e importato con relazioni, misure e cartelle.
 
 Non verificato su un tenant reale: i flussi (accesso dal browser, elenco aree di lavoro, pubblicazione, download
 dei report, lettura dei modelli) sono provati contro un server finto che riproduce le API
-(`LINBI_PBI_LOGIN`/`LINBI_PBI_API`, `LINBI_PBI_BROWSER_FETCH=1` segue il reindirizzamento senza aprire il browser).
+(`MIBBI_PBI_LOGIN`/`MIBBI_PBI_API`, `MIBBI_PBI_BROWSER_FETCH=1` segue il reindirizzamento senza aprire il browser).
 Restano anche le alternative su file: `.pbit` per Power BI Desktop, progetto `.pbip` per l'integrazione Git di
-Fabric, PDF, `.lbix` con i dati.
+Fabric, PDF, `.mibx` con i dati.
 
 ## Funzionalità (fasi 1–6)
 
@@ -357,11 +360,11 @@ Fabric, PDF, `.lbix` con i dati.
 - Vista modello: tabelle trascinabili, linee di relazione con cardinalità (1 / *) e direzione del filtro, trascina colonna → colonna per creare una relazione, Canc per eliminarla
 - Gestisci relazioni, Nuova/Modifica relazione con anteprima, validazione della cardinalità e dei percorsi attivi, rilevamento automatico
 - Dati di esempio a stella: `financials` + `products` + `countries`
-- Annulla/Ripeti, copia/incolla/duplica visual, salva/apri `.lbix`
+- Annulla/Ripeti, copia/incolla/duplica visual, salva/apri `.mibx`
 - Scorciatoie: Ctrl+S/O/Z/Y/C/V/D, Canc, frecce (Shift = 10px)
 - Editor di Power Query con passaggi applicati, codice M e SQL equivalente (vedi sopra)
 - DAX: misure, colonne e tabelle calcolate, vista query DAX (vedi sopra)
-- `.lbix` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
+- `.mibx` con dati incorporati, temi, esportazione PDF, progetti `.pbip` (PBIR/TMDL)
 - Mappe (a bolle, con torte per legenda, e colorate) senza connessione: paesi, stati USA, regioni/province/comuni italiani,
   ~7.300 città del mondo, oppure latitudine/longitudine; zoom e trascinamento, filtro incrociato
 - Oggetti visivi IA: albero di scomposizione (divisione IA valore alto/basso), influenzatori chiave (destinazione numerica o
@@ -432,18 +435,18 @@ IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio 
 **Limiti noti**:
 - dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);
 - previsione e barre di errore: nei file Power BI solo aspetto e attivazione (lunghezza, confidenza e limiti da campi
-  restano nel `.lbix`, nomi non presenti nello schema ufficiale);
+  restano nel `.mibx`, nomi non presenti nello schema ufficiale);
 - modelli semantici dal servizio: max 100.000 righe per tabella, senza pagine.
 
 **Possibili prossimi passi**: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint.
 
 ## Test di fumo
 
-`LINBI_SHOT=out.png LINBI_SCRIPT=passi.js npx electron . --no-sandbox` esegue `passi.js`
-nella pagina (lo store è esposto come `window.__linbi`, il query builder come `window.__linbiQuery`, la query di un visual
-con i filtri e il ruolo correnti come `window.__linbiRun(visual)`),
+`MIBBI_SHOT=out.png MIBBI_SCRIPT=passi.js npx electron . --no-sandbox` esegue `passi.js`
+nella pagina (lo store è esposto come `window.__mibbi`, il query builder come `window.__mibbiQuery`, la query di un visual
+con i filtri e il ruolo correnti come `window.__mibbiRun(visual)`),
 stampa il valore restituito dallo script (`SCRIPT_RESULT {...}`), cattura uno screenshot ed esce.
-`LINBI_PBIT_OUT=out.pbit` salva l'esportazione `.pbit` senza finestra di dialogo. File `.pbix` di prova: cartella `data/`
+`MIBBI_PBIT_OUT=out.pbit` salva l'esportazione `.pbit` senza finestra di dialogo. File `.pbix` di prova: cartella `data/`
 del repository di pbixray (sample Microsoft).
 
 ## Dati geografici

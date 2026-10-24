@@ -122,7 +122,7 @@ async function materialize(tableName, sql) {
 // Calculated column: rebuilds the table with the column appended (row order kept).
 async function addCalcColumn(table, column, expr, replace) {
   const c = await connection();
-  const tmp = '__linbi_calc';
+  const tmp = '__mibbi_calc';
   await c.run(`CREATE OR REPLACE TABLE ${qi(tmp)} AS SELECT r.*${replace ? ` EXCLUDE (${qi(column)})` : ''}, (${expr}) AS ${qi(column)} FROM ${qi(table)} r ORDER BY r.rowid`);
   await c.run(`DROP TABLE ${qi(table)}`);
   await c.run(`ALTER TABLE ${qi(tmp)} RENAME TO ${qi(table)}`);

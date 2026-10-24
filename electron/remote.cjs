@@ -40,7 +40,7 @@ function formatOf(url, contentType, explicit) {
 async function get(url) {
   checkUrl(url);
   // Stored credentials of the URL (Impostazioni origine dati): basic, API key, header, Microsoft account.
-  const req = await webcred.apply(url, { 'User-Agent': 'LinBI' });
+  const req = await webcred.apply(url, { 'User-Agent': 'MiB-BI' });
   const r = await fetch(req.url, { headers: req.headers, redirect: 'follow' });
   if (r.status === 401 || r.status === 403) {
     const has = !!webcred.forUrl(url);

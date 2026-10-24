@@ -24,7 +24,7 @@ if (!src) { console.error('usage: node scripts/build-geo.mjs <raw dir>'); proces
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const out = path.join(root, 'src', 'geo');
 fs.mkdirSync(out, { recursive: true });
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'linbi-geo-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mib-bi-geo-'));
 
 export const norm = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const uniq = (a) => [...new Set(a.filter(Boolean).map(norm).filter(Boolean))];

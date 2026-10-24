@@ -22,7 +22,7 @@ export function PublishDialog() {
   const [browser, setBrowser] = useState(false);
   // Accedi pressed with no app registered yet: ask only for the application ID given by the IT department.
   const [needApp, setNeedApp] = useState(false);
-  const [email, setEmail] = useState(() => { try { return localStorage.getItem('linbi.pbiEmail') ?? ''; } catch { return ''; } });
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('mib-bi.pbiEmail') ?? ''; } catch { return ''; } });
   const [wsQuery, setWsQuery] = useState('');
   const [spaces, setSpaces] = useState<PbiWorkspace[] | null>(null);
   const [ws, setWs] = useState<string | null>(null);
@@ -37,14 +37,14 @@ export function PublishDialog() {
   const logRef = useRef<HTMLDivElement>(null);
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [log]);
 
-  const base = (s.filePath?.split('/').pop() ?? s.sourceName ?? 'Report').replace(/\.(lbix|pbix|pbit|pbip)$/i, '');
+  const base = (s.filePath?.split('/').pop() ?? s.sourceName ?? 'Report').replace(/\.(mibx|lbix|pbix|pbit|pbip)$/i, '');
   const hasDb = s.tables.some((t) => t.source.db && t.source.db.kind !== 'sqlite');
 
   useEffect(() => {
     if (!open) return;
     setLog([]); setResult(null); setError(null); setFrac(null); setName(base);
     setConfirmDel(false);
-    try { setEmail(localStorage.getItem('linbi.pbiEmail') ?? ''); } catch { /* not kept */ }
+    try { setEmail(localStorage.getItem('mib-bi.pbiEmail') ?? ''); } catch { /* not kept */ }
     api.pbi.status().then((x) => { setSt(x); fillSetup(x); setSetup(false); setNeedApp(false); }).catch((e) => setError(e.message));
     return api.pbi.onProgress((msg, f) => { setLog((l) => [...l.slice(-200), msg]); if (f !== null) setFrac(f); });
   }, [open]);
@@ -86,7 +86,7 @@ export function PublishDialog() {
   const editProfile = () => { fillSetup(st); setSetup('edit'); setConfirmDel(false); };
   const pickProfile = (id: string) => wrap(async () => { if (login) { await api.pbi.loginCancel(); setLogin(null); } fresh(await api.pbi.selectProfile(id)); });
   const removeProfile = () => wrap(async () => { const x = await api.pbi.removeProfile(); fresh(x); fillSetup(x); if (!x.clientId) setSetup('edit'); });
-  const remember = () => { try { localStorage.setItem('linbi.pbiEmail', email.trim()); } catch { /* not kept */ } };
+  const remember = () => { try { localStorage.setItem('mib-bi.pbiEmail', email.trim()); } catch { /* not kept */ } };
   const hasApp = !!(st?.clientId || st?.builtin);
   const signInBrowser = () => wrap(async () => {
     remember();
@@ -151,9 +151,9 @@ export function PublishDialog() {
           {setup ? (
             <>
               <div className="pq-note">
-                LinBI accede a Power BI con un'<b>app registrata nel tenant Microsoft Entra</b> della propria organizzazione (serve un account aziendale con licenza Power BI Pro, PPU o capacità Fabric). Una volta sola, in <i>portal.azure.com › Microsoft Entra ID › Registrazioni app</i>:
+                MiB-BI accede a Power BI con un'<b>app registrata nel tenant Microsoft Entra</b> della propria organizzazione (serve un account aziendale con licenza Power BI Pro, PPU o capacità Fabric). Una volta sola, in <i>portal.azure.com › Microsoft Entra ID › Registrazioni app</i>:
                 <ol className="pbi-steps">
-                  <li><b>Nuova registrazione</b>: nome a scelta (es. LinBI), «Solo account in questa directory organizzativa» (oppure «in qualsiasi directory organizzativa» per usarla con più aziende).</li>
+                  <li><b>Nuova registrazione</b>: nome a scelta (es. MiB-BI), «Solo account in questa directory organizzativa» (oppure «in qualsiasi directory organizzativa» per usarla con più aziende).</li>
                   <li><b>Autenticazione</b> › Aggiungi piattaforma › <b>App per dispositivi mobili e desktop</b> › URI <code>http://localhost</code> (accesso dal browser), e «Consenti flussi client pubblici»: <b>Sì</b> (codice dispositivo).</li>
                   <li><b>Autorizzazioni API</b> › Aggiungi › <b>Power BI Service</b> › Autorizzazioni delegate: Workspace.Read.All, Dataset.ReadWrite.All, Report.ReadWrite.All, Content.Create; per il modello completo anche Item.ReadWrite.All. Se richiesto, far concedere il consenso dall'amministratore.</li>
                   <li>Copiare qui <b>ID applicazione (client)</b> e <b>ID directory (tenant)</b>.</li>
@@ -177,17 +177,17 @@ export function PublishDialog() {
                   <span className="pbi-code" style={{ userSelect: 'text' }}>{login.userCode}</span>
                 </> : browser ? <>
                   <b>Completare l'accesso nel browser</b>
-                  <span>Scegliere l'account aziendale nella pagina Microsoft che si è aperta: al termine LinBI cerca tutte le aree di lavoro.</span>
+                  <span>Scegliere l'account aziendale nella pagina Microsoft che si è aperta: al termine MiB-BI cerca tutte le aree di lavoro.</span>
                 </> : <>
                   <b>1. Accedere con l'account aziendale</b>
-                  <span>Come in Power BI Desktop: l'accesso avviene nella pagina Microsoft della propria organizzazione (anche con autenticazione a più fattori); la password non passa da LinBI.</span>
+                  <span>Come in Power BI Desktop: l'accesso avviene nella pagina Microsoft della propria organizzazione (anche con autenticazione a più fattori); la password non passa da MiB-BI.</span>
                   <label className="pq-field" style={{ marginTop: 8 }}>Indirizzo e-mail aziendale
                     <input type="email" value={email} placeholder="nome.cognome@azienda.it" onChange={(e) => setEmail(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') signInBrowser(); }} /></label>
                   {needApp ? <div className="pq-note" style={{ marginTop: 8 }}>
-                    <b>LinBI non è ancora autorizzata nella vostra organizzazione.</b> Power BI Desktop è un'app Microsoft già
-                    approvata in ogni azienda; LinBI no: l'IT deve registrarla una volta in Microsoft Entra (oppure
-                    approvare l'app distribuita con LinBI) e comunicare l'<b>ID applicazione</b>.
+                    <b>MiB-BI non è ancora autorizzata nella vostra organizzazione.</b> Power BI Desktop è un'app Microsoft già
+                    approvata in ogni azienda; MiB-BI no: l'IT deve registrarla una volta in Microsoft Entra (oppure
+                    approvare l'app distribuita con MiB-BI) e comunicare l'<b>ID applicazione</b>.
                     <label className="pq-field" style={{ marginTop: 6 }}>ID applicazione (client) fornito dall'IT
                       <input type="text" autoFocus value={clientId} placeholder="00000000-0000-0000-0000-000000000000" onChange={(e) => setClientId(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') signInBrowser(); }} /></label>
@@ -235,7 +235,7 @@ export function PublishDialog() {
               </label>
               <label className={'publish-opt' + (mode === 'push' ? ' sel' : '')}>
                 <input type="radio" checked={mode === 'push'} disabled={busy} onChange={() => setMode('push')} />
-                <span className="txt"><b>Dataset push + report (Power BI Pro)</b><span>Qualsiasi area di lavoro. LinBI invia tabelle, relazioni, misure DAX e righe; colonne calcolate come valori fissi, max 5 milioni di righe per tabella. Per aggiornare i dati si ripubblica.</span></span>
+                <span className="txt"><b>Dataset push + report (Power BI Pro)</b><span>Qualsiasi area di lavoro. MiB-BI invia tabelle, relazioni, misure DAX e righe; colonne calcolate come valori fissi, max 5 milioni di righe per tabella. Per aggiornare i dati si ripubblica.</span></span>
               </label></>}
             </>
           )}
@@ -272,7 +272,7 @@ export function PublishDialog() {
             </button>
             <button className="publish-opt" onClick={go(() => s.save(true))}>
               <Icon name="save" size={24} />
-              <span className="txt"><b>File LinBI (.lbix) con i dati</b><span>Si apre con LinBI senza accedere alle origini.</span></span>
+              <span className="txt"><b>File MiB-BI (.mibx) con i dati</b><span>Si apre con MiB-BI senza accedere alle origini.</span></span>
             </button>
           </details>
         </div>

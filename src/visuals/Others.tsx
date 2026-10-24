@@ -52,7 +52,7 @@ function decorated(v: Visual, it: QueryItem, ranges: Map<string, Range | null>, 
 const rangesFor = (v: Visual, items: QueryItem[], rows: Record<string, any>[], cfItems: QueryItem[]) =>
   new Map(items.filter((i) => v.format.cf?.[fieldKey(i.field)]).map((i) => { const a = driverAlias(v, i, cfItems); return [i.alias, rangeOf(rows.map((r) => r[a]))]; }));
 
-/** Number with the visual's display units/precision (Power BI labels), else LinBI's automatic format. */
+/** Number with the visual's display units/precision (Power BI labels), else MiB-BI's automatic format. */
 export function fmtStyled(data: VisualData, alias: string, x: unknown, unit: unknown, precision: unknown, row?: Record<string, any>): string {
   if (typeof x !== 'number') return x === null || x === undefined ? '(Vuoto)' : String(x);
   const dyn = dynFmt(row, alias);
@@ -459,7 +459,7 @@ export function TextboxVisual({ v, selected }: { v: Visual; selected: boolean })
   const updateVisual = useStore((s) => s.updateVisual);
   const ref = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
-  // Imported formatting is shown until the text is edited in LinBI (then it becomes plain text).
+  // Imported formatting is shown until the text is edited in MiB-BI (then it becomes plain text).
   const paras = v.style?.objects?.general?.find((e) => !e.selector)?.properties?.paragraphs as Para[] | undefined;
   const rich = Array.isArray(paras) && paraText(paras) === (v.text ?? '') ? paras : undefined;
   useEffect(() => { if (ref.current && !editing) ref.current.innerText = v.text ?? ''; }, [v.text, editing, rich]);

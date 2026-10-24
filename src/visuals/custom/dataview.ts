@@ -54,7 +54,7 @@ function rawValue(it: QueryItem, row: Record<string, any>, type: Record<string, 
   return it.measure ? x : row[it.alias] ?? String(x);
 }
 
-/** Text form of a dim value, as LinBI filters and cross-filters compare it. */
+/** Text form of a dim value, as MiB-BI filters and cross-filters compare it. */
 const keyText = (it: QueryItem, row: Record<string, any>): string | null => (row[it.alias] === null || row[it.alias] === undefined ? null : String(row[it.alias]));
 
 /** Roles a mapping fragment refers to ({ for: { in } }, { bind: { to } }, select lists, group.by). */

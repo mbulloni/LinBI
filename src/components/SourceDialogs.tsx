@@ -93,7 +93,7 @@ export function SourceDialog() {
           <div className="pq-note">
             {kind === 'folder' ? 'I file vengono uniti allineando le colonne per nome; la colonna Source.Name indica il file di provenienza.'
               : sp ? "SharePoint Online si legge con l'account Microsoft di Home › Pubblica (app Entra con permessi Microsoft Graph Sites.Read.All e Files.Read.All). I dati restano in cache 10 minuti."
-                : 'I dati vengono scaricati da LinBI e conservati in cache per 10 minuti; Aggiorna li scarica di nuovo.'}
+                : 'I dati vengono scaricati da MiB-BI e conservati in cache per 10 minuti; Aggiorna li scarica di nuovo.'}
             {params.length > 0 && <> Parametri utilizzabili: {params.map((p) => <code key={p.name} style={{ marginRight: 6 }}>#[{p.name}]</code>)}.</>}
           </div>
         </div>

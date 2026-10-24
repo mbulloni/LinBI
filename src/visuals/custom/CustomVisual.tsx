@@ -1,5 +1,5 @@
 // Custom visual (.pbiviz) host: the package's code runs in a sandboxed iframe (scripts only, opaque
-// origin, CSP from the package's WebAccess privilege) with the runtime in host.js; LinBI sends the
+// origin, CSP from the package's WebAccess privilege) with the runtime in host.js; MiB-BI sends the
 // DataView built from the visual's query and applies selections, persisted properties and filters.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import hostJs from './host.js?raw';
@@ -34,8 +34,8 @@ function pageHtml(pkg: CustomVisualPkg): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:'Segoe UI','Segoe UI Web',wf_segoe-ui_normal,'Noto Sans',Arial,sans-serif;font-size:11px;color:#252423;background:transparent}
 #v{position:absolute;inset:0;overflow:hidden}
-#linbi-tt{position:fixed;display:none;z-index:99999;pointer-events:none;background:#fff;color:#252423;border:1px solid #c8c6c4;box-shadow:0 2px 6px rgba(0,0,0,.18);padding:6px 8px;font-size:11px;max-width:260px}
-#linbi-tt .h{font-weight:600;margin-bottom:3px}#linbi-tt .r{display:flex;gap:8px;align-items:center;white-space:nowrap}#linbi-tt .r span{flex:1;color:#605e5c}#linbi-tt i{width:8px;height:8px;display:inline-block}</style>
+#mib-bi-tt{position:fixed;display:none;z-index:99999;pointer-events:none;background:#fff;color:#252423;border:1px solid #c8c6c4;box-shadow:0 2px 6px rgba(0,0,0,.18);padding:6px 8px;font-size:11px;max-width:260px}
+#mib-bi-tt .h{font-weight:600;margin-bottom:3px}#mib-bi-tt .r{display:flex;gap:8px;align-items:center;white-space:nowrap}#mib-bi-tt .r span{flex:1;color:#605e5c}#mib-bi-tt i{width:8px;height:8px;display:inline-block}</style>
 </head><body><div id="v"></div><script>${hostJs}</script></body></html>`;
 }
 

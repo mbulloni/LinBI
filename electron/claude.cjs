@@ -70,7 +70,7 @@ const SPEC_SCHEMA = {
   },
 };
 
-const SYSTEM = `You translate questions about a Power BI-style data model into a visual specification for LinBI.
+const SYSTEM = `You translate questions about a Power BI-style data model into a visual specification for MiB-BI.
 Use only tables, columns and measures that exist in the schema the user message gives, spelled exactly as written there.
 Wells by visual: card: values (one field). clusteredBar/clusteredColumn/stackedColumn/line/area: category (one field), values (one or more measures), legend (optional, one field). pie/donut/treemap/funnel: category, values (one). table: columns (any fields, numeric ones aggregated). matrix: rows, columns (one), values. scatter: details, x, y. map/filledMap: category (a geographic column such as country, region, province or city), values (one).
 agg: "measure" for model measures (table = the measure's home table, column = the measure name); otherwise how a column is summarized ("none" for grouping fields). Prefer existing measures over aggregating raw columns when they mean the same thing.

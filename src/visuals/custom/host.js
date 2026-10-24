@@ -1,4 +1,4 @@
-// Runs inside the sandboxed iframe of a custom visual (opaque origin, no Node, no access to LinBI).
+// Runs inside the sandboxed iframe of a custom visual (opaque origin, no Node, no access to MiB-BI).
 // Provides the `powerbi` global and the IVisualHost a .pbiviz bundle expects, receives the DataView
 // from CustomVisual.tsx and sends back selections, persisted properties, JSON filters and URLs.
 (function () {
@@ -106,7 +106,7 @@
 
   /* -------------------------------- tooltip -------------------------------- */
   var tip = document.createElement('div');
-  tip.id = 'linbi-tt';
+  tip.id = 'mib-bi-tt';
   document.body.appendChild(tip);
   var esc = function (s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var showTip = function (o) {
