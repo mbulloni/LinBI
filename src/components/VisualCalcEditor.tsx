@@ -28,7 +28,7 @@ export function VisualCalcEditor() {
   const close = () => s.set({ calcEdit: null });
   const calcs = Object.values(v.fields).flat().filter(isCalc);
   return (
-    <div className="focus-view vc-edit">
+    <div className="vc-edit">
       <div className="vc-edit-bar">
         <b>Calcoli visivi</b>
         <select value={ed.original ?? ''} onChange={(e) => (e.target.value ? s.startVisualCalc(v.id, e.target.value) : s.startVisualCalc(v.id))} title="Calcolo da modificare">
@@ -51,7 +51,8 @@ export function VisualCalcEditor() {
           }} />
       </div>
       {ed.error && <div className="daxbar-err"><Icon name="warning" size={14} />{ed.error}</div>}
-      <div className="vc-edit-preview"><VisualBody v={v} selected={false} /></div>
+      {/* The visual keeps the report theme (light canvas), the rest follows the app theme. */}
+      <div className="vc-edit-preview focus-view"><VisualBody v={v} selected={false} /></div>
       <div className="vc-edit-matrix"><VisualMatrix v={v} /></div>
       {menu && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
