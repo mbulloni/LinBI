@@ -11,13 +11,13 @@ const parse = (s: string | undefined) => { try { return s ? JSON.parse(s) : unde
 
 /** queryState { Role: { projections: [{ field, queryRef, active }] } } → legacy projections + prototypeQuery. */
 function convertQuery(query: any) {
-  const projections: Record<string, { queryRef: string; active?: boolean }[]> = {};
+  const projections: Record<string, { queryRef: string; active?: boolean; hidden?: boolean; nativeQueryRef?: string; format?: string }[]> = {};
   const select: any[] = [];
   const seen = new Set<string>();
   for (const [role, st] of Object.entries<any>(query?.queryState ?? {})) {
     for (const p of st?.projections ?? []) {
       const ref = p.queryRef ?? p.nativeQueryRef ?? JSON.stringify(p.field);
-      (projections[role] ??= []).push({ queryRef: ref, ...(p.active ? { active: true } : {}) });
+      (projections[role] ??= []).push({ queryRef: ref, ...(p.active ? { active: true } : {}), ...(p.hidden ? { hidden: true } : {}), ...(p.nativeQueryRef ? { nativeQueryRef: p.nativeQueryRef } : {}), ...(p.format ? { format: p.format } : {}) });
       if (!seen.has(ref) && p.field) { seen.add(ref); select.push({ ...p.field, Name: ref }); }
     }
   }

@@ -1,4 +1,4 @@
-export type Agg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'countd' | 'median' | 'stdev' | 'var' | 'none' | 'measure';
+export type Agg = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'countd' | 'median' | 'stdev' | 'var' | 'none' | 'measure' | 'visualCalc';
 
 export interface ColumnMeta { name: string; type: string; }
 export interface TableMeta {
@@ -50,7 +50,16 @@ export type DbConnection = Omit<DbSource, 'schema' | 'table'>;
 /** Level of the automatic date hierarchy (a date column placed on an axis becomes Year › Quarter › Month › Day). */
 export type DatePart = 'year' | 'quarter' | 'month' | 'day';
 /** `hierarchy`: the field is a level of that user hierarchy (exported as HierarchyLevel). */
-export interface FieldRef { table: string; column: string; agg: Agg; datePart?: DatePart; hierarchy?: string; }
+export interface FieldRef { table: string; column: string; agg: Agg; datePart?: DatePart; hierarchy?: string;
+  /** Visual calculation (agg 'visualCalc', column = its name): DAX evaluated on the visual matrix. */
+  calc?: string;
+  /** Format string of a visual calculation ("0.00%", "#,0"…). */
+  format?: string;
+  /** Hidden on the visual (calcs can still use it), like Power BI "Nascondi nell'oggetto visivo". */
+  hidden?: boolean;
+  /** Totali personalizzati (table/matrix): what the total rows show for this value instead of the measure's total. */
+  total?: CustomTotal; }
+export type CustomTotal = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'first' | 'last' | 'none';
 
 export type VisualType =
   | 'stackedBar' | 'stackedColumn' | 'clusteredBar' | 'clusteredColumn'

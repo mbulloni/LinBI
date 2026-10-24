@@ -127,6 +127,8 @@ const UI: Record<string, ReactNode> = {
   calendar: <><rect x="2" y="3" width="12" height="11" rx="1" fill="none" stroke={K} />{P('M2 6.5 H14 M5 1.5 V4 M11 1.5 V4', K, 1)}</>,
   tableSmall: <><rect x="1.5" y="2.5" width="13" height="11" fill="none" stroke={K} />{P('M1.5 6 H14.5 M1.5 9.5 H14.5 M6 6 V13.5 M10 6 V13.5', K, .8)}</>,
   eye: <><path d="M1 8 C3 4 13 4 15 8 C13 12 3 12 1 8 Z" fill="none" stroke={K} /><circle cx="8" cy="8" r="2" fill={K} /></>,
+  eyeOff: <><path d="M1 8 C3 4 13 4 15 8 C13 12 3 12 1 8 Z" fill="none" stroke={K} /><circle cx="8" cy="8" r="2" fill={K} /><path d="M2.5 13.5 L13.5 2.5" stroke={K} strokeWidth="1.3" /></>,
+  visualCalc: <><rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="none" stroke={K} /><path d="M1.5 6 H14.5" stroke={K} /><text x="4" y="12.2" fontSize="6.5" fontStyle="italic" fontWeight="700" fill={K}>fx</text></>,
   filter: P('M2 3 H14 L9.5 8.5 V13 L6.5 14.5 V8.5 Z', K, 1),
   sun: <><circle cx="8" cy="8" r="3" fill="none" stroke={K} strokeWidth="1.2" />{P('M8 1.2 V2.8 M8 13.2 V14.8 M1.2 8 H2.8 M13.2 8 H14.8 M3.2 3.2 L4.3 4.3 M11.7 11.7 L12.8 12.8 M3.2 12.8 L4.3 11.7 M11.7 4.3 L12.8 3.2', K, 1.2)}</>,
   moon: <>{P('M13 10.2 A5.6 5.6 0 1 1 5.8 3 A4.6 4.6 0 0 0 13 10.2 Z', K, 1.2)}</>,

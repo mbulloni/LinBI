@@ -1,3 +1,4 @@
+import { NO_CALCS } from '../visuals/visualCalc';
 import { useMemo, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ExtraFilters } from '../visuals/filterContext';
@@ -311,6 +312,7 @@ export function VisualContainer({ v, scale, geom, onGeom }: { v: Visual; scale: 
           {hasData(v) && <>
             <button onClick={() => { setMenu(null); s.set({ exportData: v.id }); }}>Esporta dati</button>
             <button onClick={() => { setMenu(null); s.set({ focusId: v.id, focusTable: true }); }}>Mostra come tabella</button>
+            {!NO_CALCS.has(v.type) && <button onClick={() => { setMenu(null); s.startVisualCalc(v.id); }}>Nuovo calcolo visivo</button>}
             <hr />
           </>}
           <button onClick={() => { setMenu(null); s.duplicateVisual(v.id); }}>Duplica</button>

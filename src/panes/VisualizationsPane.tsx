@@ -1,3 +1,4 @@
+import { NO_CALCS, TOTAL_LABEL } from '../visuals/visualCalc';
 import { useState, type ReactNode } from 'react';
 import { useStore, defaultFormat } from '../store';
 import { uid } from '../format';
@@ -172,7 +173,10 @@ function Wells({ v }: { v: Visual }) {
         >
           <div className="wl">{w.label}</div>
           {(v.fields[w.key] ?? []).map((f, i) => (
-            <div className="pill" key={i} title={`${f.table}[${f.column}]`}>
+            <div className={'pill' + (f.hidden ? ' hidden-field' : '')} key={i} title={f.agg === 'visualCalc' ? `Calcolo visivo: ${f.column} = ${f.calc}` : `${f.table}[${f.column}]${f.hidden ? " (nascosto nell'oggetto visivo)" : ''}`}
+              onDoubleClick={() => f.agg === 'visualCalc' && s.startVisualCalc(v.id, f.column)}>
+              {f.agg === 'visualCalc' && <i className="fx-ico">fx</i>}
+              {f.hidden && <Icon name="eyeOff" size={12} />}
               <span className="nm">{fieldLabel(f)}</span>
               <button title="Opzioni" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setMenu({ well: w.key, idx: i, x: r.left - 160, y: r.bottom + 2 }); }}><Icon name="chevronDown" size={12} /></button>
               <button title="Rimuovi campo" onClick={() => s.removeField(v.id, w.key, i)}><Icon name="close" size={11} /></button>
@@ -184,13 +188,24 @@ function Wells({ v }: { v: Visual }) {
       {menu && mf && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
           <button onClick={() => { s.removeField(v.id, menu.well, menu.idx); setMenu(null); }}>Rimuovi campo</button>
+          {mf.agg === 'visualCalc' && <button onClick={() => { s.startVisualCalc(v.id, mf.column); setMenu(null); }}>Modifica calcolo</button>}
+          {(mf.agg !== 'none' || v.type === 'table') && !NO_CALCS.has(v.type) && <button onClick={() => { s.toggleFieldHidden(v.id, menu.well, menu.idx); setMenu(null); }}>{mf.hidden ? "Mostra nell'oggetto visivo" : "Nascondi nell'oggetto visivo"}</button>}
           {mf.agg === 'none' && def.wells.find((w) => w.key === menu.well)?.hierarchy && /^(DATE|TIMESTAMP)/i.test(colMeta(mf.table, mf.column)?.type ?? '') && <>
             <hr />
             <button onClick={() => { s.setDateHierarchy(v.id, menu.well, menu.idx, false); setMenu(null); }}><span style={{ width: 12 }}>{mf.datePart ? '' : '✓'}</span>{mf.column}</button>
             <button onClick={() => { s.setDateHierarchy(v.id, menu.well, menu.idx, true); setMenu(null); }}><span style={{ width: 12 }}>{mf.datePart ? '✓' : ''}</span>Gerarchia date</button>
           </>}
-          {mf.agg !== 'measure' && <hr />}
-          {mf.agg !== 'measure' && aggs.filter((a) => !(wellIsMeasure && a === 'none' && v.type !== 'table')).map((a) => (
+          {(v.type === 'table' || v.type === 'matrix') && mf.agg !== 'none' && <>
+            <hr />
+            <div className="hdr">Totali personalizzati</div>
+            {([undefined, 'sum', 'avg', 'min', 'max', 'count', 'first', 'last', 'none'] as const).map((t) => (
+              <button key={t ?? 'default'} onClick={() => { s.setFieldTotal(v.id, menu.well, menu.idx, t); setMenu(null); }}>
+                <span style={{ width: 12 }}>{mf.total === t ? '✓' : ''}</span>{t ? TOTAL_LABEL[t] : 'Predefinito'}
+              </button>
+            ))}
+          </>}
+          {mf.agg !== 'measure' && mf.agg !== 'visualCalc' && <hr />}
+          {mf.agg !== 'measure' && mf.agg !== 'visualCalc' && aggs.filter((a) => !(wellIsMeasure && a === 'none' && v.type !== 'table')).map((a) => (
             <button key={a} onClick={() => { s.setFieldAgg(v.id, menu.well, menu.idx, a); setMenu(null); }}>
               <span style={{ width: 12 }}>{mf.agg === a ? '✓' : ''}</span>{AGG_LABEL[a]}
             </button>

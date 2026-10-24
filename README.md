@@ -29,6 +29,10 @@ Non è affiliato a Microsoft; nome e logo sono volutamente diversi.
 | **Modifica interazioni** — evidenziazione (barre piene/sbiadite), filtro o nessuna, per ogni coppia di oggetti visivi | **Filtri dei dati** — Tra (date e numeri), data relativa, testo, pulsanti; **Sincronizza filtri dei dati** tra le pagine |
 | ![Mostra come tabella ed Esporta dati](docs/screenshots/mostra-tabella.png) | ![Tema scuro](docs/screenshots/tema-scuro.png) |
 | **Mostra come tabella** ed **Esporta dati** — dati riepilogati (.xlsx/.csv) o sottostanti (.xlsx) | **Tema scuro** — interfaccia chiara, scura o come il sistema; la pagina del report mantiene il proprio tema |
+| ![Calcoli visivi: modalità di modifica](docs/screenshots/calcoli-visivi.png) | ![Calcoli visivi nel report](docs/screenshots/calcoli-visivi-report.png) |
+| **Nuovo calcolo visivo** — anteprima, barra della formula, matrice visiva con i campi nascosti, modelli | **Calcoli visivi nel report** — media mobile su una linea, % del totale e differenza dal precedente, campo nascosto |
+| ![Opzioni calendario](docs/screenshots/calendario.png) | ![Funzioni DAX definite dall'utente](docs/screenshots/funzioni-dax.png) |
+| **Opzioni calendario** — categorie Anno/Trimestre/Mese/Settimana/Data, colonne associate e correlate al tempo | **Funzioni definite dall'utente** e time intelligence a calendario (`TOTALWTD`, `DATEADD` su un calendario) nella Vista query DAX |
 
 ## Scaricare e installare
 
@@ -140,7 +144,8 @@ relazioni attive nella direzione consentita (uno → molti, o entrambe). Da qui 
 - **Iteratori**: `SUMX`, `AVERAGEX`, `MINX`, `MAXX`, `COUNTX`, `PRODUCTX`, `CONCATENATEX`, `RANKX`, `FILTER`, `ADDCOLUMNS`,
   `SELECTCOLUMNS`, `TOPN`, `SUMMARIZE`, `SUMMARIZECOLUMNS`; una misura dentro un iteratore applica la transizione di contesto.
 - **Time intelligence**: `TOTALYTD/QTD/MTD`, `DATESYTD/QTD/MTD`, `SAMEPERIODLASTYEAR`, `DATEADD`, `PARALLELPERIOD`,
-  `PREVIOUS*`/`NEXT*`, `DATESBETWEEN`, `DATESINPERIOD`, `FIRSTDATE`/`LASTDATE`, `STARTOF*`/`ENDOF*`.
+  `PREVIOUS*`/`NEXT*`, `DATESBETWEEN`, `DATESINPERIOD`, `FIRSTDATE`/`LASTDATE`, `STARTOF*`/`ENDOF*`, anche su un
+  calendario (vedi *Calcoli visivi, funzioni e calendari*).
 - Altro: `VAR … RETURN`, `SWITCH`, `SELECTEDVALUE`, `HASONEVALUE`, `ISFILTERED`, `ISINSCOPE`, `RELATED`, `RELATEDTABLE`,
   `LOOKUPVALUE`, `EARLIER`, `TREATAS`, `CALENDAR`, `CALENDARAUTO`, `FORMAT` (formati italiani), funzioni matematiche,
   di testo e di data. Misure su più tabelle senza limitazioni.
@@ -197,6 +202,46 @@ di tabelle diverse fa il prodotto cartesiano dei valori e scarta le righe con tu
   gerarchia date, cultura del modello esportato) e **separatori DAX locali** (`;` e `,` decimale) nella barra della
   formula, nella Vista query DAX e nei ruoli (salvati sempre con i separatori standard).
 - IntelliSense suggerisce anche le variabili `VAR` già dichiarate.
+
+### Calcoli visivi, funzioni e calendari
+
+- **Calcoli visivi** (Home/Modellazione › *Nuovo calcolo visivo*, o *Altre opzioni* dell'oggetto visivo): DAX calcolato sui
+  dati mostrati dall'oggetto visivo, la *matrice visiva* (righe = asse/categorie/righe della matrice, colonne = legenda o
+  colonne della matrice). La modalità di modifica mostra l'oggetto visivo, la barra della formula `Nome = espressione`, la
+  matrice con tutti i campi e i *Modelli* (somma parziale, media mobile, % dell'elemento padre e del totale complessivo,
+  media degli elementi figlio, rispetto al precedente/successivo/primo/ultimo). Funzioni: `RUNNINGSUM`, `MOVINGAVERAGE`,
+  `PREVIOUS`, `NEXT`, `FIRST`, `LAST`, `RANGE` (con `SUMX`/`AVERAGEX`…), `COLLAPSE`, `COLLAPSEALL`, `EXPAND`, `EXPANDALL`,
+  `ISATLEVEL`, `LOOKUP`, `LOOKUPWITHTOTALS`, assi `ROWS`/`COLUMNS`/`ROWS COLUMNS`, reimpostazione `HIGHESTPARENT`/
+  `LOWESTPARENT`/intero/colonna, più le funzioni scalari e le funzioni definite dall'utente. I livelli superiori della
+  matrice (COLLAPSE/EXPAND) vengono da query dell'oggetto visivo con meno campi, così anche le misure non additive sono
+  corrette. **Nascondi nell'oggetto visivo** per qualsiasi valore (il calcolo continua a usarlo) e formato per calcolo.
+- **Totali personalizzati** (menu del campo in tabelle e matrici): la riga Totale mostra Somma, Media, Minimo, Massimo,
+  Conteggio, Primo, Ultimo o niente invece del totale della misura.
+- **Funzioni DAX definite dall'utente** (Modellazione › *Nuova funzione*, nodo *Funzioni* del riquadro Dati nelle viste
+  Tabella/Modello/Query DAX): `Nome = ( parametro : tipo [= predefinito], … ) => corpo`. Parametri `VAL` (valutati una volta
+  nel contesto del chiamante, `NUMERIC`, `INT64`, `STRING`, `TABLE`…) o `EXPR` (riferimenti `COLUMNREF`, `MEASUREREF`,
+  `TABLEREF`, `CALENDARREF`, `ANYREF`: valutati dentro la funzione, anche in un altro contesto di filtro), valori predefiniti,
+  ricorsione rifiutata come in Power BI. Si usano in misure, colonne, elementi di calcolo, altre funzioni e calcoli visivi.
+  Nella Vista query DAX `DEFINE FUNCTION` (con la descrizione `///`) e **Aggiorna il modello** salvano funzioni e misure;
+  query rapide *Valuta*, *Definisci e valuta*, *Definisci tutte le funzioni*. Nuove funzioni: `ISSTRING`, `ISNUMERIC`,
+  `ISINT64`, `ISDOUBLE`, `ISDECIMAL`, `ISBOOLEAN`, `ISDATETIME`, `TABLEOF`; `NAMEOF` accetta anche tabelle e calendari.
+- **Time intelligence basata su calendario** (*Opzioni calendario* in Strumenti tabella, Modellazione o menu della tabella):
+  un calendario assegna le colonne della tabella alle categorie (Anno, Semestre, Trimestre, Mese, Settimana, Data e le
+  categorie parziali come *Mese dell'anno*), con colonne associate e colonne *correlate al tempo*; verifica in tempo reale
+  e *Convalida dati* (vuoti, corrispondenze 1:1, periodi che cadono in più periodi superiori). Le funzioni di time
+  intelligence accettano il nome del calendario al posto della colonna di date (`TOTALYTD([Vendite], 'Fiscale')`) e
+  lavorano sui periodi del calendario, non sulle date gregoriane: anni fiscali, 4-4-5, 13 periodi, date mancanti.
+  Funzioni settimanali: `TOTALWTD`, `DATESWTD`, `PREVIOUSWEEK`, `NEXTWEEK`, `STARTOFWEEK`, `ENDOFWEEK`; `DATEADD` con
+  estensione `PRECISE`/`EXTENDED`/`ENDALIGNED` e troncamento `ANCHORED`/`BLANK`. Le colonne correlate al tempo mantengono
+  il contesto solo con `DATEADD` e `SAMEPERIODLASTYEAR`.
+- File Power BI: funzioni (`functions`, livello di compatibilità 1702) e calendari (`calendars` › `calendarColumnGroups`,
+  1701) in `.pbit`/`.pbip` (TMSL e TMDL) e nel `.pbix` (tabelle `Function`, `Calendar`, `CalendarColumnGroup`,
+  `CalendarColumnReference`); calcoli visivi come `NativeVisualCalculation` con `nativeQueryRef`, `hidden` e `format` delle
+  proiezioni (i nomi dei campi nei calcoli importati vengono tradotti in quelli di MiB-BI, es. *Sum of Sales* → *Somma di Sales*).
+
+Limiti: i calcoli visivi non sono ricalcolati per l'evidenziazione incrociata e non esistono `ROWNUMBER`/`RANK`/`INDEX`/
+`OFFSET`/`WINDOW` con assi; i totali personalizzati restano nel `.mibx`; la cancellazione del contesto dei calendari
+riguarda tutte le colonne del calendario (non il reticolo delle singole categorie).
 
 Limiti noti: i dataset push non supportano ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI); delle barre di
 errore e della previsione i file Power BI conservano solo aspetto e attivazione (tipo, limiti da campi, lunghezza e
@@ -422,7 +467,9 @@ Fabric, PDF, `.mibx` con i dati.
 ## Stato
 
 Fasi **1–12 completate**: interfaccia e report, Power Query, relazioni, DAX, file Power BI, connettori database, oggetti visivi e
-IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio Power BI.
+IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio Power BI. Poi: modifica interazioni, nuovi
+filtri dei dati, esportazione dati (1.5), tema scuro (1.6), calcoli visivi, funzioni DAX definite dall'utente e time
+intelligence a calendario.
 
 **Da verificare** (implementato, provato solo con file di prova o server finti):
 - servizio Power BI su un tenant reale: accesso, aree di lavoro, pubblicazione, download dei report, lettura dei
@@ -431,13 +478,17 @@ IA, interattività, Power Query avanzato, modello/DAX, pubblicazione e servizio 
   riservatezza, linee di analisi/previsione/barre di errore e livelli delle gerarchie utente esportati;
 - Q&A con una chiave API Claude reale; oggetti visivi R (richiede `r-base`);
 - in Power BI Desktop reale: filtri dei dati Data relativa (il periodo è scritto come filtro calcolato al salvataggio
-  più le impostazioni `relativeRange/Duration/Period`) e filtro dei dati di testo esportati.
+  più le impostazioni `relativeRange/Duration/Period`) e filtro dei dati di testo esportati;
+- in Power BI Desktop reale: funzioni definite dall'utente, calendari e calcoli visivi scritti nei file (`.pbit`/`.pbip`
+  con livello di compatibilità 1701/1702, righe `Function`/`Calendar` del `.pbix`).
 
 **Limiti noti**:
 - dataset push senza ruoli, gruppi di calcolo e gerarchie (limite delle API Power BI);
 - previsione e barre di errore: nei file Power BI solo aspetto e attivazione (lunghezza, confidenza e limiti da campi
   restano nel `.mibx`, nomi non presenti nello schema ufficiale);
-- modelli semantici dal servizio: max 100.000 righe per tabella, senza pagine.
+- modelli semantici dal servizio: max 100.000 righe per tabella, senza pagine;
+- calcoli visivi: niente ricalcolo nell'evidenziazione incrociata, niente `ROWNUMBER`/`RANK`/`INDEX`/`OFFSET`/`WINDOW` con
+  assi; totali personalizzati solo nel `.mibx`.
 
 **Possibili prossimi passi**: scrittura PBIR/TMDL, temi scuri (colori del testo), esportazione PowerPoint.
 

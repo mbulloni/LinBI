@@ -1,3 +1,4 @@
+import { NO_CALCS } from '../visuals/visualCalc';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../store';
 import { bname } from '../pbix/layout';
@@ -56,6 +57,10 @@ export function Ribbon() {
   const selVisual = sel ? s.page().visuals.find((v) => v.id === sel) : undefined;
   // The contextual Formato tab goes away with the selection.
   useEffect(() => { if (tab === 'format' && !selVisual && !s.editInteractions) setTab('home'); }, [tab, selVisual, s.editInteractions]);
+  // Nuovo calcolo visivo: on the selected visual (not slicers, scripts, AI or custom visuals).
+  const calcOk = !!selVisual && report && !NO_CALCS.has(selVisual.type) && Object.values(selVisual.fields).some((l) => l.length);
+  const calcVisual = <Big icon="visualCalc" label={<>Nuovo calcolo<br />visivo</>} disabled={!calcOk} onClick={() => selVisual && s.startVisualCalc(selVisual.id)}
+    title={calcOk ? 'Calcolo DAX sui dati mostrati nell\'oggetto visivo (somma parziale, media mobile, % del totale…)' : 'Selezionare un oggetto visivo con dei campi'} />;
   // Strumenti tabella: contextual tab of the table shown in the Table view.
   const toolTable = s.view === 'data' ? s.tables.find((t) => t.name === s.dataViewTable) : undefined;
   useEffect(() => { if (tab === 'table' && !toolTable) setTab('home'); }, [tab, toolTable]);
@@ -120,6 +125,7 @@ export function Ribbon() {
             <Big icon="newTable" label={<>Nuovo<br />parametro</>} dropdown onClick={openMenu('params')} disabled={!s.tables.length} />
           </Group>
           <Group label="Calcoli">
+            {calcVisual}
             <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} disabled={!s.tables.length} />
           </Group>
@@ -150,6 +156,7 @@ export function Ribbon() {
             }} />
           </Group>
           <Group label="Calcoli">
+            {calcVisual}
             <Big icon="measure" label={<>Nuova<br />misura</>} onClick={() => s.startDax('measure')} disabled={!s.tables.length} />
             <Big icon="quickMeasure" label={<>Misura<br />rapida</>} onClick={() => s.set({ quickMeasure: true })} disabled={!s.tables.length} />
             <Big icon="newColumn" label={<>Nuova<br />colonna</>} onClick={() => s.startDax('column', s.tables.find((t) => t.name === s.dataViewTable)?.name ?? s.tables[0]?.name)} disabled={!s.tables.length} />

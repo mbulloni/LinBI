@@ -9,7 +9,7 @@ import { defaultFormat, PAGE_H, PAGE_W } from '../store';
 import { customPkg, isChart as isChartType, visualDef } from '../visuals/catalog';
 import { NULL_KEY, relativePeriod, type RangeCond } from '../query';
 import { INTERACTION_IN, INTERACTION_OUT, interactionKey } from '../visuals/interactions';
-import { uid } from '../format';
+import { fieldLabel, uid } from '../format';
 import { decode, pt } from '../visuals/pbistyle';
 import { basicJsonFilter } from '../visuals/custom/objects';
 import { exportCondFormat, importCondFormat } from './condfmt';
@@ -101,6 +101,8 @@ type FromMap = Record<string, string>;
 /** Semantic-query expression → FieldRef (Column, Aggregation, Measure, HierarchyLevel). */
 function exprToField(e: any, from: FromMap): FieldRef | null {
   const entity = (x: any) => from[x?.SourceRef?.Source] ?? x?.SourceRef?.Entity;
+  // Visual calculation: DAX on the visual matrix, stored in the visual.
+  if (e?.NativeVisualCalculation) return { table: '', column: e.NativeVisualCalculation.Name, agg: 'visualCalc', calc: e.NativeVisualCalculation.Expression ?? '' };
   if (e?.Column) return { table: entity(e.Column.Expression), column: e.Column.Property, agg: 'none' };
   if (e?.Measure) return { table: entity(e.Measure.Expression), column: e.Measure.Property, agg: 'measure' };
   if (e?.Aggregation) {
@@ -220,6 +222,7 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
       // Custom visuals: projection roles are the package's dataRoles, used as well keys.
       const roles = custom ? Object.fromEntries(def.wells.map((w) => [w.key, w.key])) : roleMap(type);
       const fields: Record<string, FieldRef[]> = {};
+      const nativeRefs = new Map<string, FieldRef>();
       for (const [role, projs] of Object.entries<any[]>(sv.projections ?? {})) {
         const well = roles[role];
         const w = def.wells.find((x) => x.key === well);
@@ -228,14 +231,25 @@ export function parseLayout(layoutJson: string, tables: TableMeta[], measureName
         // Drill hierarchies list every level; keep the active one in single-field wells.
         if (w.max === 1 && refs.length > 1) refs = [refs.find((p) => p.active) ?? refs[0]];
         for (const p of refs) {
-          const f = byRef[p.queryRef];
-          if (!f || !known(f)) continue;
+          const f0 = byRef[p.queryRef];
+          if (!f0 || (f0.agg !== 'visualCalc' && !known(f0))) continue;
+          const f: FieldRef = { ...f0, ...(p.hidden ? { hidden: true } : {}), ...(f0.agg === 'visualCalc' && p.format ? { format: p.format } : {}),
+            ...(f0.agg === 'visualCalc' && p.nativeQueryRef ? { column: p.nativeQueryRef } : {}) };
+          if (p.nativeQueryRef) nativeRefs.set(p.nativeQueryRef.toLowerCase(), f);
           const list = (fields[well] ??= []);
           if (w.max && list.length >= w.max) continue;
           if (!list.some((x) => x.table === f.table && x.column === f.column && x.agg === f.agg && x.datePart === f.datePart)) {
-            list.push(type === 'table' || custom ? f : f.agg === 'none' && w.measure ? { ...f, agg: 'count' } : f);
+            list.push(type === 'table' || custom || f.agg === 'visualCalc' ? f : f.agg === 'none' && w.measure ? { ...f, agg: 'count' } : f);
           }
         }
+      }
+      // Visual calculations name the fields by their native reference ("Sum of Sales"): use MiB-BI's names.
+      for (const f of Object.values(fields).flat()) {
+        if (f.agg !== 'visualCalc' || !f.calc) continue;
+        f.calc = f.calc.replace(/(?<!['\w\]])\[((?:[^\]]|\]\])+)\]/g, (m, n: string) => {
+          const t = nativeRefs.get(n.replace(/\]\]/g, ']').toLowerCase());
+          return t ? `[${fieldLabel(t).replace(/]/g, ']]')}]` : m;
+        });
       }
 
       const format = defaultFormat(type);
@@ -548,12 +562,12 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
       }
       const def = visualDef(v.type, v.custom);
       const roles = v.type === 'custom' ? def.wells.map((w) => [w.key, w.key]) : Object.entries(roleMap(v.type));
-      const entities = [...new Set(Object.values(v.fields).flat().map((f) => f.table))];
+      const entities = [...new Set(Object.values(v.fields).flat().filter((f) => f.agg !== 'visualCalc').map((f) => f.table))];
       const alias: Record<string, string> = {};
       entities.forEach((e, ei) => (alias[e] = (e[0] ?? 't').toLowerCase().replace(/[^a-z]/, 't') + (ei || '')));
       const select: any[] = [];
       const nameByKey = new Map<string, string>();
-      const projections: Record<string, { queryRef: string; active?: boolean }[]> = {};
+      const projections: Record<string, { queryRef: string; active?: boolean; hidden?: boolean; nativeQueryRef?: string; format?: string }[]> = {};
       for (const w of def.wells) {
         const role = roles.find(([, well]) => well === w.key)?.[0];
         if (!role) continue;
@@ -563,7 +577,8 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
         for (const f of (v.fields[w.key] ?? []).filter((x) => !x.datePart || dh(x) || (!seenDate.has(x.table + '.' + x.column) && seenDate.add(x.table + '.' + x.column)))) {
           const src = { SourceRef: { Source: alias[f.table] } };
           let expr: any, name: string;
-          if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
+          if (f.agg === 'visualCalc') { expr = { NativeVisualCalculation: { Language: 'dax', Expression: f.calc ?? '', Name: f.column } }; name = f.column; }
+          else if (f.agg === 'measure') { expr = { Measure: { Expression: src, Property: f.column } }; name = `${f.table}.${f.column}`; }
           else if (f.agg === 'none' && f.datePart && dh(f)) { expr = levelExpr(src, f.column, f.datePart); name = `${f.table}.${f.column}.Variation.${DATE_HIERARCHY}.${DATE_LEVEL[f.datePart]}`; }
           else if (f.agg === 'none' && !f.datePart && f.hierarchy && USER_HIER.get(`${f.table}\u0001${f.hierarchy}`)?.levels.includes(f.column)) {
             // Level of a user hierarchy (Power BI keeps the hierarchy in the visual, not the plain column).
@@ -582,7 +597,9 @@ export function buildLayout(pages: Page[], reportFilters: Filter[], theme?: Them
           // Drill hierarchy: only the current level is active (Power BI's drill state); single fields are active.
           const list = v.fields[w.key] ?? [];
           const active = list.length < 2 || !w.hierarchy || (f.datePart && !dh(f)) || list.indexOf(f) === Math.min(v.drill?.level ?? 0, list.length - 1);
-          (projections[role] ??= []).push({ queryRef: name, ...((role === 'Category' || role === 'Rows') && active ? { active: true } : {}) });
+          // nativeQueryRef: the name visual calculations use for the field.
+          (projections[role] ??= []).push({ queryRef: name, nativeQueryRef: fieldLabel(f), ...((role === 'Category' || role === 'Rows') && active ? { active: true } : {}),
+            ...(f.hidden ? { hidden: true } : {}), ...(f.agg === 'visualCalc' && f.format ? { format: f.format } : {}) });
         }
       }
       // Imported formatting is kept; MiB-BI's own settings overwrite their properties.

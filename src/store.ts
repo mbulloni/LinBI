@@ -4,11 +4,11 @@ import { api } from './api';
 import type { Bookmark, CrossFilter, DbConnection, FieldRef, Filter, Interaction, NewStep, Page, PQType, Relationship, Report, Step, Theme, TableMeta, View, Visual, VisualFormat, VisualType } from './types';
 import { interactionKey } from './visuals/interactions';
 import { propagateSync } from './visuals/sync';
-import { isNumeric, uid } from './format';
+import { fieldLabel, isNumeric, uid } from './format';
 import { customName, setCustomVisuals, visualDef } from './visuals/catalog';
 import { CF_WELL, connected, modelExtras, NULL_KEY, qi, ql } from './query';
 import { daxShow, daxStore } from './dax/separators';
-import { calcColumnSql, calcTableSql, checkCalcItem, checkFunction, checkMeasure, parseQuery, rlsWhere, type Model } from './dax';
+import { calcColumnSql, calcTableSql, checkCalcItem, checkFunction, checkMeasure, parse, parseQuery, rlsWhere, type Model } from './dax';
 import { inlineParamsInM, paramFromM, resolveSource, setParams } from './pq/params';
 import { inlineFromM } from './pq/mparse';
 import { parseLayout, setCfExportRanges, setHierarchyLevels, themeFromLayout } from './pbix/layout';
@@ -353,6 +353,13 @@ interface State {
   changeVisualType: (id: string, type: VisualType, custom?: string) => void;
   addField: (visualId: string | null, field: FieldDrop, well?: string, at?: { x: number; y: number }) => void;
   removeField: (visualId: string, well: string, idx: number) => void;
+  /** Nascondi nell'oggetto visivo: the field stays in the visual matrix (visual calculations use it). */
+  toggleFieldHidden: (visualId: string, well: string, idx: number) => void;
+  setFieldTotal: (visualId: string, well: string, idx: number, total: import('./types').CustomTotal | undefined) => void;
+  /** Calcoli visivi: edit mode of a visual calculation ("Nome = espressione"). */
+  calcEdit: { visualId: string; original: string | null; text: string; format?: string; error?: string } | null;
+  startVisualCalc: (visualId: string, original?: string, template?: { name: string; text: string; format?: string }) => void;
+  saveVisualCalc: () => boolean;
   setFieldAgg: (visualId: string, well: string, idx: number, agg: FieldRef['agg']) => void;
   /** Strumenti colonna: data category and "Ordina per colonna" (null removes). */
   setColumnProps: (table: string, column: string, p: { dataCategory?: string | null; sortBy?: string | null }) => void;
@@ -1640,7 +1647,11 @@ export const useStore = create<State>((set, get) => {
       v.fields = {};
       v.format = { ...defaultFormat(type), titleText: v.format.titleText, background: v.format.background, border: v.format.border };
       implicitBlocked = false;
-      for (const f of all) placeField(v, { table: f.table, column: f.column, measure: f.agg === 'measure' });
+      for (const f of all.filter((x) => x.agg !== 'visualCalc')) placeField(v, { table: f.table, column: f.column, measure: f.agg === 'measure' });
+      // Visual calculations follow into the first value well of the new type.
+      const calcs = all.filter((x) => x.agg === 'visualCalc');
+      const vw = visualDef(type, custom).wells.find((w) => w.measure && w.key !== 'target')?.key ?? (type === 'table' ? 'columns' : undefined);
+      if (calcs.length && vw) (v.fields[vw] ??= []).push(...calcs);
       if (implicitBlocked) setTimeout(() => get().notify('Il modello ha gruppi di calcolo: le colonne numeriche non vengono aggregate e sono state tolte dai valori. Usare misure esplicite.', 9000));
     }),
     addField: (visualId, field, well, at) => {
@@ -1662,6 +1673,70 @@ export const useStore = create<State>((set, get) => {
       if (implicitBlocked) get().notify('Il modello ha gruppi di calcolo: le colonne non vengono aggregate (misure implicite disattivate). Creare una misura esplicita, es. Totale = SUM(…).', 9000);
     },
     removeField: (visualId, well, idx) => get().mut((r) => { const v = findVisual(r, visualId); v?.fields[well]?.splice(idx, 1); }),
+    toggleFieldHidden: (visualId, well, idx) => get().mut((r) => {
+      const f = findVisual(r, visualId)?.fields[well]?.[idx];
+      if (f) { if (f.hidden) delete f.hidden; else f.hidden = true; }
+    }),
+    setFieldTotal: (visualId, well, idx, total) => get().mut((r) => {
+      const f = findVisual(r, visualId)?.fields[well]?.[idx];
+      if (f) { if (total) f.total = total; else delete f.total; }
+    }),
+    calcEdit: null,
+    startVisualCalc: (visualId, original, template) => {
+      const v = get().report.pages.flatMap((p) => p.visuals).find((x) => x.id === visualId);
+      if (!v) return;
+      const fields = Object.values(v.fields).flat();
+      const f = original ? fields.find((x) => x.agg === 'visualCalc' && x.column === original) : undefined;
+      const first = fields.find((x) => x.agg !== 'none' && x.agg !== 'visualCalc');
+      const taken = (n: string) => fields.some((x) => fieldLabel(x).toLowerCase() === n.toLowerCase() && x.column !== original);
+      let name = template?.name ?? 'Calcolo', i = 2;
+      const base = name;
+      while (!f && taken(name)) name = `${base} ${i++}`;
+      const body = template ? template.text.split('{f}').join(first ? fieldLabel(first) : 'Valore') : '';
+      set({ calcEdit: { visualId, original: original ?? null, text: f ? `${f.column} = ${daxShow(f.calc ?? '')}` : `${name} = ${daxShow(body)}`, format: f ? f.format : template?.format }, focusId: null, selectedVisualId: visualId, view: 'report' });
+    },
+    saveVisualCalc: () => {
+      const ed = get().calcEdit;
+      if (!ed) return false;
+      const fail = (error: string) => { set({ calcEdit: { ...ed, error } }); return false; };
+      const parts = splitDax(daxStore(ed.text));
+      if (!parts) return fail('Sintassi: Nome = espressione');
+      if (!parts.expr) return fail("Manca l'espressione dopo =");
+      try { parse(parts.expr); } catch (e: any) { return fail(e.message); }
+      const v = get().report.pages.flatMap((p) => p.visuals).find((x) => x.id === ed.visualId);
+      if (!v) return fail('Oggetto visivo non trovato.');
+      const fields = Object.values(v.fields).flat();
+      if (fields.some((x) => fieldLabel(x).toLowerCase() === parts.name.toLowerCase() && !(x.agg === 'visualCalc' && x.column === ed.original))) return fail(`L'oggetto visivo contiene già un campo denominato "${parts.name}".`);
+      // References: fields of the visual (as named in the wells) and its other calculations, never itself.
+      const names = new Set(fields.flatMap((x) => [fieldLabel(x).toLowerCase(), x.column.toLowerCase()]));
+      for (const m of parts.expr.matchAll(/(?<!['\w\]])\[((?:[^\]]|\]\])+)\]/g)) {
+        const n = m[1].replace(/\]\]/g, ']').toLowerCase();
+        if (n === parts.name.toLowerCase()) return fail('Un calcolo visivo non può fare riferimento a se stesso.');
+        if (!names.has(n)) return fail(`Campo non presente nell'oggetto visivo: [${m[1]}]. Aggiungere prima il campo all'oggetto visivo.`);
+      }
+      const calc: FieldRef = { table: '', column: parts.name, agg: 'visualCalc', calc: parts.expr, ...(ed.format ? { format: ed.format } : {}) };
+      const def = visualDef(v.type, v.custom);
+      const well = def.wells.find((w) => w.measure && (!w.max || (v.fields[w.key]?.length ?? 0) < w.max) && w.key !== 'target')?.key ?? (v.type === 'table' ? 'columns' : def.wells.find((w) => w.measure)?.key);
+      if (!well) return fail('Questo oggetto visivo non supporta i calcoli visivi.');
+      get().mut((r) => {
+        const vv = findVisual(r, ed.visualId)!;
+        for (const list of Object.values(vv.fields)) {
+          const i = list.findIndex((x) => x.agg === 'visualCalc' && x.column === ed.original);
+          if (i >= 0) { list[i] = { ...calc, ...(list[i].hidden ? { hidden: true } : {}) }; return; }
+        }
+        (vv.fields[well] ??= []).push(calc);
+      });
+      // A renamed calculation: references in the other calculations follow.
+      if (ed.original && ed.original !== parts.name) {
+        const from = ed.original;
+        get().mut((r) => {
+          const vv = findVisual(r, ed.visualId)!;
+          for (const x of Object.values(vv.fields).flat()) if (x.agg === 'visualCalc' && x.calc) x.calc = x.calc.replace(new RegExp(`\\[${reEscape(from)}\\]`, 'gi'), `[${parts.name}]`);
+        });
+      }
+      set({ calcEdit: { visualId: ed.visualId, original: parts.name, text: `${parts.name} = ${daxShow(parts.expr)}`, format: ed.format } });
+      return true;
+    },
     setFieldAgg: (visualId, well, idx, agg) => get().mut((r) => { const f = findVisual(r, visualId)?.fields[well]?.[idx]; if (f) f.agg = agg; }),
     setColumnProps: (table, column, p) => {
       set((s) => ({

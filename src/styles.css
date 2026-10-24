@@ -994,3 +994,15 @@ thead .pq-rn { z-index: 2; }
 .cal-row .actions { display: flex; gap: 6px; }
 .cal-add { display: flex; gap: 8px; align-items: center; }
 .cal-warn { display: flex; gap: 6px; align-items: flex-start; padding: 6px 8px; background: var(--warn-bg); border-radius: 2px; }
+
+/* Calcoli visivi */
+.vc-edit { position: absolute; inset: 16px; background: var(--bg); display: flex; flex-direction: column; box-shadow: var(--shadow); }
+.vc-edit-bar { height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); }
+.vc-edit-bar label { display: flex; align-items: center; gap: 6px; }
+.vc-formula { border-bottom: 1px solid var(--line); }
+.vc-edit-preview { flex: 1.2; position: relative; min-height: 0; }
+.vc-edit-matrix { flex: 1; position: relative; min-height: 0; border-top: 1px solid var(--line); overflow: auto; }
+.vc-edit th .vc-eye { border: 0; background: none; color: var(--text2); cursor: pointer; padding: 0 2px; margin-left: 4px; vertical-align: middle; }
+.vc-edit th .vc-eye:hover { color: var(--text); }
+.vc-edit .vc-hidden { color: var(--text2); font-style: italic; }
+.pill.hidden-field .nm { color: var(--text2); font-style: italic; }

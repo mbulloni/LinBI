@@ -92,7 +92,7 @@ export function FiltersPane() {
   const auto: Filter[] = [];
   if (v) {
     for (const f of Object.values(v.fields).flat()) {
-      if (f.agg === 'measure') continue;
+      if (f.agg === 'measure' || f.agg === 'visualCalc') continue;
       if (explicit.some((x) => x.table === f.table && x.column === f.column) || auto.some((x) => x.table === f.table && x.column === f.column)) continue;
       auto.push({ id: `auto-${v.id}-${f.table}-${f.column}`, table: f.table, column: f.column, values: [] });
     }

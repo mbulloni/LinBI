@@ -1713,6 +1713,23 @@ export function rlsWhere(model: Model, filters: { table: string; expression: str
   return out;
 }
 
+/** `node` with every call of a user-defined function replaced by the function body (visual calculations). */
+export function expandUdfCalls(model: Model, node: Node): Node {
+  const c = new Compiler(model);
+  const go = (x: Node, depth: number): Node => {
+    if (depth > 64) throw new DaxError('Troppi livelli di funzioni annidate');
+    switch (x.k) {
+      case 'call': { const e = c.expandUdf(x); return e ? go(e, depth + 1) : { ...x, args: x.args.map((a) => go(a, depth)) }; }
+      case 'bin': return { ...x, a: go(x.a, depth), b: go(x.b, depth) };
+      case 'neg': return { ...x, a: go(x.a, depth) };
+      case 'let': return { ...x, vars: x.vars.map(([n, v]) => [n, go(v, depth)] as [string, Node]), body: go(x.body, depth) };
+      case 'list': return { ...x, rows: x.rows.map((r) => r.map((y) => go(y, depth))) };
+      default: return x;
+    }
+  };
+  return go(node, 0);
+}
+
 /** Error of a user-defined function (syntax, recursion, body that does not compile with blank arguments), or null. */
 export function checkFunction(model: Model, f: DaxFunction): string | null {
   if (!/^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/.test(f.name)) return 'Nome non valido: solo lettere, cifre, _ e punti (es. Vendite.Margine)';

@@ -7,17 +7,17 @@ export const isDate = (c?: ColumnMeta) => !!c && /^(DATE|TIMESTAMP.*|TIME)$/i.te
 export const AGG_LABEL: Record<Agg, string> = {
   sum: 'Somma', avg: 'Media', min: 'Minimo', max: 'Massimo',
   count: 'Conteggio', countd: 'Conteggio (distinto)', median: 'Mediana', stdev: 'Deviazione standard', var: 'Varianza',
-  none: 'Non riepilogare', measure: 'Misura',
+  none: 'Non riepilogare', measure: 'Misura', visualCalc: 'Calcolo visivo',
 };
 
 export const AGG_PREFIX: Record<Agg, string> = {
   sum: 'Somma di', avg: 'Media di', min: 'Minimo di', max: 'Massimo di',
-  count: 'Conteggio di', countd: 'Conteggio di', median: 'Mediana di', stdev: 'Deviazione standard di', var: 'Varianza di', none: '', measure: '',
+  count: 'Conteggio di', countd: 'Conteggio di', median: 'Mediana di', stdev: 'Deviazione standard di', var: 'Varianza di', none: '', measure: '', visualCalc: '',
 };
 
 export function fieldLabel(f: FieldRef): string {
   if (f.datePart) return { year: 'Anno', quarter: 'Trimestre', month: 'Mese', day: 'Giorno' }[f.datePart];
-  return f.agg === 'none' || f.agg === 'measure' ? f.column : `${AGG_PREFIX[f.agg]} ${f.column}`;
+  return f.agg === 'none' || f.agg === 'measure' || f.agg === 'visualCalc' ? f.column : `${AGG_PREFIX[f.agg]} ${f.column}`;
 }
 
 /** Impostazioni internazionali (Opzioni): locale of numbers and dates shown in visuals. */

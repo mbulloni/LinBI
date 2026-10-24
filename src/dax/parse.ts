@@ -157,7 +157,16 @@ class Parser {
     if (t.t === 'num') return { k: 'num', v: t.v };
     if (t.t === 'str') return { k: 'str', v: t.v };
     if (t.t === 'col') return { k: 'col', table: t.table, col: t.v };
-    if (t.t === 'tbl') return this.isVar(t.v) ? { k: 'var', name: t.v.toUpperCase() } : { k: 'tbl', name: t.v };
+    if (t.t === 'tbl') {
+      // Visual calculation axes: ROWS COLUMNS, COLUMNS ROWS, ROWS ROWPAGES… are one argument.
+      const AX = /^(ROWS|COLUMNS|ROWPAGES)$/i;
+      if (AX.test(t.v) && !this.isVar(t.v)) {
+        let name = t.v.toUpperCase();
+        while (this.peek()?.t === 'tbl' && AX.test((this.peek() as { v: string }).v)) name += ' ' + (this.toks[this.p++] as { v: string }).v.toUpperCase();
+        return { k: 'tbl', name };
+      }
+      return this.isVar(t.v) ? { k: 'var', name: t.v.toUpperCase() } : { k: 'tbl', name: t.v };
+    }
     if (t.t === 'kw') {
       if (t.v === 'TRUE' || t.v === 'FALSE') return { k: 'bool', v: t.v === 'TRUE' };
       if (t.v === 'ASC' || t.v === 'DESC') return { k: 'tbl', name: t.v };
